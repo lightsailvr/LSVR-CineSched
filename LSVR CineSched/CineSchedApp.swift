@@ -14,6 +14,7 @@ struct CineSchedApp: App {
     @AppStorage("CineSchedIncludeHoldInDOOD") private var includeHoldInDOOD: Bool = true
     @AppStorage("CineSchedShowCastRow") private var showCastOnCards: Bool = false
     @AppStorage("CineSchedShowEstTimeOnCards") private var showEstTimeOnCards: Bool = false
+    @AppStorage("CineSchedStripboardShowAllDays") private var stripboardShowAllDays: Bool = false
     @AppStorage("cinesched_app_language") private var appLanguage: AppLanguage = .english
     @AppStorage("CineSchedTheme") private var currentTheme: AppTheme = .blue
 
@@ -175,6 +176,7 @@ struct CineSchedApp: App {
                 Button(L("Stripboard Fields…", lang: appLanguage)) {
                     NotificationCenter.default.post(name: .csShowStripboardFields, object: nil)
                 }
+                Toggle(L("Show All Days on Stripboard", lang: appLanguage), isOn: $stripboardShowAllDays)
             }
         }
     }

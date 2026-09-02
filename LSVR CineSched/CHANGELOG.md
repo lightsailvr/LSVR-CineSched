@@ -4,6 +4,7 @@ All notable changes to CineSched are documented here.
 
 ## [Unreleased]
 ### Added
+- **Stripboard gap rows** — runs of days with no scenes now fold into a single slim row ("14 empty days · Nov 8 – Nov 21", with weekend and unavailable counts) instead of a full empty day section each, so a shoot with blocks months apart no longer needs scrolling past the break. Click a gap row to open it when you want to drop scenes onto those dates; an opened run shows a "Hide empty days" button in its day headers to fold it back. Scrolling to a date inside a collapsed gap opens the gap first. An "All days" checkbox on the Stripboard toolbar (and View ▸ Show All Days on Stripboard) restores the full date list; it is an app preference, off by default. The Calendar view is unchanged and always shows every date.
 - **Stripboard Fields** — a "Fields" button on the Stripboard toolbar (and View ▸ Stripboard Fields…) opens a picker for which scene fields each strip shows beside the heading: Cast, Real Location / Set, Scene Summary, and every breakdown tag (Extras, Props, Set Dressing, Wardrobe, Hair & Makeup, Vehicles, Special Equipment, Stunts, SFX, VFX, Breakdown Notes). Each enabled field prints as a small icon-tagged chip in the same muted style Cast always used, so strips can be grouped by real location or special gear at a glance. The selection is an app preference; Cast alone is the default, matching the previous board.
 
 ## [4.5.1] - 2026 (Monthly Calendar & Vector Export Edition)

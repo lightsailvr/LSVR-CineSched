@@ -83,6 +83,8 @@ struct ContentView: View {
     /// @AppStorage; decoded on read via `stripboardFields`.
     @AppStorage(StripboardFieldSettings.defaultsKey) private var stripboardFieldsRaw: String = StripboardFieldSettings.defaultRaw
     @AppStorage("CineSchedViewMode") private var viewMode: ScheduleViewMode = .calendar
+    /// Stripboard only: draw every date, or fold runs of empty days into one gap row each.
+    @AppStorage("CineSchedStripboardShowAllDays") private var stripboardShowAllDays: Bool = false
     @EnvironmentObject var recentFiles: RecentFilesStore
     @State var currentFileURL: URL? = nil
 
@@ -931,6 +933,7 @@ struct ContentView: View {
                     allScenes: $allScenes,
                     productionInfo: productionInfo,
                     visibleFields: stripboardFields.wrappedValue,
+                    showAllDays: stripboardShowAllDays,
                     selectedSceneIDs: $selectedSceneIDs,
                     lastSelectedSceneID: $lastSelectedSceneID,
                     conflictDates: conflictDates,
@@ -1023,6 +1026,14 @@ struct ContentView: View {
                 }
                 .controlSize(.small)
                 .help(L("Choose which scene fields (Real Location, Special Equipment, Cast...) each strip shows"))
+
+                // Off by default: a shoot with blocks months apart would otherwise be mostly
+                // empty day sections. The calendar always shows every date regardless.
+                Toggle(L("All days"), isOn: $stripboardShowAllDays)
+                    .toggleStyle(.checkbox)
+                    .font(.caption).fontWeight(.semibold)
+                    .controlSize(.small)
+                    .help(L("Show every date in the range instead of folding empty days into gap rows"))
             }
 
             scheduleSearchField

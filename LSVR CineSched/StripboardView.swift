@@ -20,6 +20,9 @@ struct StripboardView: View {
     let productionInfo: ProductionInfo
     /// Which scene fields each strip prints beside the heading (see StripboardFieldSettings).
     let visibleFields: Set<StripboardField>
+    /// When true every date in the range is drawn; when false runs of empty days fold into
+    /// a single gap row (see StripboardRows.swift). Toggled from the toolbar and View menu.
+    let showAllDays: Bool
     @Binding var selectedSceneIDs: Set<UUID>
     @Binding var lastSelectedSceneID: UUID?
     let conflictDates: Set<Date>
@@ -52,33 +55,48 @@ struct StripboardView: View {
     @State private var quickEditingScene: Scene? = nil
     @State private var quickEditingDayId: UUID? = nil
 
-    private var visibleStripboardDays: [(offset: Int, element: ShootDay)] {
-        Array(shootDays.enumerated()).filter { _, day in
-            let isCalendarOnly = !day.scenes.isEmpty && day.scenes.allSatisfy { $0.isCalendarEvent }
-            return !isCalendarOnly
-        }
+    /// Ids of empty days whose gap the user has opened. Keyed by day, not by gap, so a
+    /// gap that splits when a scene lands in its middle keeps both halves open.
+    @State private var expandedGapDayIDs: Set<UUID> = []
+
+    private var rows: [StripboardRow] {
+        stripboardRows(for: shootDays, showAllDays: showAllDays, expandedDayIDs: expandedGapDayIDs)
     }
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: true) {
                 VStack(spacing: 10) {
-                    ForEach(visibleStripboardDays, id: \.element.id) { dayIndex, day in
-                        daySection(day: day, dayIndex: dayIndex)
-                            .id(day.id)
-                            .onAppear {
-                                syncAutoBannersAndMeals(for: dayIndex)
-                            }
+                    ForEach(rows) { row in
+                        switch row {
+                        case .day(let dayIndex, let day):
+                            daySection(day: day, dayIndex: dayIndex)
+                                .id(day.id)
+                                .onAppear {
+                                    syncAutoBannersAndMeals(for: dayIndex)
+                                }
+                        case .gap(let gap):
+                            gapRow(gap)
+                                .id(gap.id)
+                        }
                     }
                 }
                 .padding(10)
             }
-            .onChange(of: scrollToDate) { newValue in
+            .onChange(of: scrollToDate) { _, newValue in
                 guard let date = newValue else { return }
-                if let target = shootDays.first(where: { Calendar.current.isDate($0.date, inSameDayAs: date) }) {
+                scrollToDate = nil
+                guard let target = shootDays.first(where: { Calendar.current.isDate($0.date, inSameDayAs: date) }) else { return }
+                if !showAllDays, stripboardDayIsEmpty(target), !expandedGapDayIDs.contains(target.id) {
+                    // The date is folded into a collapsed gap, so there is no row to scroll
+                    // to yet. Open the gap first and scroll once the day rows exist.
+                    expandedGapDayIDs.insert(target.id)
+                    DispatchQueue.main.async {
+                        withAnimation { proxy.scrollTo(target.id, anchor: .top) }
+                    }
+                } else {
                     withAnimation { proxy.scrollTo(target.id, anchor: .top) }
                 }
-                scrollToDate = nil
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -364,6 +382,79 @@ struct StripboardView: View {
         ))
     }
 
+    // MARK: - Gap row
+
+    /// One slim strip standing in for a run of empty days. Clicking it swaps the strip for
+    /// the individual day sections so they can take scene and day drops like any other day.
+    @ViewBuilder
+    private func gapRow(_ gap: StripboardGap) -> some View {
+        let range = gap.dayCount == 1
+            ? formattedDate(gap.firstDate)
+            : "\(formattedDate(gap.firstDate)) – \(formattedDate(gap.lastDate))"
+        let count = gap.dayCount == 1 ? L("1 empty day") : "\(gap.dayCount) \(L("empty days"))"
+        let details = gapDetails(gap)
+
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                expandedGapDayIDs.formUnion(gap.dayIDs)
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.secondary)
+                Text(count)
+                    .font(.subheadline).fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                Text("·").foregroundColor(.secondary)
+                Text(range)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                if !details.isEmpty {
+                    Text("(\(details.joined(separator: " · ")))")
+                        .font(.caption)
+                        .foregroundColor(.secondary.opacity(0.8))
+                }
+                Spacer()
+                Text(L("Show"))
+                    .font(.caption).fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .frame(maxWidth: .infinity)
+            .background(Color.gray.opacity(colorScheme == .dark ? 0.12 : 0.06))
+            .cornerRadius(8)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    .foregroundColor(Color.primary.opacity(0.18))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(L("Show these empty days so scenes can be dropped on them"))
+    }
+
+    /// Secondary counts for a gap row, e.g. ["4 weekend", "2 unavailable"]. Kept out of the
+    /// `@ViewBuilder` body because result builders reject local `var` mutation.
+    private func gapDetails(_ gap: StripboardGap) -> [String] {
+        var details: [String] = []
+        if gap.weekendCount  > 0 { details.append("\(gap.weekendCount) \(L("weekend"))") }
+        if gap.blackoutCount > 0 { details.append("\(gap.blackoutCount) \(L("unavailable"))") }
+        return details
+    }
+
+    /// Removes every day of the contiguous empty run around `dayId` from the expanded set,
+    /// so the run folds back into a single gap row on the next render.
+    private func collapseGap(containing dayId: UUID) {
+        guard let idx = shootDays.firstIndex(where: { $0.id == dayId }) else { return }
+        var lo = idx
+        while lo > 0, stripboardDayIsEmpty(shootDays[lo - 1]) { lo -= 1 }
+        var hi = idx
+        while hi < shootDays.count - 1, stripboardDayIsEmpty(shootDays[hi + 1]) { hi += 1 }
+        for d in shootDays[lo...hi] { expandedGapDayIDs.remove(d.id) }
+    }
+
     // MARK: - Day header
 
     @ViewBuilder
@@ -414,6 +505,18 @@ struct StripboardView: View {
                 if !day.scenes.isEmpty {
                     Text("\(day.scenes.count) \(L("scn")) · \(formattedEighths(day.totalDuration)) \(L("pgs"))")
                         .font(.caption).foregroundColor(.secondary)
+                }
+                if !showAllDays, expandedGapDayIDs.contains(day.id) {
+                    // This day is only visible because its gap was opened; offer the way back.
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) { collapseGap(containing: day.id) }
+                    } label: {
+                        Label(L("Hide empty days"), systemImage: "chevron.up")
+                            .font(.caption).fontWeight(.semibold)
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(L("Fold this run of empty days back into one row"))
                 }
 
                 // Action Icons on Day Header: CallSheet, Add Banner, Export PDF

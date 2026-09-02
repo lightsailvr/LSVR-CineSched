@@ -9,6 +9,24 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-02 — `@ViewBuilder` bodies reject local `var` mutation
+
+Building up a `[String]` with `var details = []; if … { details.append(…) }` inside a
+`@ViewBuilder` function fails with the unhelpful "type '()' cannot conform to 'View'" on the
+`append` lines: statements inside a result builder must produce views. Move the mutation into
+a plain helper (`gapDetails(_:)` in `StripboardView.swift`) and bind the result with `let`.
+
+## 2026-09-02 — Stripboard folds empty days into gap rows; the row list is a pure function
+
+`stripboardRows(for:showAllDays:expandedDayIDs:)` in `StripboardRows.swift` decides what the
+board draws. A day is "empty" when it has no non-calendar-event scenes, so calendar-only days
+(which the old board hid entirely) now count toward a gap and appear as empty sections when the
+gap is opened or "All days" is on. Expansion is tracked per day id, not per gap, so a gap that
+splits keeps both halves open. `scrollToDate` into a collapsed gap opens it and scrolls on the
+next run loop turn, because the target row doesn't exist until the state change renders.
+
+---
+
 ## 2026-09-02 — View preferences live in `defaults` under `com.lsvr.LSVR-CineSched`
 
 The app's bundle ID is `com.lsvr.LSVR-CineSched` (not anything with "lightsailvr"). App-wide
