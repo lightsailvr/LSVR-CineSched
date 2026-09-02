@@ -9,6 +9,18 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-02 — View preferences live in `defaults` under `com.lsvr.LSVR-CineSched`
+
+The app's bundle ID is `com.lsvr.LSVR-CineSched` (not anything with "lightsailvr"). App-wide
+view settings such as `CineSchedViewMode`, `CineSchedShowCastRow`, the scene color overrides,
+and the Stripboard field selection (`CineSchedStripboardFields`, a comma-joined list of
+`StripboardField` raw values) are plain `@AppStorage`/`UserDefaults` keys there, so you can
+seed a state for manual testing with `defaults write com.lsvr.LSVR-CineSched <key> <value>`
+before launching. They are deliberately not in the project file. Also: a copy of the app
+launched from Xcode (`-NSDocumentRevisionsDebugMode YES` in its argv) keeps running when you
+`open` the DerivedData build, so check `pgrep -fl "LSVR CineSched"` before assuming a fresh
+launch picked up your changes.
+
 ## 2026-09-02 — Build with the Xcode beta, not the release Xcode
 
 `xcode-select -p` on the dev machine points at the release Xcode (26.5), but this project must be

@@ -2,6 +2,10 @@
 
 All notable changes to CineSched are documented here.
 
+## [Unreleased]
+### Added
+- **Stripboard Fields** — a "Fields" button on the Stripboard toolbar (and View ▸ Stripboard Fields…) opens a picker for which scene fields each strip shows beside the heading: Cast, Real Location / Set, Scene Summary, and every breakdown tag (Extras, Props, Set Dressing, Wardrobe, Hair & Makeup, Vehicles, Special Equipment, Stunts, SFX, VFX, Breakdown Notes). Each enabled field prints as a small icon-tagged chip in the same muted style Cast always used, so strips can be grouped by real location or special gear at a glance. The selection is an app preference; Cast alone is the default, matching the previous board.
+
 ## [4.5.1] - 2026 (Monthly Calendar & Vector Export Edition)
 ### Added
 - **Full Monthly Calendar View (Vista por Mes)** — Intuitive month-by-month calendar navigation with system theme matching, shoot range highlighting, and month-level scheduling.

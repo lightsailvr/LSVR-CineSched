@@ -79,6 +79,9 @@ struct ContentView: View {
     @AppStorage("CineSchedIncludeHoldInDOOD") var includeHoldInDOOD: Bool = true
     @AppStorage("CineSchedShowCastRow") var showCastOnCards: Bool = false
     @AppStorage("CineSchedShowEstTimeOnCards") var showEstTimeOnCards: Bool = false
+    /// Stripboard field selection, stored as a comma-joined raw-value string so it fits
+    /// @AppStorage; decoded on read via `stripboardFields`.
+    @AppStorage(StripboardFieldSettings.defaultsKey) private var stripboardFieldsRaw: String = StripboardFieldSettings.defaultRaw
     @AppStorage("CineSchedViewMode") private var viewMode: ScheduleViewMode = .calendar
     @EnvironmentObject var recentFiles: RecentFilesStore
     @State var currentFileURL: URL? = nil
@@ -114,7 +117,7 @@ struct ContentView: View {
 
     // MARK: - Sheet presentation
     private enum ActiveSheet: Identifiable, Hashable {
-        case unscheduledEdit, productionSetup, conflictReport, scheduleLockReport, breakdownBrowser, sceneColorSettings
+        case unscheduledEdit, productionSetup, conflictReport, scheduleLockReport, breakdownBrowser, sceneColorSettings, stripboardFields
         var id: Self { self }
     }
     @State private var activeSheet: ActiveSheet? = nil
@@ -257,6 +260,8 @@ struct ContentView: View {
                     breakdownBrowserEditSheet
                 case .sceneColorSettings:
                     SceneColorSettingsSheet(onDismiss: { activeSheet = nil })
+                case .stripboardFields:
+                    StripboardFieldsSheet(selectedFields: stripboardFields, onDismiss: { activeSheet = nil })
                 }
             }
             .onChange(of: activeSheet) { _, newValue in
@@ -406,6 +411,12 @@ struct ContentView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .csShowSceneColorSettings)) { _ in
                 activeSheet = .sceneColorSettings
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .csShowStripboardFields)) { _ in
+                // The picker is only meaningful on the Stripboard, so the menu item also
+                // switches views rather than opening a sheet over a calendar it won't affect.
+                viewMode = .stripboard
+                activeSheet = .stripboardFields
             }
             .onReceive(NotificationCenter.default.publisher(for: .csShowColorLegend)) { _ in
                 showingColorLegend = true
@@ -919,6 +930,7 @@ struct ContentView: View {
                     shootDays: $shootDays,
                     allScenes: $allScenes,
                     productionInfo: productionInfo,
+                    visibleFields: stripboardFields.wrappedValue,
                     selectedSceneIDs: $selectedSceneIDs,
                     lastSelectedSceneID: $lastSelectedSceneID,
                     conflictDates: conflictDates,
@@ -943,6 +955,16 @@ struct ContentView: View {
     }
 
     // MARK: - Toolbar row
+
+    /// Live view of the persisted Stripboard field selection. Writes go straight back to
+    /// UserDefaults through the @AppStorage string, so the sheet's toggles update the board
+    /// behind them immediately.
+    private var stripboardFields: Binding<Set<StripboardField>> {
+        Binding(
+            get: { StripboardFieldSettings.decode(stripboardFieldsRaw) },
+            set: { stripboardFieldsRaw = StripboardFieldSettings.encode($0) }
+        )
+    }
 
     private var toolbarRow: some View {
         HStack {
@@ -989,6 +1011,19 @@ struct ContentView: View {
             .padding(3)
             .background(Color.gray.opacity(0.18))
             .cornerRadius(8)
+
+            // Only the Stripboard prints per-field chips, so the picker is hidden in
+            // calendar mode rather than offering a setting with no visible effect there.
+            if viewMode == .stripboard {
+                Button {
+                    activeSheet = .stripboardFields
+                } label: {
+                    Label("\(L("Fields")) (\(stripboardFields.wrappedValue.count))", systemImage: "line.3.horizontal.decrease.circle")
+                        .font(.caption).fontWeight(.semibold)
+                }
+                .controlSize(.small)
+                .help(L("Choose which scene fields (Real Location, Special Equipment, Cast...) each strip shows"))
+            }
 
             scheduleSearchField
         }

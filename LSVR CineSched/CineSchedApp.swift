@@ -171,6 +171,10 @@ struct CineSchedApp: App {
                 Button(L("Customize Scene Colors…", lang: appLanguage)) {
                     NotificationCenter.default.post(name: .csShowSceneColorSettings, object: nil)
                 }
+
+                Button(L("Stripboard Fields…", lang: appLanguage)) {
+                    NotificationCenter.default.post(name: .csShowStripboardFields, object: nil)
+                }
             }
         }
     }

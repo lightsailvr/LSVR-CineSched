@@ -18,6 +18,8 @@ struct StripboardView: View {
     @Binding var shootDays: [ShootDay]
     @Binding var allScenes: [Scene]
     let productionInfo: ProductionInfo
+    /// Which scene fields each strip prints beside the heading (see StripboardFieldSettings).
+    let visibleFields: Set<StripboardField>
     @Binding var selectedSceneIDs: Set<UUID>
     @Binding var lastSelectedSceneID: UUID?
     let conflictDates: Set<Date>
@@ -255,6 +257,7 @@ struct StripboardView: View {
                         SceneStripRow(
                             scene: scene,
                             timeDisplay: timeline[scene.id]?.timeDisplay ?? (scene.customStartTime.isEmpty ? "" : scene.customStartTime),
+                            visibleFields: visibleFields,
                             interactingSceneId: $interactingSceneId,
                             isSelected: selectedSceneIDs.contains(scene.id),
                             selectionCount: selectedSceneIDs.count,
@@ -741,6 +744,7 @@ struct EndOfDayStrip: View {
 struct SceneStripRow: View {
     let scene: Scene
     let timeDisplay: String
+    let visibleFields: Set<StripboardField>
     @Binding var interactingSceneId: UUID?
     let isSelected:     Bool
     let selectionCount: Int
@@ -757,6 +761,22 @@ struct SceneStripRow: View {
 
     private var isDragging: Bool { interactingSceneId == scene.id }
     private var isMultiSelected: Bool { isSelected && selectionCount > 1 }
+
+    private struct FieldChip: Identifiable {
+        let field: StripboardField
+        let value: String
+        var id: StripboardField { field }
+    }
+
+    /// The enabled fields this scene actually has a value for, in StripboardField order.
+    /// Blank fields are dropped here so an empty Real Location never leaves a dangling icon.
+    private var fieldChips: [FieldChip] {
+        StripboardField.allCases.compactMap { field in
+            guard visibleFields.contains(field) else { return nil }
+            let value = field.displayValue(for: scene)
+            return value.isEmpty ? nil : FieldChip(field: field, value: value)
+        }
+    }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -796,11 +816,19 @@ struct SceneStripRow: View {
                         .font(.system(size: 9)).foregroundColor(.red)
                 }
 
-                if !scene.cast.isEmpty {
-                    Text(scene.cast.joined(separator: ", "))
-                        .font(.system(size: 10))
-                        .foregroundColor(scene.stripTextColor.opacity(0.6))
-                        .lineLimit(1)
+                // One small chip per enabled field, in the muted style the Cast list has
+                // always used. Every chip is single-line; when the window is narrow the
+                // chips truncate before the heading does, so the slugline stays readable.
+                ForEach(fieldChips) { chip in
+                    HStack(spacing: 3) {
+                        Image(systemName: chip.field.icon)
+                            .font(.system(size: 9, weight: .semibold))
+                        Text(chip.value)
+                            .font(.system(size: 10))
+                            .lineLimit(1)
+                    }
+                    .foregroundColor(scene.stripTextColor.opacity(0.6))
+                    .help(chip.field.label)
                 }
 
                 Spacer(minLength: 4)
