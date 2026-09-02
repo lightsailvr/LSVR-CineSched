@@ -1,0 +1,25 @@
+# macOS
+.DS_Store
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcworkspace/xcuserdata/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+.swiftpm/
+*.playground/**/timeline.xctimeline
+
+# Prebuilt app bundles that were sitting in the source folder.
+# They are not source, and the synchronized Xcode group would otherwise
+# copy them into the built app as resources.
+*.app.zip
+*.app
+
+# Agent scratch
+.scratch/
