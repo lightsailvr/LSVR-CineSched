@@ -41,6 +41,8 @@ struct StripboardView: View {
     @State private var showingEditSheet = false
     @State private var callSheetDay: ShootDay? = nil
     @State private var addingBannerForDayId: UUID? = nil
+    @State private var editingEventScene: Scene? = nil
+    @State private var editingEventDayId: UUID? = nil
 
     // Scene drag/drop state — own copy, independent of the calendar's
     @State private var dropTargetDayId:    UUID?
@@ -111,6 +113,25 @@ struct StripboardView: View {
         }
         .sheet(isPresented: $showingEditSheet) { editSheetContent() }
         .sheet(item: $callSheetDay) { day in callSheetEditorContent(for: day) }
+        .sheet(item: $editingEventScene) { ev in
+            CalendarEventInputSheet(
+                isPresented: Binding(
+                    get: { editingEventScene != nil },
+                    set: { if !$0 { editingEventScene = nil; editingEventDayId = nil } }
+                ),
+                initialEvent: ev,
+                onSave: { updated in
+                    if let dId = editingEventDayId,
+                       let dayIdx = shootDays.firstIndex(where: { $0.id == dId }),
+                       let sceneIdx = shootDays[dayIdx].scenes.firstIndex(where: { $0.id == ev.id }) {
+                        shootDays[dayIdx].scenes[sceneIdx] = updated
+                        onSceneChanged()
+                    }
+                    editingEventScene = nil
+                    editingEventDayId = nil
+                }
+            )
+        }
         .sheet(item: $quickEditingScene) { scn in
             QuickTimeEditSheet(
                 scene: scn,
@@ -247,6 +268,73 @@ struct StripboardView: View {
         return map
     }
 
+    // MARK: - Calendar event chips
+
+    /// The day's calendar events as chips above the strips, mirroring the calendar cell.
+    /// Deliberately not part of the strip list or `computeDayTimeline`: an event is an
+    /// appointment on the day, not work in the day's cascade, and its `customStartTime`
+    /// would otherwise reset the call-time math for every strip after it.
+    @ViewBuilder
+    private func dayEventChips(day: ShootDay) -> some View {
+        let events = day.scenes.filter { $0.isCalendarEvent }
+        if !events.isEmpty {
+            HStack(spacing: 6) {
+                ForEach(events) { event in
+                    let color = Color(hex: event.bannerColorHex.isEmpty ? "6366F1" : event.bannerColorHex)
+                    HStack(spacing: 4) {
+                        Image(systemName: "calendar.badge.clock")
+                            .font(.system(size: 9, weight: .bold))
+                        if !event.customStartTime.isEmpty {
+                            Text(event.customStartTime)
+                                .font(.system(size: 10, weight: .bold))
+                            Text("·").opacity(0.6)
+                        }
+                        Text(event.bannerTitle.isEmpty ? event.title : event.bannerTitle)
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                    }
+                    .foregroundColor(color)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(color.opacity(0.15))
+                    .cornerRadius(5)
+                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(color.opacity(0.4), lineWidth: 1))
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) {
+                        editingEventScene = event
+                        editingEventDayId = day.id
+                    }
+                    .contextMenu {
+                        Button(L("Edit Event")) {
+                            editingEventScene = event
+                            editingEventDayId = day.id
+                        }
+                        Divider()
+                        Button(L("Delete Event"), role: .destructive) {
+                            deleteCalendarEvent(event, dayId: day.id)
+                        }
+                    }
+                    .onDrag {
+                        interactingSceneId = event.id
+                        return NSItemProvider(object: event.id.uuidString as NSString)
+                    }
+                    .help(event.tooltipText)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+        }
+    }
+
+    /// Events never go to the Boneyard; deleting one just drops it.
+    private func deleteCalendarEvent(_ event: Scene, dayId: UUID) {
+        guard let di = shootDays.firstIndex(where: { $0.id == dayId }) else { return }
+        shootDays[di].scenes.removeAll { $0.id == event.id }
+        onSceneChanged()
+    }
+
     @ViewBuilder
     private func daySceneList(day: ShootDay, dayIndex: Int) -> some View {
         let visibleScenes = day.scenes.filter { !$0.isCalendarEvent }
@@ -345,6 +433,8 @@ struct StripboardView: View {
 
             Divider().opacity(0.4)
 
+            dayEventChips(day: day)
+
             daySceneList(day: day, dayIndex: dayIndex)
 
             EndOfDayStrip(day: day, dayNumber: dayNumbers[day.id] ?? (dayIndex + 1))
@@ -439,8 +529,7 @@ struct StripboardView: View {
     /// `@ViewBuilder` body because result builders reject local `var` mutation.
     private func gapDetails(_ gap: StripboardGap) -> [String] {
         var details: [String] = []
-        if gap.weekendCount  > 0 { details.append("\(gap.weekendCount) \(L("weekend"))") }
-        if gap.blackoutCount > 0 { details.append("\(gap.blackoutCount) \(L("unavailable"))") }
+        if gap.weekendCount > 0 { details.append("\(gap.weekendCount) \(L("weekend"))") }
         return details
     }
 
@@ -467,7 +556,7 @@ struct StripboardView: View {
                     draggingDayId = day.id
                     return NSItemProvider(object: "day:\(day.id.uuidString)" as NSString)
                 }
-                .help("Drag to move this day's scenes and call sheet to another date")
+                .help("Drag to swap this day's scenes, call sheet, day type, and note with another date")
 
             HStack(spacing: 6) {
                 Text(formattedDate(day.date))
@@ -482,6 +571,19 @@ struct StripboardView: View {
                 if let dayNumber = dayNumbers[day.id] {
                     Text("\(L("Day")) \(dayNumber)")
                         .font(.subheadline).fontWeight(.semibold).foregroundColor(.secondary)
+                }
+                if !day.dayType.isShootable {
+                    Label(day.dayType.localizedName, systemImage: day.dayType.icon)
+                        .font(.caption).fontWeight(.bold)
+                        .foregroundColor(Color(hex: day.dayType.colorHex))
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Color(hex: day.dayType.colorHex).opacity(0.18))
+                        .cornerRadius(4)
+                }
+                if !day.dayNote.isEmpty {
+                    Text(day.dayNote)
+                        .font(.caption).foregroundColor(.secondary)
+                        .lineLimit(1).truncationMode(.tail)
                 }
                 HStack(spacing: 6) {
                     if !day.callSheet.lunchTime.isEmpty {
@@ -502,8 +604,9 @@ struct StripboardView: View {
                     }
                 }
                 Spacer()
-                if !day.scenes.isEmpty {
-                    Text("\(day.scenes.count) \(L("scn")) · \(formattedEighths(day.totalDuration)) \(L("pgs"))")
+                let stripCount = day.scenes.filter { !$0.isCalendarEvent }.count
+                if stripCount > 0 {
+                    Text("\(stripCount) \(L("scn")) · \(formattedEighths(day.totalDuration)) \(L("pgs"))")
                         .font(.caption).foregroundColor(.secondary)
                 }
                 if !showAllDays, expandedGapDayIDs.contains(day.id) {
@@ -718,7 +821,9 @@ struct StripboardView: View {
     private func removeSceneDirect(_ scene: Scene, dayId: UUID) {
         if let di = shootDays.firstIndex(where: { $0.id == dayId }) {
             shootDays[di].scenes.removeAll { $0.id == scene.id }
-            allScenes.append(scene)
+            // Calendar events are never Boneyard material; a grouped removal that sweeps
+            // one up (multi-select spanning a chip) just deletes it.
+            if !scene.isCalendarEvent { allScenes.append(scene) }
         }
     }
 
@@ -769,15 +874,24 @@ struct StripboardView: View {
               let targetIdx = shootDays.firstIndex(where: { $0.id == targetDayId })
         else { return }
 
+        // Swap everything that makes the day *that* day (mirrors CompactMonthCalendarView).
         let sourceScenes    = shootDays[sourceIdx].scenes
         let sourceCallSheet = shootDays[sourceIdx].callSheet
+        let sourceType      = shootDays[sourceIdx].dayType
+        let sourceNote      = shootDays[sourceIdx].dayNote
         let targetScenes    = shootDays[targetIdx].scenes
         let targetCallSheet = shootDays[targetIdx].callSheet
+        let targetType      = shootDays[targetIdx].dayType
+        let targetNote      = shootDays[targetIdx].dayNote
 
         shootDays[sourceIdx].scenes    = targetScenes
         shootDays[sourceIdx].callSheet = targetCallSheet
+        shootDays[sourceIdx].dayType   = targetType
+        shootDays[sourceIdx].dayNote   = targetNote
         shootDays[targetIdx].scenes    = sourceScenes
         shootDays[targetIdx].callSheet = sourceCallSheet
+        shootDays[targetIdx].dayType   = sourceType
+        shootDays[targetIdx].dayNote   = sourceNote
 
         draggingDayId   = nil
         dayDropTargetId = nil

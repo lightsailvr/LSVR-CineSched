@@ -226,6 +226,24 @@ func L(_ key: String, lang: AppLanguage = LocalizationManager.shared.currentLang
         "Mark as Shoot Day": [.english: "Mark as Shoot Day", .spanish: "Marcar como Día de Rodaje"],
         "Unavailable": [.english: "Unavailable", .spanish: "No Disponible"],
 
+        // Day types (whole-day notes on the calendar)
+        "Set Day Type": [.english: "Set Day Type", .spanish: "Tipo de Día"],
+        "Set Every": [.english: "Set Every", .spanish: "Marcar Todos los"],
+        "Day Type": [.english: "Day Type", .spanish: "Tipo de Día"],
+        "Clear Day Type": [.english: "Clear Day Type", .spanish: "Quitar Tipo de Día"],
+        "Drag to move this day type to another date": [.english: "Drag to move this day type to another date", .spanish: "Arrastra para mover este tipo de día a otra fecha"],
+        "Edit Event": [.english: "Edit Event", .spanish: "Editar Evento"],
+        "Delete Event": [.english: "Delete Event", .spanish: "Eliminar Evento"],
+        "Day note (travel details, hold reason, …)": [.english: "Day note (travel details, hold reason, …)", .spanish: "Nota del día (detalles de viaje, motivo de la reserva, …)"],
+        "Shoot Day": [.english: "Shoot Day", .spanish: "Día de Rodaje"],
+        "Travel Day": [.english: "Travel Day", .spanish: "Día de Viaje"],
+        "Scout Day": [.english: "Scout Day", .spanish: "Día de Scouting"],
+        "Prep Day": [.english: "Prep Day", .spanish: "Día de Preparación"],
+        "Rehearsal Day": [.english: "Rehearsal Day", .spanish: "Día de Ensayo"],
+        "Weather Hold": [.english: "Weather Hold", .spanish: "Reserva por Clima"],
+        "Holiday": [.english: "Holiday", .spanish: "Feriado"],
+        "Day Off": [.english: "Day Off", .spanish: "Día Libre"],
+
         // Calendar & Stripboard totals
         "Total:": [.english: "Total:", .spanish: "Total:"],
         "Est:": [.english: "Est:", .spanish: "Est:"],

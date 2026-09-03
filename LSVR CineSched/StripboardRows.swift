@@ -12,7 +12,8 @@ import Foundation
 
 // MARK: - Gap
 
-/// A run of consecutive days with no script scenes, shown collapsed as one row.
+/// A run of consecutive days with nothing on them (see `stripboardDayIsEmpty`), shown
+/// collapsed as one row.
 struct StripboardGap: Identifiable {
     /// The id of the first day in the run. Stable as long as that day stays empty.
     let id: UUID
@@ -24,7 +25,6 @@ struct StripboardGap: Identifiable {
     var firstDate:     Date  { days.first!.day.date }
     var lastDate:      Date  { days.last!.day.date }
     var weekendCount:  Int   { days.filter { isWeekend($0.day.date) }.count }
-    var blackoutCount: Int   { days.filter { $0.day.isBlackout }.count }
     var dayIDs:        Set<UUID> { Set(days.map { $0.day.id }) }
 }
 
@@ -44,10 +44,12 @@ enum StripboardRow: Identifiable {
 
 // MARK: - Grouping
 
-/// True when the day has nothing the Stripboard would draw as a strip: no scenes at
-/// all, or only calendar events (which the board never shows).
+/// True when the day has nothing the Stripboard would draw: no scenes, no calendar events,
+/// a plain shoot type, and no note. Such days fold into gap rows. A travel day or a day
+/// holding only a table read is *not* empty: it stays a full day row so it can be seen and
+/// dragged around while the schedule is being built.
 func stripboardDayIsEmpty(_ day: ShootDay) -> Bool {
-    !day.scenes.contains { !$0.isCalendarEvent }
+    day.scenes.isEmpty && day.dayType.isShootable && day.dayNote.isEmpty
 }
 
 /// Builds the Stripboard's row list.

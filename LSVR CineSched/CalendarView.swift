@@ -7,6 +7,31 @@ import AppKit
 
 // MARK: - DropIndicatorView & Delegates
 
+// MARK: - Day type submenu (shared by the day cell and empty cell context menus)
+
+/// A submenu listing every `DayType`. With a `current` value it is a `Picker`, which a
+/// context menu renders as a titled submenu with a checkmark on the current type. The
+/// "every Saturday" variant passes `nil` because those days may disagree, and a Picker
+/// with no matching tag logs a warning, so that case is a plain `Menu` of buttons.
+@ViewBuilder
+func dayTypePicker(_ title: String, current: DayType?, onSelect: @escaping (DayType) -> Void) -> some View {
+    if let current {
+        Picker(title, selection: Binding(get: { current }, set: { onSelect($0) })) {
+            ForEach(DayType.allCases, id: \.self) { type in
+                Label(type.localizedName, systemImage: type.icon).tag(type)
+            }
+        }
+    } else {
+        Menu(title) {
+            ForEach(DayType.allCases, id: \.self) { type in
+                Button { onSelect(type) } label: {
+                    Label(type.localizedName, systemImage: type.icon)
+                }
+            }
+        }
+    }
+}
+
 struct DropIndicatorView: View {
     var body: some View {
         Rectangle()
@@ -25,8 +50,18 @@ struct CombinedDayDropDelegate: DropDelegate {
     @Binding var draggingDayId: UUID?
     let onSceneDrop: (UUID) -> Void
     let onDayDrop: (UUID) -> Void
+    /// A day-type band being dragged (calendar only). Optional so the Stripboard, which has
+    /// no band, keeps its existing call sites. Moves just the type and note, not the day.
+    var draggingDayTypeId: Binding<UUID?>? = nil
+    var onDayTypeDrop: ((UUID) -> Void)? = nil
 
     func performDrop(info: DropInfo) -> Bool {
+        if let typeBinding = draggingDayTypeId, let sourceId = typeBinding.wrappedValue {
+            if sourceId != dayId { onDayTypeDrop?(sourceId) }
+            typeBinding.wrappedValue = nil
+            dayDropTargetId = nil
+            return true
+        }
         if let dayIdStr = draggingDayId, dayIdStr != dayId {
             onDayDrop(dayIdStr)
             draggingDayId = nil
@@ -50,7 +85,8 @@ struct CombinedDayDropDelegate: DropDelegate {
     }
 
     func dropEntered(info: DropInfo) {
-        if draggingDayId != nil && draggingDayId != dayId {
+        let typeDragId = draggingDayTypeId?.wrappedValue
+        if (draggingDayId != nil && draggingDayId != dayId) || (typeDragId != nil && typeDragId != dayId) {
             dayDropTargetId = dayId
         } else {
             dropTargetDayId = dayId
@@ -123,6 +159,7 @@ struct DayCellView: View {
     @Binding var callSheetDay: ShootDay?
     @Binding var interactingSceneId: UUID?
     @Binding var draggedSceneId: UUID?
+    @Binding var draggingDayTypeId: UUID?
 
     let onOpenDayDetail: () -> Void
     let onEditScene: (Int, Scene) -> Void
@@ -133,8 +170,11 @@ struct DayCellView: View {
     let onSendToDay: (Scene) -> Void
     let onHandleSceneDrop: (UUID, Int) -> Void
     let onHandleDayRearrange: (UUID) -> Void
-    let onToggleBlackout: (ShootDay) -> Void
-    let onToggleBlackoutWeekday: (ShootDay) -> Void
+    /// The day-type band from `sourceDayId` was dropped on this cell.
+    let onHandleDayTypeMove: (UUID) -> Void
+    let onSetDayType: (ShootDay, DayType) -> Void
+    let onSetDayTypeForWeekday: (ShootDay, DayType) -> Void
+    let onClearDayType: (ShootDay) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("CineSchedTheme") private var currentTheme: AppTheme = .blue
@@ -144,8 +184,10 @@ struct DayCellView: View {
     }
 
     private var isShootDay: Bool {
-        !day.isBlackout && (dayNumber != nil || isInShootRange || !day.scenes.filter { !$0.isCalendarEvent }.isEmpty)
+        day.dayType.isShootable && (dayNumber != nil || isInShootRange || !day.scenes.filter { !$0.isCalendarEvent }.isEmpty)
     }
+
+    private var dayTypeColor: Color { Color(hex: day.dayType.colorHex) }
 
     private var isTarget: Bool {
         dayDropTargetId == day.id || dropTargetDayId == day.id
@@ -154,7 +196,7 @@ struct DayCellView: View {
     private var borderColor: Color {
         if dayDropTargetId == day.id { return .green }
         if dropTargetDayId == day.id { return .red }
-        if day.isBlackout { return .red.opacity(0.4) }
+        if !day.dayType.isShootable { return dayTypeColor.opacity(0.5) }
         if isShootDay { return currentTheme.shootDayBorderColor(isDarkMode: colorScheme == .dark) }
         return .primary.opacity(0.12)
     }
@@ -162,6 +204,7 @@ struct DayCellView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             header
+            dayTypeBand
             sceneList
             Spacer()
             footer
@@ -176,7 +219,7 @@ struct DayCellView: View {
                     Color(NSColor.controlBackgroundColor)
                 }
                 if isWeekend(day.date) { Color.black.opacity(colorScheme == .dark ? 0.15 : 0.03) }
-                if day.isBlackout { Color.red.opacity(colorScheme == .dark ? 0.25 : 0.1) }
+                if !day.dayType.isShootable { dayTypeColor.opacity(colorScheme == .dark ? 0.22 : 0.1) }
             }
         )
         .cornerRadius(8)
@@ -197,7 +240,9 @@ struct DayCellView: View {
             dayDropTargetId: $dayDropTargetId,
             draggingDayId: $draggingDayId,
             onSceneDrop: { sceneId in onHandleSceneDrop(sceneId, visibleScenes.count) },
-            onDayDrop: { sourceDayId in onHandleDayRearrange(sourceDayId) }
+            onDayDrop: { sourceDayId in onHandleDayRearrange(sourceDayId) },
+            draggingDayTypeId: $draggingDayTypeId,
+            onDayTypeDrop: { sourceDayId in onHandleDayTypeMove(sourceDayId) }
         ))
     }
 
@@ -213,7 +258,7 @@ struct DayCellView: View {
                         draggingDayId = day.id
                         return NSItemProvider(object: "day:\(day.id.uuidString)" as NSString)
                     }
-                    .help("Drag to move this day's scenes and call sheet to another date")
+                    .help("Drag to swap this day's scenes, call sheet, day type, and note with another date")
 
                 Button {
                     onOpenDayDetail()
@@ -225,7 +270,7 @@ struct DayCellView: View {
 
                         Text("\(dayOfMonth)")
                             .font(.system(size: 13, weight: .bold))
-                            .foregroundColor(day.isBlackout ? .red : .primary)
+                            .foregroundColor(day.dayType.isShootable ? .primary : dayTypeColor)
 
                         Text(weekdayStr)
                             .font(.system(size: 10, weight: .semibold))
@@ -292,8 +337,49 @@ struct DayCellView: View {
             Button(LocalizationManager.shared.currentLanguage == .spanish ? "Ver Detalle del Día" : "View Day Details") { onOpenDayDetail() }
             Button(L("Add Calendar Event")) { addingEventForDayId = day.id }
             Divider()
-            Button(day.isBlackout ? "Mark as Available" : "Mark as Unavailable") { onToggleBlackout(day) }
-            Button(day.isBlackout ? "Mark Weekday Available" : "Mark Weekday Unavailable") { onToggleBlackoutWeekday(day) }
+            // A Picker inside a context menu renders as a submenu with a checkmark on the
+            // current value, which is exactly the "what is this day?" affordance we want.
+            dayTypePicker(L("Set Day Type"), current: day.dayType) { onSetDayType(day, $0) }
+            dayTypePicker("\(L("Set Every")) \(localizedFullWeekday(day.date))", current: nil) { onSetDayTypeForWeekday(day, $0) }
+            if !day.dayType.isShootable || !day.dayNote.isEmpty {
+                Button(L("Clear Day Type")) { onClearDayType(day) }
+            }
+        }
+    }
+
+    /// Full-width label for non-shoot days (travel, holiday, …), then the free-text day note.
+    /// Shoot days show only the note, so a plain reminder doesn't force a type change.
+    @ViewBuilder
+    private var dayTypeBand: some View {
+        if !day.dayType.isShootable {
+            HStack(spacing: 4) {
+                Image(systemName: day.dayType.icon)
+                    .font(.system(size: 8, weight: .bold))
+                Text(day.dayType.localizedName.uppercased())
+                    .font(.system(size: 8.5, weight: .bold))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .foregroundColor(dayTypeColor)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2.5)
+            .background(dayTypeColor.opacity(0.18))
+            .cornerRadius(3.5)
+            .contentShape(Rectangle())
+            // The band is what people grab when they want to "move the scout day". It moves
+            // only the type and note; the header handle is the gesture for the whole day.
+            .onDrag {
+                draggingDayTypeId = day.id
+                return NSItemProvider(object: "daytype:\(day.id.uuidString)" as NSString)
+            }
+            .help(L("Drag to move this day type to another date"))
+        }
+        if !day.dayNote.isEmpty {
+            Text(day.dayNote)
+                .font(.system(size: 8.5))
+                .foregroundColor(.secondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -301,6 +387,13 @@ struct DayCellView: View {
         let df = DateFormatter()
         df.locale = LocalizationManager.shared.currentLanguage == .spanish ? Locale(identifier: "es_ES") : Locale(identifier: "en_US")
         df.dateFormat = "EEE"
+        return df.string(from: date).capitalized
+    }
+
+    private func localizedFullWeekday(_ date: Date) -> String {
+        let df = DateFormatter()
+        df.locale = LocalizationManager.shared.currentLanguage == .spanish ? Locale(identifier: "es_ES") : Locale(identifier: "en_US")
+        df.dateFormat = "EEEE"
         return df.string(from: date).capitalized
     }
 
@@ -323,7 +416,7 @@ struct DayCellView: View {
                         showEstTimeOnCards: showEstTimeOnCards,
                         hasConflict: conflictSceneIDs.contains(scene.id),
                         hasDuplicateSceneNumber: duplicateSceneNumberIDs.contains(scene.id),
-                        isOnBlackoutDay: day.isBlackout,
+                        isOnNonShootDay: !day.dayType.isShootable,
                         onEdit:      { onEditScene(sceneIndex, scene) },
                         onRemove:    { onRemoveScene(scene) },
                         onDuplicate: { onDuplicateScene(scene) },
@@ -428,6 +521,7 @@ struct CompactMonthCalendarView: View {
 
     // Day rearrange drag/drop state
     @State private var draggingDayId:       UUID? = nil
+    @State private var draggingDayTypeId:   UUID? = nil
     @State private var dayDropTargetId:     UUID? = nil
 
     // Drag/drop state
@@ -653,6 +747,7 @@ struct CompactMonthCalendarView: View {
             draggedSceneId = nil
             dayDropTargetId = nil
             draggingDayId = nil
+            draggingDayTypeId = nil
         }
         .onAppear {
             if let firstShoot = shootDays.first(where: { !$0.scenes.isEmpty }) ?? shootDays.first {
@@ -686,6 +781,22 @@ struct CompactMonthCalendarView: View {
                 onAddCalendarEvent: {
                     inspectingDay = nil
                     addingEventForDayId = day.id
+                },
+                onSetDayType: { type in
+                    setDayType(day, to: type)
+                    // `day` is a copy; hand the sheet the fresh value so the badge updates.
+                    if let updated = shootDays.first(where: { $0.id == day.id }) { inspectingDay = updated }
+                },
+                onSetDayNote: { note in
+                    setDayNote(day.id, to: note)
+                    if inspectingDay != nil, let updated = shootDays.first(where: { $0.id == day.id }) {
+                        inspectingDay = updated
+                    }
+                },
+                onClearDayType: {
+                    clearDayType(day)
+                    // Clearing can delete an out-of-range day outright; close the sheet then.
+                    inspectingDay = shootDays.first(where: { $0.id == day.id })
                 },
                 onOpenCallSheet: {
                     inspectingDay = nil
@@ -817,7 +928,9 @@ struct CompactMonthCalendarView: View {
                 }
                 handleSceneDrop(sceneId: sceneId, targetDayId: targetDay.id, targetPosition: targetDay.scenes.count)
             },
-            onDayDrop: { _ in }
+            onDayDrop: { sourceDayId in handleDayRearrange(sourceDayId: sourceDayId, toDate: date) },
+            draggingDayTypeId: $draggingDayTypeId,
+            onDayTypeDrop: { sourceDayId in moveDayType(from: sourceDayId, toDate: date) }
         ))
         .contextMenu {
             Button(L("Add Calendar Event")) {
@@ -826,6 +939,14 @@ struct CompactMonthCalendarView: View {
             Button(L("Mark as Shoot Day")) {
                 onBeforeSceneChange()
                 let newDay = ShootDay(date: date)
+                shootDays.append(newDay)
+                shootDays.sort { $0.date < $1.date }
+                onSceneChanged()
+            }
+            Divider()
+            dayTypePicker(L("Set Day Type"), current: nil) { type in
+                onBeforeSceneChange()
+                let newDay = ShootDay(date: date, dayType: type)
                 shootDays.append(newDay)
                 shootDays.sort { $0.date < $1.date }
                 onSceneChanged()
@@ -844,6 +965,37 @@ struct CompactMonthCalendarView: View {
             onSceneChanged()
             addingEventForDayId = newDay.id
         }
+    }
+
+    // MARK: - Day type
+
+    private func setDayType(_ day: ShootDay, to type: DayType) {
+        guard let idx = shootDays.firstIndex(where: { $0.id == day.id }),
+              shootDays[idx].dayType != type else { return }
+        onBeforeSceneChange()
+        shootDays[idx].dayType = type
+        onSceneChanged()
+    }
+
+    /// Applies `type` to every day sharing `day`'s weekday, e.g. "every Sunday is a Day Off".
+    /// Successor to the old "Mark Weekday Unavailable" toggle.
+    private func setDayTypeForWeekday(_ day: ShootDay, to type: DayType) {
+        let targetWeekday = Calendar.current.component(.weekday, from: day.date)
+        onBeforeSceneChange()
+        for idx in 0..<shootDays.count
+        where Calendar.current.component(.weekday, from: shootDays[idx].date) == targetWeekday {
+            shootDays[idx].dayType = type
+        }
+        onSceneChanged()
+    }
+
+    private func setDayNote(_ dayId: UUID, to note: String) {
+        let clean = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let idx = shootDays.firstIndex(where: { $0.id == dayId }),
+              shootDays[idx].dayNote != clean else { return }
+        onBeforeSceneChange()
+        shootDays[idx].dayNote = clean
+        onSceneChanged()
     }
 
     private func exportMonthPDF() {
@@ -899,6 +1051,7 @@ struct CompactMonthCalendarView: View {
             callSheetDay: $callSheetDay,
             interactingSceneId: $interactingSceneId,
             draggedSceneId: $draggedSceneId,
+            draggingDayTypeId: $draggingDayTypeId,
             onOpenDayDetail: { inspectingDay = day },
             onEditScene: { sceneIndex, scene in editScene(dayIndex: dayIndex, sceneIndex: sceneIndex, scene: scene, dayId: day.id) },
             onRemoveScene: { scene in removeFromDay(scene, dayId: day.id) },
@@ -908,8 +1061,10 @@ struct CompactMonthCalendarView: View {
             onSendToDay: { scene in beginSendToDay(scene) },
             onHandleSceneDrop: { sceneId, pos in handleSceneDrop(sceneId: sceneId, targetDayId: day.id, targetPosition: pos) },
             onHandleDayRearrange: { sourceDayId in handleDayRearrange(sourceDayId: sourceDayId, targetDayId: day.id) },
-            onToggleBlackout: { targetDay in toggleBlackout(targetDay) },
-            onToggleBlackoutWeekday: { targetDay in toggleBlackoutForWeekday(targetDay) }
+            onHandleDayTypeMove: { sourceDayId in moveDayType(from: sourceDayId, toDayId: day.id) },
+            onSetDayType: { targetDay, type in setDayType(targetDay, to: type) },
+            onSetDayTypeForWeekday: { targetDay, type in setDayTypeForWeekday(targetDay, to: type) },
+            onClearDayType: { targetDay in clearDayType(targetDay) }
         )
     }
 
@@ -1073,36 +1228,105 @@ struct CompactMonthCalendarView: View {
     }
 
     private func handleDayRearrange(sourceDayId: UUID, targetDayId: UUID) {
-        onBeforeSceneChange()
         guard let srcIdx = shootDays.firstIndex(where: { $0.id == sourceDayId }),
               let dstIdx = shootDays.firstIndex(where: { $0.id == targetDayId }),
               srcIdx != dstIdx else { return }
-        let srcScenes    = shootDays[srcIdx].scenes
-        let srcCallSheet = shootDays[srcIdx].callSheet
-        shootDays[srcIdx].scenes    = shootDays[dstIdx].scenes
-        shootDays[srcIdx].callSheet = shootDays[dstIdx].callSheet
-        shootDays[dstIdx].scenes    = srcScenes
-        shootDays[dstIdx].callSheet = srcCallSheet
+        onBeforeSceneChange()
+        swapDayContents(srcIdx, dstIdx)
+        pruneIfEmptyOutsideRange(dayId: sourceDayId)
         onSceneChanged()
     }
 
-    private func toggleBlackout(_ day: ShootDay) {
+    /// A day handle dropped on a date that has no `ShootDay` yet (outside the production
+    /// range). Create the day, then swap into it, so a travel day can be dragged anywhere.
+    private func handleDayRearrange(sourceDayId: UUID, toDate date: Date) {
+        guard shootDays.contains(where: { $0.id == sourceDayId }) else { return }
         onBeforeSceneChange()
-        if let idx = shootDays.firstIndex(where: { $0.id == day.id }) {
-            shootDays[idx].isBlackout.toggle()
-            onSceneChanged()
+        let newDay = ShootDay(date: date)
+        shootDays.append(newDay)
+        shootDays.sort { $0.date < $1.date }
+        if let s = shootDays.firstIndex(where: { $0.id == sourceDayId }),
+           let d = shootDays.firstIndex(where: { $0.id == newDay.id }) {
+            swapDayContents(s, d)
+        }
+        pruneIfEmptyOutsideRange(dayId: sourceDayId)
+        onSceneChanged()
+    }
+
+    /// The day-type band was dragged from one day onto another: swap only type and note,
+    /// leaving each day's scenes and call sheet where they are.
+    private func moveDayType(from sourceDayId: UUID, toDayId targetDayId: UUID) {
+        guard let s = shootDays.firstIndex(where: { $0.id == sourceDayId }),
+              let d = shootDays.firstIndex(where: { $0.id == targetDayId }), s != d else { return }
+        onBeforeSceneChange()
+        swapDayTypeAndNote(s, d)
+        pruneIfEmptyOutsideRange(dayId: sourceDayId)
+        onSceneChanged()
+    }
+
+    /// Band dropped on a date with no `ShootDay` yet (outside the range): create it first.
+    private func moveDayType(from sourceDayId: UUID, toDate date: Date) {
+        guard shootDays.contains(where: { $0.id == sourceDayId }) else { return }
+        onBeforeSceneChange()
+        let newDay = ShootDay(date: date)
+        shootDays.append(newDay)
+        shootDays.sort { $0.date < $1.date }
+        if let s = shootDays.firstIndex(where: { $0.id == sourceDayId }),
+           let d = shootDays.firstIndex(where: { $0.id == newDay.id }) {
+            swapDayTypeAndNote(s, d)
+        }
+        pruneIfEmptyOutsideRange(dayId: sourceDayId)
+        onSceneChanged()
+    }
+
+    private func swapDayTypeAndNote(_ a: Int, _ b: Int) {
+        let type = shootDays[a].dayType
+        let note = shootDays[a].dayNote
+        shootDays[a].dayType = shootDays[b].dayType
+        shootDays[a].dayNote = shootDays[b].dayNote
+        shootDays[b].dayType = type
+        shootDays[b].dayNote = note
+    }
+
+    /// Swaps everything that makes a day *that* day: scenes (including calendar events), call
+    /// sheet, day type, and note. Dragging a travel day onto a Tuesday makes Tuesday the
+    /// travel day. No undo snapshot or dirty flag here; callers bracket it.
+    private func swapDayContents(_ a: Int, _ b: Int) {
+        let scenes    = shootDays[a].scenes
+        let callSheet = shootDays[a].callSheet
+        let type      = shootDays[a].dayType
+        let note      = shootDays[a].dayNote
+        shootDays[a].scenes    = shootDays[b].scenes
+        shootDays[a].callSheet = shootDays[b].callSheet
+        shootDays[a].dayType   = shootDays[b].dayType
+        shootDays[a].dayNote   = shootDays[b].dayNote
+        shootDays[b].scenes    = scenes
+        shootDays[b].callSheet = callSheet
+        shootDays[b].dayType   = type
+        shootDays[b].dayNote   = note
+    }
+
+    /// Days outside the production range only exist to hold something (an event, a type, a
+    /// note, a call sheet). Once that is gone the entry goes too, so the date becomes an
+    /// empty tile again instead of a stray blank day cell.
+    private func pruneIfEmptyOutsideRange(dayId: UUID) {
+        guard let idx = shootDays.firstIndex(where: { $0.id == dayId }) else { return }
+        let day = shootDays[idx]
+        let cal = Calendar.current
+        let inRange = day.date >= cal.startOfDay(for: startDate) && day.date <= cal.startOfDay(for: endDate)
+        if !inRange, day.scenes.isEmpty, day.dayType.isShootable, day.dayNote.isEmpty, !day.hasCallSheetData {
+            shootDays.remove(at: idx)
         }
     }
 
-    private func toggleBlackoutForWeekday(_ day: ShootDay) {
+    /// Resets a day to a plain shoot day and drops its note. A day that only existed to hold
+    /// the type (outside the production range with nothing else on it) is removed entirely.
+    private func clearDayType(_ day: ShootDay) {
+        guard let idx = shootDays.firstIndex(where: { $0.id == day.id }) else { return }
         onBeforeSceneChange()
-        let targetWeekday = Calendar.current.component(.weekday, from: day.date)
-        let newValue = !day.isBlackout
-        for idx in 0..<shootDays.count {
-            if Calendar.current.component(.weekday, from: shootDays[idx].date) == targetWeekday {
-                shootDays[idx].isBlackout = newValue
-            }
-        }
+        shootDays[idx].dayType = .shoot
+        shootDays[idx].dayNote = ""
+        pruneIfEmptyOutsideRange(dayId: day.id)
         onSceneChanged()
     }
 
@@ -1178,7 +1402,9 @@ struct SceneCardView: View {
     let showEstTimeOnCards: Bool
     let hasConflict:    Bool
     let hasDuplicateSceneNumber: Bool
-    let isOnBlackoutDay: Bool
+    /// The day is travel, holiday, unavailable, etc. A scene here is almost certainly a
+    /// mistake, so it gets the same red flag as a cast conflict.
+    let isOnNonShootDay: Bool
     let onEdit:      () -> Void
     let onRemove:    () -> Void
     let onDuplicate: () -> Void
@@ -1190,7 +1416,7 @@ struct SceneCardView: View {
     let dragPayload: () -> String
 
     private var isDragging: Bool { interactingSceneId == scene.id }
-    private var isFlagged: Bool { hasConflict || isOnBlackoutDay }
+    private var isFlagged: Bool { hasConflict || isOnNonShootDay }
     private var displayColor: Color {
         if scene.isCalendarEvent {
             return Color(hex: scene.bannerColorHex.isEmpty ? "6366F1" : scene.bannerColorHex)
@@ -1234,7 +1460,7 @@ struct SceneCardView: View {
                             .foregroundColor(scene.stripTextColor)
                             .lineLimit(1)
                         Spacer(minLength: 2)
-                        if hasConflict || isOnBlackoutDay {
+                        if isFlagged {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .font(.system(size: 7))
                                 .foregroundColor(.red)

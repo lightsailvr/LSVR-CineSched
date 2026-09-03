@@ -89,7 +89,13 @@ class StripboardPDFExporter {
             ensureRoom(dayHeaderHeight + stripHeight)   // header alone with nothing under it reads as an error
             y = drawDayHeader(y: y, day: day, dayNumber: dayNumber)
 
-            for scene in day.scenes {
+            // Calendar events first, as slim tinted lines above the strips (they are not
+            // part of the day's work or its time cascade), then the strips themselves.
+            for event in day.scenes where event.isCalendarEvent {
+                ensureRoom(eventHeight)
+                y = drawEventLine(y: y, event: event)
+            }
+            for scene in day.scenes where !scene.isCalendarEvent {
                 ensureRoom(stripHeight)
                 y = drawSceneStrip(y: y, scene: scene)
             }
@@ -129,11 +135,17 @@ class StripboardPDFExporter {
         dayHeaderBG.setFill()
         NSBezierPath(rect: rect).fill()
 
-        // Left: "Day N", only for counted production days.
+        // Left: "Day N" for counted production days, otherwise the day type (TRAVEL DAY,
+        // HOLIDAY, …) in its tint so a non-shoot day reads as such on paper too.
         if let dayNumber {
             let leftAttr: [NSAttributedString.Key: Any] = [.font: fontDayHeader, .foregroundColor: colorDark]
             NSAttributedString(string: "Day \(dayNumber)", attributes: leftAttr)
                 .draw(in: CGRect(x: rect.minX + 6, y: rect.midY - 6, width: 90, height: 13))
+        } else if !day.dayType.isShootable {
+            let tint = NSColor(Color(hex: day.dayType.colorHex))
+            let leftAttr: [NSAttributedString.Key: Any] = [.font: fontDaySub, .foregroundColor: tint]
+            NSAttributedString(string: day.dayType.localizedName.uppercased(), attributes: leftAttr)
+                .draw(in: CGRect(x: rect.minX + 6, y: rect.midY - 5, width: 120, height: 12))
         }
 
         // Center: the full date — the page/time totals already live on the
@@ -150,7 +162,9 @@ class StripboardPDFExporter {
         // further left — rather than center-aligning within the same box,
         // which only adds *more* left padding and pushes it right — lines the
         // two up.
-        let sub = "\(day.scenes.count) scene\(day.scenes.count == 1 ? "" : "s")"
+        // Events are drawn above the strips but are not scenes; count only what has a strip.
+        let stripCount = day.scenes.filter { !$0.isCalendarEvent }.count
+        let sub = stripCount == 0 ? "" : "\(stripCount) scene\(stripCount == 1 ? "" : "s")"
         let rightAttr: [NSAttributedString.Key: Any] = [.font: fontDaySub, .foregroundColor: colorMid]
         NSAttributedString(string: sub, attributes: rightAttr)
             .draw(in: CGRect(x: rect.maxX - 61, y: rect.midY - 5, width: 50, height: 11))
@@ -159,6 +173,28 @@ class StripboardPDFExporter {
     }
 
     // MARK: - Scene strip
+
+    // MARK: - Calendar event line
+
+    private static let eventHeight: CGFloat = 12
+
+    private static func drawEventLine(y: CGFloat, event: Scene) -> CGFloat {
+        let rect = CGRect(x: margin, y: y - eventHeight, width: contentWidth, height: eventHeight)
+        // `NSColor(hexString:)` is private to PDFExporter.swift; go through the shared Color(hex:).
+        let tint = NSColor(Color(hex: event.bannerColorHex.isEmpty ? "6366F1" : event.bannerColorHex))
+        tint.withAlphaComponent(0.15).setFill()
+        NSBezierPath(rect: rect).fill()
+        tint.withAlphaComponent(0.5).setStroke()
+        let border = NSBezierPath(rect: rect); border.lineWidth = 0.5; border.stroke()
+
+        let para = NSMutableParagraphStyle(); para.lineBreakMode = .byTruncatingTail
+        let attr: [NSAttributedString.Key: Any] = [.font: fontStripMeta, .foregroundColor: tint, .paragraphStyle: para]
+        let timePrefix = event.customStartTime.isEmpty ? "" : "\(event.customStartTime) · "
+        let title = event.bannerTitle.isEmpty ? event.title : event.bannerTitle
+        NSAttributedString(string: timePrefix + title, attributes: attr)
+            .draw(in: CGRect(x: rect.minX + 6, y: rect.midY - 5, width: rect.width - 12, height: 11))
+        return y - eventHeight
+    }
 
     private static func drawSceneStrip(y: CGFloat, scene: Scene) -> CGFloat {
         let rect = CGRect(x: margin, y: y - stripHeight, width: contentWidth, height: stripHeight)

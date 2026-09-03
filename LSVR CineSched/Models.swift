@@ -1011,6 +1011,82 @@ struct ScheduleLock: Codable, Equatable {
     var workingDays: [String: [Date]]
 }
 
+// MARK: - Day Type
+
+/// What a calendar date is *for*. Only `.shoot` days can earn a production day number;
+/// every other case is a whole-day note (travel, scout, weather hold, …) that the calendar
+/// tints and labels and that the Stripboard, month PDF, and DOOD treat as a non-shoot day.
+/// Scenes may still be dropped on a non-shoot day, but they are flagged the way scenes on
+/// the old blackout days were.
+///
+/// This replaces the old `ShootDay.isBlackout` boolean: `.unavailable` is that flag, and
+/// project files keep writing `isBlackout` so older builds still see unavailable days.
+enum DayType: String, CaseIterable, Codable {
+    case shoot
+    case travel
+    case scout
+    case prep
+    case rehearsal
+    case weatherHold
+    case holiday
+    case dayOff
+    case unavailable
+
+    /// True only for `.shoot`. Non-shoot days never get a "Day N" number.
+    var isShootable: Bool { self == .shoot }
+
+    var localizedName: String {
+        switch self {
+        case .shoot:       return L("Shoot Day")
+        case .travel:      return L("Travel Day")
+        case .scout:       return L("Scout Day")
+        case .prep:        return L("Prep Day")
+        case .rehearsal:   return L("Rehearsal Day")
+        case .weatherHold: return L("Weather Hold")
+        case .holiday:     return L("Holiday")
+        case .dayOff:      return L("Day Off")
+        case .unavailable: return L("Unavailable")
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .shoot:       return "film"
+        case .travel:      return "airplane"
+        case .scout:       return "binoculars.fill"
+        case .prep:        return "hammer.fill"
+        case .rehearsal:   return "person.2.fill"
+        case .weatherHold: return "cloud.rain.fill"
+        case .holiday:     return "gift.fill"
+        case .dayOff:      return "moon.zzz.fill"
+        case .unavailable: return "xmark.circle.fill"
+        }
+    }
+
+    /// Tint used by the calendar cell, the Stripboard badge, and the month PDF. Empty for
+    /// `.shoot`, whose look comes from the theme's shoot-range highlight instead.
+    var colorHex: String {
+        switch self {
+        case .shoot:       return ""
+        case .travel:      return "D97706"
+        case .scout:       return "14B8A6"
+        case .prep:        return "10B981"
+        case .rehearsal:   return "8B5CF6"
+        case .weatherHold: return "0EA5E9"
+        case .holiday:     return "EC4899"
+        case .dayOff:      return "64748B"
+        case .unavailable: return "EF4444"
+        }
+    }
+
+    /// Unknown raw values (from a newer build) fall back to `.shoot` rather than failing
+    /// the whole project load. Mirrors `BannerType`'s lenient decoder.
+    init(from decoder: Decoder) throws {
+        let raw = (try? decoder.singleValueContainer().decode(String.self)) ?? ""
+        self = DayType(rawValue: raw) ?? .shoot
+    }
+}
+
 // MARK: - ShootDay
 
 struct ShootDay: Identifiable, Codable {
@@ -1018,18 +1094,25 @@ struct ShootDay: Identifiable, Codable {
     var date:      Date
     var scenes:    [Scene]       = []
     var callSheet: CallSheetData = CallSheetData()
-    var isBlackout: Bool = false
+    var dayType:   DayType       = .shoot
+    /// Free text shown under the day-type band, e.g. "Fly LAX → ABQ, crew van 6 AM".
+    var dayNote:   String        = ""
 
-    init(date: Date, scenes: [Scene] = [], callSheet: CallSheetData = CallSheetData(), isBlackout: Bool = false) {
-        self.id         = UUID()
-        self.date       = date
-        self.scenes     = scenes
-        self.callSheet  = callSheet
-        self.isBlackout = isBlackout
+    /// Legacy name for `dayType == .unavailable`. Read-only; set `dayType` instead.
+    var isBlackout: Bool { dayType == .unavailable }
+
+    init(date: Date, scenes: [Scene] = [], callSheet: CallSheetData = CallSheetData(),
+         dayType: DayType = .shoot, dayNote: String = "", isBlackout: Bool = false) {
+        self.id        = UUID()
+        self.date      = date
+        self.scenes    = scenes
+        self.callSheet = callSheet
+        self.dayType   = isBlackout ? .unavailable : dayType
+        self.dayNote   = dayNote
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, date, scenes, callSheet, isBlackout
+        case id, date, scenes, callSheet, isBlackout, dayType, dayNote
     }
 
     init(from decoder: Decoder) throws {
@@ -1038,7 +1121,27 @@ struct ShootDay: Identifiable, Codable {
         date       = try c.decode(Date.self, forKey: .date)
         scenes     = try c.decode([Scene].self, forKey: .scenes)
         callSheet  = try c.decode(CallSheetData.self, forKey: .callSheet)
-        isBlackout = try c.decodeIfPresent(Bool.self, forKey: .isBlackout) ?? false
+        dayNote    = try c.decodeIfPresent(String.self, forKey: .dayNote) ?? ""
+        // Files written before day types only have `isBlackout`; files written after carry
+        // both, and `dayType` wins so an old build can't silently downgrade a travel day.
+        let legacyBlackout = try c.decodeIfPresent(Bool.self, forKey: .isBlackout) ?? false
+        if let typed = try c.decodeIfPresent(DayType.self, forKey: .dayType) {
+            dayType = typed
+        } else {
+            dayType = legacyBlackout ? .unavailable : .shoot
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id,        forKey: .id)
+        try c.encode(date,      forKey: .date)
+        try c.encode(scenes,    forKey: .scenes)
+        try c.encode(callSheet, forKey: .callSheet)
+        try c.encode(dayType,   forKey: .dayType)
+        try c.encode(dayNote,   forKey: .dayNote)
+        // Kept for builds that predate `dayType`; they read this and ignore the rest.
+        try c.encode(isBlackout, forKey: .isBlackout)
     }
 
     var totalDuration:      Int { scenes.reduce(0) { $0 + $1.duration } }

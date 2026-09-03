@@ -463,8 +463,12 @@ class PDFExporter {
         context.endPDFPage()
 
         // Page 2: Detailed Activity & Shoot Schedule Breakdown (if month has scheduled content)
+        // Days with something to say: scenes, events, or a day note. A typed day with no note
+        // (a plain Day Off) is already labelled in the grid, and the breakdown is a single page
+        // that drops cards once full, so it doesn't earn a card of its own.
         let activeDays = shootDays.filter { day in
-            cal.isDate(day.date, equalTo: month, toGranularity: .month) && !day.scenes.isEmpty
+            cal.isDate(day.date, equalTo: month, toGranularity: .month)
+                && (!day.scenes.isEmpty || !day.dayNote.isEmpty)
         }.sorted { $0.date < $1.date }
 
         if !activeDays.isEmpty {
@@ -499,12 +503,13 @@ class PDFExporter {
         isCurrentMonth: Bool
     ) {
         let path = NSBezierPath(rect: rect)
-        let isShoot = shootDay != nil && !shootDay!.isBlackout && (dayNumber != nil || !shootDay!.scenes.filter { !$0.isCalendarEvent }.isEmpty)
+        let isShoot = shootDay != nil && shootDay!.dayType.isShootable && (dayNumber != nil || !shootDay!.scenes.filter { !$0.isCalendarEvent }.isEmpty)
 
         if isShoot {
             NSColor(red: 0.94, green: 0.97, blue: 1.0, alpha: 1.0).setFill()
-        } else if let sd = shootDay, sd.isBlackout {
-            NSColor(red: 1.0, green: 0.94, blue: 0.94, alpha: 1.0).setFill()
+        } else if let sd = shootDay, !sd.dayType.isShootable {
+            // Same tint the calendar cell uses for this day type, washed out for print.
+            NSColor(hexString: sd.dayType.colorHex).withAlphaComponent(0.12).setFill()
         } else if !isCurrentMonth {
             NSColor(white: 0.97, alpha: 1.0).setFill()
         } else {
@@ -540,6 +545,17 @@ class PDFExporter {
             let badgeText = LocalizationManager.shared.currentLanguage == .spanish ? "DÍA #\(dayNumber)" : "DAY #\(dayNumber)"
             NSAttributedString(string: badgeText, attributes: badgeAttr)
                 .draw(in: CGRect(x: inner.minX, y: inner.maxY - 13, width: inner.width, height: 13))
+        } else if let sd = shootDay, !sd.dayType.isShootable {
+            // Day type badge in the same slot the DAY # badge uses on shoot days.
+            let para = NSMutableParagraphStyle(); para.alignment = .right
+            para.lineBreakMode = .byTruncatingTail
+            let badgeAttr: [NSAttributedString.Key: Any] = [
+                .font: NSFont.boldSystemFont(ofSize: 7.5),
+                .foregroundColor: NSColor(hexString: sd.dayType.colorHex),
+                .paragraphStyle: para
+            ]
+            NSAttributedString(string: sd.dayType.localizedName.uppercased(), attributes: badgeAttr)
+                .draw(in: CGRect(x: inner.minX + 14, y: inner.maxY - 13, width: inner.width - 14, height: 13))
         }
 
         // Scenes and Calendar Events list
@@ -548,6 +564,17 @@ class PDFExporter {
             var yOff: CGFloat = 16
             let pStyle = NSMutableParagraphStyle()
             pStyle.lineBreakMode = .byTruncatingTail
+
+            if !day.dayNote.isEmpty {
+                let noteAttr: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: 7),
+                    .foregroundColor: NSColor(white: 0.3, alpha: 1.0),
+                    .paragraphStyle: pStyle
+                ]
+                NSAttributedString(string: day.dayNote, attributes: noteAttr)
+                    .draw(in: CGRect(x: inner.minX, y: inner.maxY - yOff - 10, width: inner.width, height: 10))
+                yOff += 12
+            }
 
             for scene in day.scenes {
                 guard inner.maxY - yOff - boxHeight >= inner.minY + 4 else { break }
@@ -646,7 +673,8 @@ class PDFExporter {
             let sceneLineHeight: CGFloat = 13
             let scenesHeight = CGFloat(scriptScenes.count) * sceneLineHeight
             let eventsHeight = CGFloat(events.count) * sceneLineHeight
-            let cardHeight: CGFloat = max(38 + scenesHeight + eventsHeight, 44)
+            let noteHeight: CGFloat = day.dayNote.isEmpty ? 0 : sceneLineHeight
+            let cardHeight: CGFloat = max(38 + scenesHeight + eventsHeight + noteHeight, 44)
 
             guard curY - cardHeight >= contentRect.minY else { break }
 
@@ -684,6 +712,13 @@ class PDFExporter {
                 ]
                 NSAttributedString(string: badgeText, attributes: badgeAttr)
                     .draw(at: CGPoint(x: cardRect.minX + 220, y: cardRect.maxY - 15))
+            } else if !day.dayType.isShootable {
+                let badgeAttr: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.boldSystemFont(ofSize: 8.5),
+                    .foregroundColor: NSColor(hexString: day.dayType.colorHex)
+                ]
+                NSAttributedString(string: day.dayType.localizedName.uppercased(), attributes: badgeAttr)
+                    .draw(at: CGPoint(x: cardRect.minX + 220, y: cardRect.maxY - 15))
             } else {
                 let eventBadgeText = isSpanish ? "📅 DÍA DE AGENDA" : "📅 AGENDA / PREP DAY"
                 let badgeAttr: [NSAttributedString.Key: Any] = [
@@ -708,6 +743,17 @@ class PDFExporter {
                     .foregroundColor: NSColor(white: 0.35, alpha: 1.0)
                 ]
                 NSAttributedString(string: "⏰ " + callParts.joined(separator: "  ·  "), attributes: callAttr)
+                    .draw(at: CGPoint(x: cardRect.minX + 8, y: itemY))
+                itemY -= 13
+            }
+
+            // Day note (travel details, hold reason, …)
+            if !day.dayNote.isEmpty {
+                let noteAttr: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: 7.8),
+                    .foregroundColor: NSColor(white: 0.3, alpha: 1.0)
+                ]
+                NSAttributedString(string: "📝 " + day.dayNote, attributes: noteAttr)
                     .draw(at: CGPoint(x: cardRect.minX + 8, y: itemY))
                 itemY -= 13
             }

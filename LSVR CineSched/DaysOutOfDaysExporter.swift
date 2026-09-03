@@ -234,7 +234,7 @@ struct DaysOutOfDaysExporter {
                     lastMonth = month
                     let headerText = "\(monthLabel)\n\(weekdayFormatter.string(from: day.date))\n\(dayNumFormatter.string(from: day.date))"
                     drawMultilineHeader(headerText, rect: CGRect(x: x, y: y - headerHeight, width: dayColWidth, height: headerHeight),
-                                        isOff: day.isBlackout)
+                                        isOff: !day.dayType.isShootable)
                     x += dayColWidth
                 }
                 y -= headerHeight

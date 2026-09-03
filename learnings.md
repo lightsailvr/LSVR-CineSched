@@ -9,6 +9,27 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-02 — `updateShootDays` rebuilds every `ShootDay`; anything per-day must be carried across explicitly
+
+Changing the production range regenerates the whole `shootDays` list in
+`ContentView.updateShootDays`. Until day types landed it built each day as
+`ShootDay(date:scenes:)`, which silently threw away every call sheet and every blackout flag
+on any start/end date change. Scenes and calendar events were the only things it preserved
+because they were the only things anyone had noticed going missing. Rule: when adding a field
+to `ShootDay`, decide whether it follows the shoot (shift mode slides it; call sheet, day type,
+day note) or the date (anchored; calendar events only), add it to the bookkeeping in that
+function, and add it to both `handleDayRearrange` swaps (calendar and Stripboard).
+`DayTypeTests` covers the model; the regeneration itself is untested because it lives on
+`ContentView` state.
+
+## 2026-09-02 — A `Picker` inside a context menu is the cheapest "radio submenu"
+
+SwiftUI renders a `Picker` placed directly in `.contextMenu { }` as a titled submenu with a
+checkmark on the selected tag, so a "Set Day Type ▸" menu needs no manual checkmark
+bookkeeping. It logs a warning when the selection matches no tag, so the variant that acts on
+a whole weekday (where days may disagree) is a plain `Menu` of `Button`s instead. See
+`dayTypePicker(_:current:onSelect:)` in `CalendarView.swift`.
+
 ## 2026-09-02 — `@ViewBuilder` bodies reject local `var` mutation
 
 Building up a `[String]` with `var details = []; if … { details.append(…) }` inside a
@@ -19,11 +40,15 @@ a plain helper (`gapDetails(_:)` in `StripboardView.swift`) and bind the result 
 ## 2026-09-02 — Stripboard folds empty days into gap rows; the row list is a pure function
 
 `stripboardRows(for:showAllDays:expandedDayIDs:)` in `StripboardRows.swift` decides what the
-board draws. A day is "empty" when it has no non-calendar-event scenes, so calendar-only days
-(which the old board hid entirely) now count toward a gap and appear as empty sections when the
-gap is opened or "All days" is on. Expansion is tracked per day id, not per gap, so a gap that
-splits keeps both halves open. `scrollToDate` into a collapsed gap opens it and scrolls on the
-next run loop turn, because the target row doesn't exist until the state change renders.
+board draws. A day is "empty" (and folds into a gap) only when it has no scenes, no calendar
+events, a plain shoot day type, and no note; see `stripboardDayIsEmpty`. Event-only and typed
+days used to be hidden or folded, which made a travel day impossible to see or drag on the
+board. Calendar events are drawn as a chip row above the strips and are deliberately kept out
+of `computeDayTimeline`: an event's `customStartTime` ("10:00 AM") would otherwise reset the
+call-time cascade for every strip after it. Expansion is tracked per day id, not per gap, so a
+gap that splits keeps both halves open. `scrollToDate` into a collapsed gap opens it and
+scrolls on the next run loop turn, because the target row doesn't exist until the state
+change renders.
 
 ---
 

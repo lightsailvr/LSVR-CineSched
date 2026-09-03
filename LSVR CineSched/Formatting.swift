@@ -60,13 +60,15 @@ func isWeekend(_ date: Date) -> Bool {
 }
 
 /// Maps each ShootDay's id to its "Day N" production-day number — the Nth
-/// day, in date order, that has at least one actual script scene scheduled (excluding calendar-only events).
+/// day, in date order, that has at least one actual script scene scheduled (excluding calendar-only
+/// events) and whose day type is `.shoot`. A travel or holiday day with scenes on it is flagged in
+/// the UI rather than numbered.
 func productionDayNumbers(for shootDays: [ShootDay]) -> [UUID: Int] {
     var result: [UUID: Int] = [:]
     var counter = 0
     for day in shootDays {
         let hasScriptScenes = day.scenes.contains { !$0.isCalendarEvent }
-        if hasScriptScenes && !day.isBlackout {
+        if hasScriptScenes && day.dayType.isShootable {
             counter += 1
             result[day.id] = counter
         }

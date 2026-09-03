@@ -1326,9 +1326,16 @@ struct ContentView: View {
         let normNewStart = cal.startOfDay(for: newStart)
         let normNewEnd   = cal.startOfDay(for: newEnd)
 
-        // 1. Separate calendar events (which stay anchored to their real date) from script scenes
+        // 1. Bucket everything by date: script scenes, calendar events, call sheets, and day
+        //    types/notes. In shift mode all of it slides by the same offset, so a travel day
+        //    or a table read the day before Day 1 is still the day before Day 1. Events are
+        //    kept separate from script scenes only because they never go to the Boneyard
+        //    (step 4). Before this bookkeeping existed, every regenerated day came back with a
+        //    blank call sheet and no blackout flag.
         var calendarEventsByDate: [Date: [Scene]] = [:]
         var scriptScenesByDate: [Date: [Scene]] = [:]
+        var callSheetsByDate: [Date: CallSheetData] = [:]
+        var dayMetaByDate: [Date: (type: DayType, note: String)] = [:]
         var allExistingScriptScenes: [UUID: Scene] = [:]
 
         for day in shootDays {
@@ -1342,12 +1349,34 @@ struct ContentView: View {
                 scriptScenesByDate[dayNorm, default: []].append(contentsOf: scripts)
                 for s in scripts { allExistingScriptScenes[s.id] = s }
             }
+            if day.hasCallSheetData {
+                callSheetsByDate[dayNorm] = day.callSheet
+            }
+            if day.dayType != .shoot || !day.dayNote.isEmpty {
+                dayMetaByDate[dayNorm] = (day.dayType, day.dayNote)
+            }
         }
 
         // 2. Find old shooting start date (from actual script scenes or previous start)
         let sortedScriptDates = scriptScenesByDate.keys.sorted()
         let oldScriptStart = sortedScriptDates.first ?? normNewStart
         let dayOffset = cal.dateComponents([.day], from: oldScriptStart, to: normNewStart).day ?? 0
+
+        // Re-key a per-date map by the shift offset. Identity when shift mode is off.
+        func shifted<T>(_ map: [Date: T]) -> [Date: T] {
+            guard isShiftModeEnabled, dayOffset != 0 else { return map }
+            var out: [Date: T] = [:]
+            for (date, value) in map {
+                if let moved = cal.date(byAdding: .day, value: dayOffset, to: date) {
+                    out[cal.startOfDay(for: moved)] = value
+                }
+            }
+            return out
+        }
+        let scriptsByTarget = shifted(scriptScenesByDate)
+        let eventsByTarget  = shifted(calendarEventsByDate)
+        let sheetsByTarget  = shifted(callSheetsByDate)
+        let metaByTarget    = shifted(dayMetaByDate)
 
         var updatedDays: [ShootDay] = []
         var scheduledSceneIDs: Set<UUID> = []
@@ -1356,20 +1385,11 @@ struct ContentView: View {
         while current <= normNewEnd {
             var dayScenes: [Scene] = []
 
-            // Add script scenes (shifted or merged)
-            if isShiftModeEnabled {
-                if let sourceDate = cal.date(byAdding: .day, value: -dayOffset, to: current),
-                   let sourceScenes = scriptScenesByDate[cal.startOfDay(for: sourceDate)] {
-                    dayScenes.append(contentsOf: sourceScenes)
-                }
-            } else {
-                if let existing = scriptScenesByDate[current] {
-                    dayScenes.append(contentsOf: existing)
-                }
+            if let sourceScenes = scriptsByTarget[current] {
+                dayScenes.append(contentsOf: sourceScenes)
             }
 
-            // Add anchored calendar events for this date
-            if let events = calendarEventsByDate[current] {
+            if let events = eventsByTarget[current] {
                 dayScenes.append(contentsOf: events)
             }
 
@@ -1377,17 +1397,25 @@ struct ContentView: View {
                 scheduledSceneIDs.insert(s.id)
             }
 
-            updatedDays.append(ShootDay(date: current, scenes: dayScenes))
+            let meta = metaByTarget[current]
+            updatedDays.append(ShootDay(date: current, scenes: dayScenes,
+                                        callSheet: sheetsByTarget[current] ?? CallSheetData(),
+                                        dayType: meta?.type ?? .shoot, dayNote: meta?.note ?? ""))
             guard let next = cal.date(byAdding: .day, value: 1, to: current) else { break }
             current = next
         }
 
-        // 3. Preserve calendar events that exist outside the new shoot range
-        for (eventDate, events) in calendarEventsByDate {
-            if eventDate < normNewStart || eventDate > normNewEnd {
-                if !updatedDays.contains(where: { cal.isDate($0.date, inSameDayAs: eventDate) }) {
-                    updatedDays.append(ShootDay(date: eventDate, scenes: events))
-                }
+        // 3. Preserve calendar events, day types, notes, and call sheets that land outside the
+        //    new shoot range (a travel day the week before the shoot starts, say). Script
+        //    scenes outside the range go back to the Boneyard in step 4 instead.
+        let outsideDates = Set(eventsByTarget.keys).union(metaByTarget.keys).union(sheetsByTarget.keys)
+        for outsideDate in outsideDates where outsideDate < normNewStart || outsideDate > normNewEnd {
+            if !updatedDays.contains(where: { cal.isDate($0.date, inSameDayAs: outsideDate) }) {
+                let meta = metaByTarget[outsideDate]
+                updatedDays.append(ShootDay(date: outsideDate,
+                                            scenes: eventsByTarget[outsideDate] ?? [],
+                                            callSheet: sheetsByTarget[outsideDate] ?? CallSheetData(),
+                                            dayType: meta?.type ?? .shoot, dayNote: meta?.note ?? ""))
             }
         }
 

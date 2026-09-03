@@ -16,8 +16,15 @@ struct DayDetailSheet: View {
     let onEditScene: (Scene) -> Void
     let onRemoveScene: (Scene) -> Void
     let onAddCalendarEvent: () -> Void
+    let onSetDayType: (DayType) -> Void
+    /// Called with the trimmed note on submit and when the sheet closes; the parent skips
+    /// the write (and the undo snapshot) when nothing changed.
+    let onSetDayNote: (String) -> Void
+    let onClearDayType: () -> Void
     let onOpenCallSheet: () -> Void
     let onExportCallSheetPDF: () -> Void
+
+    @State private var noteDraft: String = ""
 
     private var isSpanish: Bool {
         LocalizationManager.shared.currentLanguage == .spanish
@@ -52,7 +59,14 @@ struct DayDetailSheet: View {
     }
 
     private var isShootDay: Bool {
-        dayNumber != nil && !day.isBlackout
+        dayNumber != nil && day.dayType.isShootable
+    }
+
+    private var dayTypeColor: Color { Color(hex: day.dayType.colorHex) }
+
+    private func commitNote() {
+        let clean = noteDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if clean != day.dayNote { onSetDayNote(clean) }
     }
 
     var body: some View {
@@ -73,13 +87,13 @@ struct DayDetailSheet: View {
                                 .padding(.vertical, 3)
                                 .background(currentTheme.primaryAccent(isDarkMode: colorScheme == .dark).opacity(0.18))
                                 .cornerRadius(6)
-                        } else if day.isBlackout {
-                            Text(L("Unavailable"))
+                        } else if !day.dayType.isShootable {
+                            Label(day.dayType.localizedName, systemImage: day.dayType.icon)
                                 .font(.caption.bold())
-                                .foregroundColor(.red)
+                                .foregroundColor(dayTypeColor)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 3)
-                                .background(Color.red.opacity(0.15))
+                                .background(dayTypeColor.opacity(0.15))
                                 .cornerRadius(6)
                         } else {
                             Text(isSpanish ? "📅 Agenda / Eventos" : "📅 Calendar Event")
@@ -110,6 +124,7 @@ struct DayDetailSheet: View {
                 Spacer()
 
                 Button {
+                    commitNote()
                     isPresented = false
                 } label: {
                     Image(systemName: "xmark.circle.fill")
@@ -126,6 +141,9 @@ struct DayDetailSheet: View {
             // Scrollable Content
             ScrollView(.vertical, showsIndicators: true) {
                 VStack(alignment: .leading, spacing: 20) {
+                    // Day type + note first: it answers "what is this day?" before the detail.
+                    dayTypeCard
+
                     if isShootDay {
                         // Call Sheet & Horarios
                         callSheetSummaryCard
@@ -144,6 +162,9 @@ struct DayDetailSheet: View {
                 }
                 .padding(20)
             }
+            .onAppear { noteDraft = day.dayNote }
+            .onChange(of: day.dayNote) { _, newNote in noteDraft = newNote }
+            .onDisappear { commitNote() }
 
             Divider()
 
@@ -187,6 +208,45 @@ struct DayDetailSheet: View {
             .background(currentTheme.panelBackground(isDarkMode: colorScheme == .dark))
         }
         .frame(minWidth: isShootDay ? 620 : 480, idealWidth: isShootDay ? 700 : 540, minHeight: isShootDay ? 520 : 380, idealHeight: isShootDay ? 640 : 440)
+    }
+
+    // MARK: - Day Type & Note
+
+    private var dayTypeCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label(L("Day Type"), systemImage: "calendar.badge.exclamationmark")
+                    .font(.headline)
+                Spacer()
+                Picker("", selection: Binding(get: { day.dayType }, set: { onSetDayType($0) })) {
+                    ForEach(DayType.allCases, id: \.self) { type in
+                        Label(type.localizedName, systemImage: type.icon).tag(type)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .frame(width: 190)
+
+                if !day.dayType.isShootable || !day.dayNote.isEmpty {
+                    Button {
+                        noteDraft = ""
+                        onClearDayType()
+                    } label: {
+                        Label(L("Clear"), systemImage: "xmark.circle")
+                    }
+                    .buttonStyle(.bordered)
+                    .help(L("Clear Day Type"))
+                }
+            }
+
+            TextField(L("Day note (travel details, hold reason, …)"), text: $noteDraft)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit { commitNote() }
+        }
+        .padding(14)
+        .background(Color(NSColor.controlBackgroundColor))
+        .cornerRadius(10)
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.08), lineWidth: 1))
     }
 
     // MARK: - Call Sheet Summary Card

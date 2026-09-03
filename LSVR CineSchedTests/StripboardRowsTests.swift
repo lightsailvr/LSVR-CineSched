@@ -49,22 +49,33 @@ struct StripboardRowsTests {
         #expect(isGap(rows[0]) && isGap(rows[3]))
     }
 
-    @Test func calendarOnlyDaysCountAsEmpty() {
+    @Test func calendarOnlyDaysStayVisibleAsDayRows() {
+        // A day holding only a table read is a scheduled day on the board, not a gap.
         let list = days(5, scheduled: [0, 4], calendarOnly: [2])
         let rows = stripboardRows(for: list, showAllDays: false, expandedDayIDs: [])
-        #expect(rows.count == 3)
-        guard case .gap(let gap) = rows[1] else { Issue.record("expected a gap"); return }
-        #expect(gap.dayCount == 3)
+        #expect(rows.count == 5)
+        #expect(!isGap(rows[2]))
+        #expect(isGap(rows[1]) && isGap(rows[3]))
     }
 
-    @Test func gapCountsWeekendsAndBlackouts() {
+    @Test func typedOrNotedDaysStayVisibleAsDayRows() {
+        var list = days(7, scheduled: [0, 6])
+        list[2].dayType = .travel
+        list[4].dayNote = "Sunset 4:52 PM"
+        let rows = stripboardRows(for: list, showAllDays: false, expandedDayIDs: [])
+        // day0, gap(1), travel(2), gap(3), noted(4), gap(5), day6
+        #expect(rows.count == 7)
+        #expect(!isGap(rows[2]) && !isGap(rows[4]))
+        #expect(isGap(rows[1]) && isGap(rows[3]) && isGap(rows[5]))
+    }
+
+    @Test func gapCountsWeekends() {
         // Nov 2 2026 is a Monday, so offsets 5 and 6 are Sat/Sun.
-        let list = days(9, scheduled: [0, 8], blackout: [3])
+        let list = days(9, scheduled: [0, 8])
         let rows = stripboardRows(for: list, showAllDays: false, expandedDayIDs: [])
         guard case .gap(let gap) = rows[1] else { Issue.record("expected a gap"); return }
         #expect(gap.dayCount == 7)
         #expect(gap.weekendCount == 2)
-        #expect(gap.blackoutCount == 1)
     }
 
     @Test func anyExpandedDayExpandsItsWholeGap() {
