@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		6123F3C3304926ED00623414 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 6123F3C2304926ED00623414 /* AppIcon.icon */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		610321743048B74800E09EBA /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -27,6 +31,7 @@
 		610321663048B74700E09EBA /* LSVR CineSched.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "LSVR CineSched.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		610321733048B74800E09EBA /* LSVR CineSchedTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "LSVR CineSchedTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		6103217D3048B74800E09EBA /* LSVR CineSchedUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "LSVR CineSchedUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		6123F3C2304926ED00623414 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -79,6 +84,7 @@
 				610321763048B74800E09EBA /* LSVR CineSchedTests */,
 				610321803048B74800E09EBA /* LSVR CineSchedUITests */,
 				610321673048B74700E09EBA /* Products */,
+				6123F3C2304926ED00623414 /* AppIcon.icon */,
 			);
 			sourceTree = "<group>";
 		};
@@ -213,6 +219,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6123F3C3304926ED00623414 /* AppIcon.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
