@@ -91,6 +91,28 @@ enum StripboardField: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Emoji stand-in for `icon` in PDF output, where SF Symbols can't be drawn as
+    /// text. Leads each pill on the month PDF breakdown pages so a reader can tell
+    /// location from equipment from cast at a glance.
+    var pdfEmoji: String {
+        switch self {
+        case .cast:             return "👥"
+        case .realLocation:     return "📍"
+        case .summary:          return "📖"
+        case .extras:           return "🧍"
+        case .props:            return "🔨"
+        case .setDressing:      return "🛋️"
+        case .wardrobe:         return "👕"
+        case .makeupHair:       return "💄"
+        case .vehicles:         return "🚗"
+        case .specialEquipment: return "🎥"
+        case .stunts:           return "🤸"
+        case .sfx:              return "🔥"
+        case .vfx:              return "✨"
+        case .breakdownNotes:   return "📝"
+        }
+    }
+
     /// The text to print for this field on a strip; empty when the scene has nothing set,
     /// in which case the strip omits the chip entirely (same rule Cast always followed).
     func displayValue(for scene: Scene) -> String {

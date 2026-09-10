@@ -9,6 +9,26 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-09 — `xcodebuild test` fails with ld EPERM in the default DerivedData; use a fresh `-derivedDataPath`
+
+Running the test suite from an agent shell died linking `LSVR CineSchedUITests-Runner.app`:
+`ld: open() failed, errno=1 (Operation not permitted)` writing into the existing runner
+bundle under `~/Library/Developer/Xcode/DerivedData`. Even `touch` inside that .app fails
+for the owner — macOS App Management (TCC) protects signed app bundles from processes
+without that permission, and disabling the shell sandbox doesn't help. Workaround: pass
+`-derivedDataPath <scratch dir>` so everything builds fresh in an unprotected location.
+Also: `-only-testing:"LSVR CineSchedTests"` still *builds* the UITests target, so the
+workaround is needed regardless of test selection. Plain `build` is unaffected.
+
+## 2026-09-09 — Spanish strings leak into English PDFs; exporters are full of legacy `isSpanish` ternaries
+
+The month breakdown page printed "Esc 36:" and "págs" in an English export: two strings in
+`PDFExporter.drawMonthBreakdownPage` were hardcoded Spanish with no `isSpanish` guard, left over
+from when the app was developed Spanish-first. The exporters still mostly localize via inline
+`isSpanish ? … : …` ternaries rather than `L()`. When touching exporter text, check the string is
+actually guarded (grep for `Esc`, `págs`, `DÍA`, etc.), and per CLAUDE.md fix it with `L("…")`
+(adding a table entry in `Localization.swift`), not another ternary.
+
 ## 2026-09-02 — `updateShootDays` rebuilds every `ShootDay`; anything per-day must be carried across explicitly
 
 Changing the production range regenerates the whole `shootDays` list in

@@ -248,6 +248,22 @@ func L(_ key: String, lang: AppLanguage = LocalizationManager.shared.currentLang
         "Total:": [.english: "Total:", .spanish: "Total:"],
         "Est:": [.english: "Est:", .spanish: "Est:"],
         "pgs": [.english: "pgs", .spanish: "págs"],
+        "Sc": [.english: "Sc", .spanish: "Esc"],
+
+        // Month PDF export options dialog + breakdown-line chip labels
+        "Month PDF Options": [.english: "Month PDF Options", .spanish: "Opciones del PDF Mensual"],
+        "Choose what the breakdown pages print for every scene. Fields a scene leaves blank are skipped.": [
+            .english: "Choose what the breakdown pages print for every scene. Fields a scene leaves blank are skipped.",
+            .spanish: "Elige qué imprimen las páginas de desglose para cada escena. Los campos vacíos se omiten."],
+        "Page Count": [.english: "Page Count", .spanish: "Páginas"],
+        "The scene's script length in eighths, e.g. 2/8 pgs": [
+            .english: "The scene's script length in eighths, e.g. 2/8 pgs",
+            .spanish: "La duración en octavos de página, p. ej. 2/8 págs"],
+        "The scene's estimated shooting time": [
+            .english: "The scene's estimated shooting time",
+            .spanish: "El tiempo estimado de rodaje de la escena"],
+        "Breakdown Fields": [.english: "Breakdown Fields", .spanish: "Campos de Desglose"],
+        "Export…": [.english: "Export…", .spanish: "Exportar…"],
         "pgs.": [.english: "pgs.", .spanish: "págs."],
         "scn": [.english: "scn", .spanish: "esc"],
         "END OF DAY #": [.english: "END OF DAY #", .spanish: "FIN DE DÍA #"],

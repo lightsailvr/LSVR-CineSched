@@ -300,7 +300,8 @@ class PDFExporter {
         month: Date,
         shootDays: [ShootDay],
         projectTitle: String,
-        productionInfo: ProductionInfo
+        productionInfo: ProductionInfo,
+        options: MonthPDFOptions = .default
     ) -> Data? {
         let pageWidth:  CGFloat = 792   // US Letter landscape
         let pageHeight: CGFloat = 612
@@ -462,32 +463,25 @@ class PDFExporter {
         NSGraphicsContext.restoreGraphicsState()
         context.endPDFPage()
 
-        // Page 2: Detailed Activity & Shoot Schedule Breakdown (if month has scheduled content)
+        // Pages 2+: Detailed Activity & Shoot Schedule Breakdown (if month has scheduled content)
         // Days with something to say: scenes, events, or a day note. A typed day with no note
-        // (a plain Day Off) is already labelled in the grid, and the breakdown is a single page
-        // that drops cards once full, so it doesn't earn a card of its own.
+        // (a plain Day Off) is already labelled in the grid, so it doesn't earn a card of its own.
         let activeDays = shootDays.filter { day in
             cal.isDate(day.date, equalTo: month, toGranularity: .month)
                 && (!day.scenes.isEmpty || !day.dayNote.isEmpty)
         }.sorted { $0.date < $1.date }
 
         if !activeDays.isEmpty {
-            context.beginPDFPage(nil)
-            let gctx2 = NSGraphicsContext(cgContext: context, flipped: false)
-            NSGraphicsContext.saveGraphicsState()
-            NSGraphicsContext.current = gctx2
-
-            drawMonthBreakdownPage(
+            drawMonthBreakdownPages(
+                context: context,
                 contentRect: contentRect,
                 monthTitle: monthTitle,
                 projectTitle: projectTitle,
                 activeDays: activeDays,
                 dayNumbers: dayNumbers,
-                isSpanish: isSpanish
+                isSpanish: isSpanish,
+                options: options
             )
-
-            NSGraphicsContext.restoreGraphicsState()
-            context.endPDFPage()
         }
 
         context.closePDF()
@@ -591,7 +585,7 @@ class PDFExporter {
                     bPath.stroke()
 
                     let evAttr: [NSAttributedString.Key: Any] = [
-                        .font: NSFont.boldSystemFont(ofSize: 7.2),
+                        .font: NSFont.boldSystemFont(ofSize: 6.8),
                         .foregroundColor: evColor,
                         .paragraphStyle: pStyle
                     ]
@@ -606,13 +600,18 @@ class PDFExporter {
                     bPath.stroke()
 
                     let scAttr: [NSAttributedString.Key: Any] = [
-                        .font: NSFont.systemFont(ofSize: 7.2),
+                        .font: NSFont.systemFont(ofSize: 6.8),
                         .foregroundColor: NSColor.black,
                         .paragraphStyle: pStyle
                     ]
-                    let numPrefix = scene.sceneNumber.isEmpty ? "" : "\(scene.sceneNumber). "
+                    // Scene number + shooting location, not the slugline — the cell is tiny
+                    // and the full breakdown follows on the next pages. Scenes without a
+                    // Real Location fall back to the slugline so the line is never bare.
+                    let numPrefix = scene.sceneNumber.isEmpty ? "" : "\(scene.sceneNumber) · "
+                    let loc = scene.realLocation.trimmingCharacters(in: .whitespaces)
+                    let body = loc.isEmpty ? scene.title : loc
                     let durStr = scene.duration > 0 ? " (\(formattedEighths(scene.duration)))" : ""
-                    NSAttributedString(string: "\(numPrefix)\(scene.title)\(durStr)", attributes: scAttr)
+                    NSAttributedString(string: "\(numPrefix)\(body)\(durStr)", attributes: scAttr)
                         .draw(in: bRect.insetBy(dx: 3, dy: 1))
                 }
                 yOff += boxHeight + 2
@@ -620,16 +619,260 @@ class PDFExporter {
         }
     }
 
-    private static func drawMonthBreakdownPage(
+    // MARK: - Breakdown pages (pages 2+)
+
+    /// One measured slice of a breakdown card. `draw` receives the slot rect the
+    /// pagination loop reserved for it (its `height` tall); everything the item renders
+    /// stays inside that rect, so card heights are exact and nothing can overflow.
+    private struct BreakdownItem {
+        let height: CGFloat
+        let draw: (CGRect) -> Void
+    }
+
+    /// Wrapping-aware text item: measured at `width`, capped at `maxLines` whole lines,
+    /// so a long note wraps instead of clipping mid-word but can never swallow the card.
+    private static func makeBreakdownLine(
+        _ string: String,
+        font: NSFont,
+        color: NSColor,
+        width: CGFloat,
+        maxLines: Int
+    ) -> BreakdownItem {
+        let para = NSMutableParagraphStyle()
+        para.lineBreakMode = .byWordWrapping
+        let str = NSAttributedString(string: string, attributes: [
+            .font: font, .foregroundColor: color, .paragraphStyle: para
+        ])
+        // .size() never wraps, so it is the height of exactly one line in this font
+        // (emoji prefixes included, which sit taller than the letters).
+        let lineHeight = str.size().height
+        let wrapped = str.boundingRect(
+            with: NSSize(width: width, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin]
+        ).height
+        let lineCount = max(1, min(maxLines, Int((wrapped / lineHeight).rounded())))
+        let height = ceil(lineHeight) * CGFloat(lineCount)
+        return BreakdownItem(height: height, draw: { rect in str.draw(in: rect) })
+    }
+
+    // MARK: Scene pills
+
+    private struct PDFPill {
+        let text:   NSAttributedString
+        let size:   CGSize
+        let fill:   NSColor
+        let stroke: NSColor
+    }
+
+    /// A rounded pill ("📍 HOLLYWOOD"). One that can't fit a single row becomes a
+    /// full-width pill with wrapped text (≤3 lines) so a long cast list keeps every
+    /// name instead of truncating.
+    private static func makePill(_ string: String, tint: NSColor?, maxWidth: CGFloat) -> PDFPill {
+        let para = NSMutableParagraphStyle()
+        para.lineBreakMode = .byWordWrapping
+        let str = NSAttributedString(string: string, attributes: [
+            .font: NSFont.systemFont(ofSize: 6.8),
+            .foregroundColor: tint ?? NSColor(white: 0.25, alpha: 1.0),
+            .paragraphStyle: para
+        ])
+        let fill   = tint?.withAlphaComponent(0.07) ?? NSColor.white
+        let stroke = tint?.withAlphaComponent(0.4)  ?? NSColor(white: 0.78, alpha: 1.0)
+        // Box height comes from the measured line height (emoji sit taller than the
+        // letters): a rect shorter than one line makes draw(in:) render nothing.
+        let lineHeight = str.size().height
+        let lineWidth  = ceil(str.size().width)
+        if lineWidth + 10 <= maxWidth {
+            return PDFPill(text: str, size: CGSize(width: lineWidth + 10, height: ceil(lineHeight) + 4), fill: fill, stroke: stroke)
+        }
+        let wrapped = str.boundingRect(
+            with: NSSize(width: maxWidth - 10, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin]
+        ).height
+        let lines = max(1, min(3, Int((wrapped / lineHeight).rounded())))
+        return PDFPill(text: str, size: CGSize(width: maxWidth, height: ceil(lineHeight) * CGFloat(lines) + 4), fill: fill, stroke: stroke)
+    }
+
+    /// Lays pills into left-aligned rows (3pt gaps), one BreakdownItem per row.
+    private static func pillRowItems(_ pills: [PDFPill], width: CGFloat, indent: CGFloat) -> [BreakdownItem] {
+        var items: [BreakdownItem] = []
+        var row: [PDFPill] = []
+        var rowWidth: CGFloat = 0
+
+        func flushRow() {
+            guard !row.isEmpty else { return }
+            let rowPills = row
+            let rowHeight = rowPills.map(\.size.height).max()! + 1
+            items.append(BreakdownItem(height: rowHeight, draw: { rect in
+                var x = rect.minX + indent
+                for pill in rowPills {
+                    let pRect = CGRect(x: x, y: rect.maxY - pill.size.height, width: pill.size.width, height: pill.size.height)
+                    let radius = min(pill.size.height / 2, 6)
+                    let path = NSBezierPath(roundedRect: pRect, xRadius: radius, yRadius: radius)
+                    pill.fill.setFill();   path.fill()
+                    pill.stroke.setStroke(); path.lineWidth = 0.5; path.stroke()
+                    pill.text.draw(in: pRect.insetBy(dx: 5, dy: 2))
+                    x += pill.size.width + 3
+                }
+            }))
+            row = []; rowWidth = 0
+        }
+
+        for pill in pills {
+            if rowWidth > 0 && rowWidth + pill.size.width > width { flushRow() }
+            row.append(pill)
+            rowWidth += pill.size.width + 3
+        }
+        flushRow()
+        return items
+    }
+
+    /// One scene's block: heading line (strip-color swatch, slugline, right-aligned
+    /// pgs/time), the synopsis on its own italic line, then a row of tinted pills for
+    /// the fields chosen in the export dialog — built to be read at a glance.
+    private static func sceneItems(
+        for scene: Scene,
+        options: MonthPDFOptions,
+        width: CGFloat
+    ) -> [BreakdownItem] {
+        var items: [BreakdownItem] = []
+        let indent: CGFloat = 11          // heading text starts after the color swatch;
+        let contentWidth = width - indent // synopsis and pills align with it
+
+        // Heading
+        var metaParts: [String] = []
+        if options.includePageCount, scene.duration > 0 { metaParts.append("\(formattedEighths(scene.duration)) \(L("pgs"))") }
+        if options.includeEstimatedTime, scene.estimatedTime > 0 { metaParts.append(formattedTime(scene.estimatedTime)) }
+        let metaStr: NSAttributedString? = metaParts.isEmpty ? nil : NSAttributedString(
+            string: metaParts.joined(separator: " · "),
+            attributes: [.font: NSFont.systemFont(ofSize: 7), .foregroundColor: NSColor(white: 0.4, alpha: 1.0)])
+        let metaWidth = metaStr.map { ceil($0.size().width) } ?? 0
+
+        let numStr = scene.sceneNumber.isEmpty ? "" : "\(L("Sc")) \(scene.sceneNumber): "
+        let headingPara = NSMutableParagraphStyle()
+        headingPara.lineBreakMode = .byWordWrapping
+        let headingStr = NSAttributedString(
+            string: "\(numStr)\(scene.title) [\(scene.intExtString) \(scene.dayNightType.rawValue.uppercased())]",
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 8, weight: .semibold),
+                .foregroundColor: NSColor.black,
+                .paragraphStyle: headingPara
+            ])
+        let headingTextWidth = contentWidth - (metaWidth > 0 ? metaWidth + 8 : 0)
+        let headingLineHeight = headingStr.size().height
+        let headingWrapped = headingStr.boundingRect(
+            with: NSSize(width: headingTextWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin]
+        ).height
+        let headingLines = max(1, min(2, Int((headingWrapped / headingLineHeight).rounded())))
+        let headingHeight = ceil(headingLineHeight) * CGFloat(headingLines)
+        let swatchColor = NSColor(scene.stripColor)   // convention: colors only via stripColor
+        items.append(BreakdownItem(height: headingHeight, draw: { rect in
+            let swatch = NSBezierPath(roundedRect: CGRect(x: rect.minX, y: rect.maxY - 8.5, width: 7, height: 7), xRadius: 2, yRadius: 2)
+            swatchColor.setFill(); swatch.fill()
+            NSColor(white: 0, alpha: 0.15).setStroke(); swatch.lineWidth = 0.5; swatch.stroke()
+            headingStr.draw(in: CGRect(x: rect.minX + indent, y: rect.minY, width: headingTextWidth, height: rect.height))
+            if let metaStr {
+                metaStr.draw(in: CGRect(x: rect.maxX - metaWidth, y: rect.maxY - ceil(headingLineHeight), width: metaWidth, height: ceil(headingLineHeight)))
+            }
+        }))
+
+        // Synopsis on its own line, italic so it reads as prose, not another data field.
+        if options.fields.contains(.summary) {
+            let synopsis = StripboardField.summary.displayValue(for: scene)
+            if !synopsis.isEmpty {
+                let base = NSFont.systemFont(ofSize: 7.5)
+                let italic = NSFont(descriptor: base.fontDescriptor.withSymbolicTraits(.italic), size: 7.5) ?? base
+                let line = makeBreakdownLine(synopsis, font: italic, color: NSColor(white: 0.32, alpha: 1.0),
+                                             width: contentWidth, maxLines: 3)
+                items.append(BreakdownItem(height: line.height, draw: { rect in
+                    line.draw(CGRect(x: rect.minX + indent, y: rect.minY, width: contentWidth, height: rect.height))
+                }))
+            }
+        }
+
+        // Pills, in declaration order so every scene reads the same. Location and
+        // equipment get a color of their own; the rest stay neutral.
+        var pills: [PDFPill] = []
+        for field in StripboardField.allCases where field != .summary && options.fields.contains(field) {
+            let value = field.displayValue(for: scene)
+            guard !value.isEmpty else { continue }
+            let tint: NSColor?
+            switch field {
+            case .realLocation:     tint = NSColor(red: 0.1, green: 0.35, blue: 0.85, alpha: 1.0)
+            case .specialEquipment: tint = NSColor(red: 0.72, green: 0.42, blue: 0.03, alpha: 1.0)
+            default:                tint = nil
+            }
+            pills.append(makePill("\(field.pdfEmoji) \(value)", tint: tint, maxWidth: contentWidth))
+        }
+        items.append(contentsOf: pillRowItems(pills, width: contentWidth, indent: indent))
+
+        return items
+    }
+
+    /// Everything a day's card prints under its date header. Fixed items (call times,
+    /// day note, events) come first; each scene is its own group so an oversized card
+    /// can be trimmed at scene granularity. The call-times line is measured like
+    /// everything else — the old fixed-height estimate forgot it and pushed scene
+    /// lines past the card border.
+    private static func breakdownContent(
+        for day: ShootDay,
+        isShoot: Bool,
+        isSpanish: Bool,
+        options: MonthPDFOptions,
+        width: CGFloat
+    ) -> (fixed: [BreakdownItem], sceneGroups: [[BreakdownItem]]) {
+        var fixed: [BreakdownItem] = []
+
+        // Call sheet times summary if shoot day
+        if isShoot && (!day.callSheet.generalCallTime.isEmpty || !day.callSheet.lunchTime.isEmpty || !day.callSheet.dinnerTime.isEmpty) {
+            var callParts: [String] = []
+            if !day.callSheet.generalCallTime.isEmpty { callParts.append("\(isSpanish ? "Llamado" : "Call"): \(day.callSheet.generalCallTime)") }
+            if !day.callSheet.lunchTime.isEmpty { callParts.append("\(isSpanish ? "Almuerzo" : "Lunch"): \(day.callSheet.lunchTime)") }
+            if !day.callSheet.dinnerTime.isEmpty { callParts.append("Wrap: \(day.callSheet.dinnerTime)") }
+            if !day.callSheet.basecampLocation.isEmpty { callParts.append("\(isSpanish ? "Loc" : "Base"): \(day.callSheet.basecampLocation)") }
+            fixed.append(makeBreakdownLine("⏰ " + callParts.joined(separator: "  ·  "),
+                                           font: .systemFont(ofSize: 7.8),
+                                           color: NSColor(white: 0.35, alpha: 1.0),
+                                           width: width, maxLines: 2))
+        }
+
+        // Day note (travel details, hold reason, …)
+        if !day.dayNote.isEmpty {
+            fixed.append(makeBreakdownLine("📝 " + day.dayNote,
+                                           font: .systemFont(ofSize: 7.8),
+                                           color: NSColor(white: 0.3, alpha: 1.0),
+                                           width: width, maxLines: 2))
+        }
+
+        // Events list
+        for ev in day.scenes where ev.isCalendarEvent {
+            let evTime = ev.customStartTime.isEmpty ? "" : "[\(ev.customStartTime)] "
+            fixed.append(makeBreakdownLine("🗓️  \(evTime)\(ev.title)",
+                                           font: .boldSystemFont(ofSize: 7.8),
+                                           color: NSColor(hexString: ev.bannerColorHex.isEmpty ? "6366F1" : ev.bannerColorHex),
+                                           width: width, maxLines: 2))
+        }
+
+        var sceneGroups: [[BreakdownItem]] = []
+        for scene in day.scenes where !scene.isCalendarEvent && !scene.isBanner {
+            var group = sceneItems(for: scene, options: options, width: width)
+            group.append(BreakdownItem(height: 2, draw: { _ in }))   // breathing room between scenes
+            sceneGroups.append(group)
+        }
+
+        return (fixed, sceneGroups)
+    }
+
+    /// Header + divider for a breakdown page. Returns the Y where the first card starts.
+    private static func drawBreakdownHeader(
         contentRect: CGRect,
         monthTitle: String,
         projectTitle: String,
-        activeDays: [ShootDay],
-        dayNumbers: [UUID: Int],
-        isSpanish: Bool
-    ) {
-        // Page 2 Header
-        let headerTitle = (projectTitle.isEmpty ? "CineSched" : projectTitle) + " — " + monthTitle + (isSpanish ? " — Desglose y Actividades" : " — Schedule & Breakdown")
+        isSpanish: Bool,
+        isContinuation: Bool
+    ) -> CGFloat {
+        var headerTitle = (projectTitle.isEmpty ? "CineSched" : projectTitle) + " — " + monthTitle + (isSpanish ? " — Desglose y Actividades" : " — Schedule & Breakdown")
+        if isContinuation { headerTitle += " (cont.)" }
         let titleAttr: [NSAttributedString.Key: Any] = [
             .font: NSFont.boldSystemFont(ofSize: 15),
             .foregroundColor: NSColor.black
@@ -654,31 +897,100 @@ class PDFExporter {
         divider.lineWidth = 0.75
         divider.stroke()
 
+        return contentRect.maxY - 52
+    }
+
+    /// Draws the per-day breakdown cards, starting a new PDF page whenever the next card
+    /// won't fit — the old single-page version silently dropped every remaining day once
+    /// the page filled. Owns its page lifecycle because the page count depends on content;
+    /// the caller only closes the document.
+    private static func drawMonthBreakdownPages(
+        context: CGContext,
+        contentRect: CGRect,
+        monthTitle: String,
+        projectTitle: String,
+        activeDays: [ShootDay],
+        dayNumbers: [UUID: Int],
+        isSpanish: Bool,
+        options: MonthPDFOptions
+    ) {
         let df = DateFormatter()
         df.locale = isSpanish ? Locale(identifier: "es_ES") : Locale(identifier: "en_US")
         df.dateStyle = .full
 
-        var curY = contentRect.maxY - 52
         let cardWidth = contentRect.width
+        let lineWidth = cardWidth - 16
+        // What a card can use on a fresh page, for trimming one that could never fit.
+        let fullPageRoom = (contentRect.maxY - 52) - contentRect.minY
+
+        var pageNumber = 0
+        var curY: CGFloat = 0
+
+        func beginPage() {
+            pageNumber += 1
+            context.beginPDFPage(nil)
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            curY = drawBreakdownHeader(
+                contentRect: contentRect,
+                monthTitle: monthTitle,
+                projectTitle: projectTitle,
+                isSpanish: isSpanish,
+                isContinuation: pageNumber > 1
+            )
+        }
+        func endPage() {
+            let para = NSMutableParagraphStyle(); para.alignment = .right
+            NSAttributedString(string: "\(isSpanish ? "Página" : "Page") \(pageNumber)", attributes: [
+                .font: NSFont.systemFont(ofSize: 7),
+                .foregroundColor: NSColor.gray,
+                .paragraphStyle: para
+            ]).draw(in: CGRect(x: contentRect.minX, y: contentRect.minY - 18, width: contentRect.width, height: 10))
+            NSGraphicsContext.restoreGraphicsState()
+            context.endPDFPage()
+        }
+
+        beginPage()
 
         for day in activeDays {
             let isShoot = dayNumbers[day.id] != nil
             let scriptScenes = day.scenes.filter { !$0.isCalendarEvent && !$0.isBanner }
-            let events = day.scenes.filter { $0.isCalendarEvent }
-
             let totalEighths = scriptScenes.reduce(0) { $0 + $1.duration }
             let totalMins = scriptScenes.reduce(0) { $0 + $1.estimatedTime }
 
-            // Estimate card height
-            let sceneLineHeight: CGFloat = 13
-            let scenesHeight = CGFloat(scriptScenes.count) * sceneLineHeight
-            let eventsHeight = CGFloat(events.count) * sceneLineHeight
-            let noteHeight: CGFloat = day.dayNote.isEmpty ? 0 : sceneLineHeight
-            let cardHeight: CGFloat = max(38 + scenesHeight + eventsHeight + noteHeight, 44)
+            let content = breakdownContent(for: day, isShoot: isShoot, isSpanish: isSpanish, options: options, width: lineWidth)
+            var sceneGroups = content.sceneGroups
 
-            guard curY - cardHeight >= contentRect.minY else { break }
+            // 22pt header row + measured items + bottom padding; 44 keeps a bare
+            // note-only card from collapsing, same minimum as before.
+            func cardHeight(for items: [BreakdownItem]) -> CGFloat {
+                max(22 + items.reduce(0) { $0 + $1.height + 2 } + 6, 44)
+            }
+            func assembled() -> [BreakdownItem] { content.fixed + sceneGroups.flatMap { $0 } }
 
-            let cardRect = CGRect(x: contentRect.minX, y: curY - cardHeight, width: cardWidth, height: cardHeight)
+            // A card taller than a whole page gets trailing scenes trimmed with an
+            // explicit count instead of overflowing the media box.
+            var items = assembled()
+            if cardHeight(for: items) > fullPageRoom {
+                var dropped = 0
+                while cardHeight(for: assembled()) + 14 > fullPageRoom && !sceneGroups.isEmpty {
+                    sceneGroups.removeLast()
+                    dropped += 1
+                }
+                items = assembled()
+                items.append(makeBreakdownLine(isSpanish ? "… y \(dropped) escenas más" : "… and \(dropped) more scenes",
+                                               font: .systemFont(ofSize: 7.8),
+                                               color: .gray,
+                                               width: lineWidth, maxLines: 1))
+            }
+            let height = cardHeight(for: items)
+
+            if curY - height < contentRect.minY {
+                endPage()
+                beginPage()
+            }
+
+            let cardRect = CGRect(x: contentRect.minX, y: curY - height, width: cardWidth, height: height)
             let cardPath = NSBezierPath(roundedRect: cardRect, xRadius: 4, yRadius: 4)
 
             if isShoot {
@@ -729,68 +1041,17 @@ class PDFExporter {
                     .draw(at: CGPoint(x: cardRect.minX + 220, y: cardRect.maxY - 15))
             }
 
-            // Call sheet times summary if shoot day
-            var itemY = cardRect.maxY - 28
-            if isShoot && (!day.callSheet.generalCallTime.isEmpty || !day.callSheet.lunchTime.isEmpty || !day.callSheet.dinnerTime.isEmpty) {
-                var callParts: [String] = []
-                if !day.callSheet.generalCallTime.isEmpty { callParts.append("\(isSpanish ? "Llamado" : "Call"): \(day.callSheet.generalCallTime)") }
-                if !day.callSheet.lunchTime.isEmpty { callParts.append("\(isSpanish ? "Almuerzo" : "Lunch"): \(day.callSheet.lunchTime)") }
-                if !day.callSheet.dinnerTime.isEmpty { callParts.append("\(isSpanish ? "Wrap" : "Wrap"): \(day.callSheet.dinnerTime)") }
-                if !day.callSheet.basecampLocation.isEmpty { callParts.append("\(isSpanish ? "Loc" : "Base"): \(day.callSheet.basecampLocation)") }
-
-                let callAttr: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.systemFont(ofSize: 7.8),
-                    .foregroundColor: NSColor(white: 0.35, alpha: 1.0)
-                ]
-                NSAttributedString(string: "⏰ " + callParts.joined(separator: "  ·  "), attributes: callAttr)
-                    .draw(at: CGPoint(x: cardRect.minX + 8, y: itemY))
-                itemY -= 13
+            // Measured items, top-down under the header row.
+            var lineTop = cardRect.maxY - 22
+            for item in items {
+                item.draw(CGRect(x: cardRect.minX + 8, y: lineTop - item.height, width: lineWidth, height: item.height))
+                lineTop -= item.height + 2
             }
 
-            // Day note (travel details, hold reason, …)
-            if !day.dayNote.isEmpty {
-                let noteAttr: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.systemFont(ofSize: 7.8),
-                    .foregroundColor: NSColor(white: 0.3, alpha: 1.0)
-                ]
-                NSAttributedString(string: "📝 " + day.dayNote, attributes: noteAttr)
-                    .draw(at: CGPoint(x: cardRect.minX + 8, y: itemY))
-                itemY -= 13
-            }
-
-            // Events list
-            for ev in events {
-                let evTime = ev.customStartTime.isEmpty ? "" : "[\(ev.customStartTime)] "
-                let evAttr: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.boldSystemFont(ofSize: 7.8),
-                    .foregroundColor: NSColor(hexString: ev.bannerColorHex.isEmpty ? "6366F1" : ev.bannerColorHex)
-                ]
-                NSAttributedString(string: "🗓️  \(evTime)\(ev.title)", attributes: evAttr)
-                    .draw(at: CGPoint(x: cardRect.minX + 8, y: itemY))
-                itemY -= sceneLineHeight
-            }
-
-            // Scenes list
-            for scene in scriptScenes {
-                let numStr = scene.sceneNumber.isEmpty ? "" : "Esc \(scene.sceneNumber): "
-                let intExt = scene.intExtString
-                let dayNight = scene.dayNightType.rawValue.uppercased()
-                let dur = scene.duration > 0 ? " · \(formattedEighths(scene.duration)) págs" : ""
-                let castStr = scene.cast.isEmpty ? "" : " · Cast: \(scene.cast.joined(separator: ", "))"
-                let locStr = scene.realLocation.isEmpty ? "" : " · Loc: \(scene.realLocation)"
-
-                let sceneAttr: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.systemFont(ofSize: 7.8),
-                    .foregroundColor: NSColor.black
-                ]
-                let fullSceneLine = "🎬  \(numStr)\(scene.title) [\(intExt) \(dayNight)]\(dur)\(castStr)\(locStr)"
-                NSAttributedString(string: fullSceneLine, attributes: sceneAttr)
-                    .draw(in: CGRect(x: cardRect.minX + 8, y: itemY, width: cardRect.width - 16, height: 12))
-                itemY -= sceneLineHeight
-            }
-
-            curY -= (cardHeight + 8)
+            curY -= (height + 8)
         }
+
+        endPage()
     }
 }
 

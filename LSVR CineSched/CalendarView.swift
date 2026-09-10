@@ -538,6 +538,20 @@ struct CompactMonthCalendarView: View {
     // Month navigation state
     @State private var displayedMonth: Date = Date()
 
+    // Month PDF export options — an app preference (UserDefaults), like the Stripboard
+    // fields, so the dialog remembers the last selection between exports.
+    @State private var showingExportOptions = false
+    @AppStorage(MonthPDFOptionSettings.fieldsKey) private var monthPDFFieldsRaw: String = MonthPDFOptionSettings.defaultFieldsRaw
+    @AppStorage(MonthPDFOptionSettings.pagesKey)  private var monthPDFShowPages: Bool = MonthPDFOptions.default.includePageCount
+    @AppStorage(MonthPDFOptionSettings.timeKey)   private var monthPDFShowTime:  Bool = MonthPDFOptions.default.includeEstimatedTime
+
+    private var monthPDFFieldsBinding: Binding<Set<StripboardField>> {
+        Binding(
+            get: { StripboardFieldSettings.decode(monthPDFFieldsRaw) },
+            set: { monthPDFFieldsRaw = StripboardFieldSettings.encode($0) }
+        )
+    }
+
     private var isSpanish: Bool {
         LocalizationManager.shared.currentLanguage == .spanish
     }
@@ -640,7 +654,7 @@ struct CompactMonthCalendarView: View {
             Spacer()
 
             Button {
-                exportMonthPDF()
+                showingExportOptions = true
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.down.doc.fill")
@@ -859,6 +873,18 @@ struct CompactMonthCalendarView: View {
                 }
             )
         }
+        .sheet(isPresented: $showingExportOptions) {
+            MonthPDFOptionsSheet(
+                selectedFields: monthPDFFieldsBinding,
+                includePageCount: $monthPDFShowPages,
+                includeEstimatedTime: $monthPDFShowTime,
+                onCancel: { showingExportOptions = false },
+                onExport: {
+                    showingExportOptions = false
+                    exportMonthPDF()
+                }
+            )
+        }
         .onChange(of: showingEditSheet) { _, isShowing in
             if !isShowing { clearEditingState() }
         }
@@ -999,11 +1025,17 @@ struct CompactMonthCalendarView: View {
     }
 
     private func exportMonthPDF() {
+        let options = MonthPDFOptions(
+            fields: StripboardFieldSettings.decode(monthPDFFieldsRaw),
+            includePageCount: monthPDFShowPages,
+            includeEstimatedTime: monthPDFShowTime
+        )
         guard let pdfData = PDFExporter.generateMonthPDF(
             month: displayedMonth,
             shootDays: shootDays,
             projectTitle: projectTitle,
-            productionInfo: productionInfo
+            productionInfo: productionInfo,
+            options: options
         ) else { return }
 
         let df = DateFormatter()
