@@ -17,7 +17,14 @@ DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer xcodebuild -scheme
 DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer xcodebuild -scheme "LSVR CineSched" -destination 'platform=macOS' test
 ```
 
-Add `CODE_SIGNING_ALLOWED=NO` for a headless build that should not touch signing. A clean build
+Add `CODE_SIGNING_ALLOWED=NO` for a headless build that should not touch signing.
+
+**Releases**: `scripts/release.sh <version>` cuts a release — bumps the versions in build
+settings, rolls the changelog's `[Unreleased]` into a dated section, builds Release, installs
+to `/Applications`, commits, tags `v<version>`, pushes, and publishes a GitHub Release with
+the zipped app. `scripts/install.sh` just builds and refreshes `/Applications` (no version,
+no tag). Version and build number live only in build settings; keep the changelog's newest
+section in sync with `MARKETING_VERSION`. A clean build
 on 2026-09-02 succeeds with ~20 warnings (deprecated one-argument `onChange`, and main-actor-isolated
 `Codable` conformances in `ProjectStore.swift`); do not add new ones.
 
