@@ -7,6 +7,7 @@ All notable changes to CineSched are documented here.
 - **iPhone, iPad and Vision Pro targets.** The same project now builds and launches on the iOS, iPadOS and visionOS simulators, showing a placeholder that names the platform as in progress. This is the first step of the multiplatform port (#1); nothing is usable there yet. The Mac app is unchanged.
 
 ### Changed
+- **Strip schedule and shooting schedule PDFs no longer depend on AppKit.** They draw through a shared CoreGraphics/CoreText helper so they can later ship on iPad and iPhone. Page layout, fonts and colors are unchanged; the one visible difference is in lines cut off with "…": on the strip schedule they now use the same letter-spacing as the text around them (they used to be drawn slightly tighter) so a title or cast list may end one character sooner, and on the shooting schedule a title keeps one more character when it fits.
 - **Requires macOS 27.** The deployment floor moves from 26.5 to 27.0 (on every platform in the project) as the baseline for the upcoming iPad, iPhone and Vision Pro work. Nothing about the Mac app's behavior changes.
 
 ## [4.6.0] - 2026-09-09

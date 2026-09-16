@@ -1,15 +1,13 @@
 // ShootingSchedulePDFExporter.swift
 // Vector PDF exporter for the master Plan de Rodaje (Shooting Schedule / One-Line Schedule) directly from the Stripboard.
+//
+// Draws through PDFCanvas (CoreGraphics + CoreText), so it builds and runs on every
+// platform. This exporter always placed its text by baseline with CTLineDraw; the
+// `canvas.draw(_:at:…)` calls below are those same points, with the anchor and
+// truncation options standing in for the old drawRightText / drawTextCentered /
+// drawBoundedText helpers.
 
-// Platform seam: macOS only for now. The exporters still draw through AppKit
-// (NSGraphicsContext, NSFont, NSColor, NSAttributedString), so they are gated out
-// of the iOS and visionOS builds until the shared CoreGraphics/CoreText drawing
-// helper lands (see docs/adr/0003 and the exporter tickets under #1).
-#if os(macOS)
 import SwiftUI
-import AppKit
-import CoreText
-import PDFKit
 
 struct ShootingSchedulePDFExporter {
 
@@ -70,38 +68,30 @@ struct ShootingSchedulePDFExporter {
         productionInfo: ProductionInfo
     ) -> Data {
         let isSpanish = LocalizationManager.shared.currentLanguage == .spanish
-        let pdfData = NSMutableData()
         let pageRect = CGRect(x: 0, y: 0, width: 612, height: 792) // Standard US Letter Portrait (612 x 792 pt)
-        guard let consumer = CGDataConsumer(data: pdfData as CFMutableData),
-              let context = CGContext(consumer: consumer, mediaBox: nil, nil) else {
+        guard let canvas = PDFCanvas(pageSize: pageRect.size) else {
             return Data()
         }
 
         let margin: CGFloat = 30
         let printableWidth = pageRect.width - (margin * 2) // 552pt
 
-        var currentPage = 1
         var yPosition: CGFloat = pageRect.height - margin
 
         func startNewPage() {
-            if currentPage > 1 {
-                context.endPDFPage()
-            }
-            context.beginPDFPage(nil)
+            canvas.beginPage()
             yPosition = pageRect.height - margin
 
             drawTopHeader(
-                context: context,
+                canvas: canvas,
                 margin: margin,
                 width: printableWidth,
                 projectTitle: projectTitle,
                 productionInfo: productionInfo,
-                pageNumber: currentPage,
+                pageNumber: canvas.pageCount,
                 isSpanish: isSpanish,
                 yPosition: &yPosition
             )
-
-            currentPage += 1
         }
 
         startNewPage()
@@ -135,7 +125,7 @@ struct ShootingSchedulePDFExporter {
             }
 
             drawDayHeaderBar(
-                context: context,
+                canvas: canvas,
                 margin: margin,
                 width: printableWidth,
                 day: day,
@@ -151,7 +141,7 @@ struct ShootingSchedulePDFExporter {
                 let title = isSpanish ? "LLEGADA DEL EQUIPO" : "CREW CALL"
                 let crewCallScene = Scene.createBanner(type: .notice, title: title, note: callTime, estimatedTime: "0:15", colorHex: "3B82F6")
                 drawBannerRow(
-                    context: context,
+                    canvas: canvas,
                     margin: margin,
                     width: printableWidth,
                     scene: crewCallScene,
@@ -165,7 +155,7 @@ struct ShootingSchedulePDFExporter {
                 let title = isSpanish ? "INICIO DE RODAJE" : "SET CALL"
                 let readyScene = Scene.createBanner(type: .notice, title: title, note: setTime, estimatedTime: "0:15", colorHex: "10B981")
                 drawBannerRow(
-                    context: context,
+                    canvas: canvas,
                     margin: margin,
                     width: printableWidth,
                     scene: readyScene,
@@ -196,7 +186,7 @@ struct ShootingSchedulePDFExporter {
 
                 if scene.isBanner {
                     drawBannerRow(
-                        context: context,
+                        canvas: canvas,
                         margin: margin,
                         width: printableWidth,
                         scene: scene,
@@ -207,7 +197,7 @@ struct ShootingSchedulePDFExporter {
                     currentTimeMinutes += durMinutes
                 } else {
                     drawSceneRow(
-                        context: context,
+                        canvas: canvas,
                         margin: margin,
                         width: printableWidth,
                         scene: scene,
@@ -226,7 +216,7 @@ struct ShootingSchedulePDFExporter {
 
             let endTimeStr = formatMinutesToClock(currentTimeMinutes)
             drawEndOfDayStrip(
-                context: context,
+                canvas: canvas,
                 margin: margin,
                 width: printableWidth,
                 day: day,
@@ -239,15 +229,13 @@ struct ShootingSchedulePDFExporter {
             yPosition -= 12
         }
 
-        context.endPDFPage()
-        context.closePDF()
-        return pdfData as Data
+        return canvas.finish()
     }
 
     // MARK: - Top Header (Matching Screenshot Layout)
 
     private static func drawTopHeader(
-        context: CGContext,
+        canvas: PDFCanvas,
         margin: CGFloat,
         width: CGFloat,
         projectTitle: String,
@@ -262,13 +250,13 @@ struct ShootingSchedulePDFExporter {
         let subStr = "\(schedLabel) — \(companyStr)"
 
         // Left Side Title
-        let fontTitle = NSFont.boldSystemFont(ofSize: 16)
-        let fontSub = NSFont.systemFont(ofSize: 9.5)
-        let textColor = NSColor(Color(hex: "1F2937"))
-        let subColor = NSColor(Color(hex: "6B7280"))
+        let fontTitle = PDFFont.boldSystem(size: 16)
+        let fontSub = PDFFont.system(size: 9.5)
+        let textColor = CGColor.hex("1F2937")
+        let subColor = CGColor.hex("6B7280")
 
-        drawText(titleStr, at: CGPoint(x: margin, y: yPosition - 16), font: fontTitle, color: textColor, context: context)
-        drawText(subStr, at: CGPoint(x: margin, y: yPosition - 30), font: fontSub, color: subColor, context: context)
+        canvas.draw(titleStr, at: CGPoint(x: margin, y: yPosition - 16), font: fontTitle, color: textColor)
+        canvas.draw(subStr, at: CGPoint(x: margin, y: yPosition - 30), font: fontSub, color: subColor)
 
         // Right Side Metadata (Page and Date)
         let df = DateFormatter()
@@ -277,17 +265,14 @@ struct ShootingSchedulePDFExporter {
         let dateStr = "\(isSpanish ? "EMISIÓN:" : "DATE:") \(df.string(from: Date()))"
         let pageStr = isSpanish ? "PÁGINA \(pageNumber)" : "PAGE \(pageNumber)"
 
-        drawRightText(pageStr, at: CGPoint(x: margin + width, y: yPosition - 16), font: fontSub, color: subColor, context: context)
-        drawRightText(dateStr, at: CGPoint(x: margin + width, y: yPosition - 30), font: fontSub, color: subColor, context: context)
+        canvas.draw(pageStr, at: CGPoint(x: margin + width, y: yPosition - 16), font: fontSub, color: subColor, anchor: .trailing)
+        canvas.draw(dateStr, at: CGPoint(x: margin + width, y: yPosition - 30), font: fontSub, color: subColor, anchor: .trailing)
 
         yPosition -= 36
 
         // Horizontal Line Separator
-        context.setLineWidth(1.5)
-        context.setStrokeColor(NSColor(Color(hex: "374151")).cgColor)
-        context.move(to: CGPoint(x: margin, y: yPosition))
-        context.addLine(to: CGPoint(x: margin + width, y: yPosition))
-        context.strokePath()
+        canvas.line(from: CGPoint(x: margin, y: yPosition), to: CGPoint(x: margin + width, y: yPosition),
+                    color: .hex("374151"), lineWidth: 1.5)
 
         yPosition -= 14
     }
@@ -295,7 +280,7 @@ struct ShootingSchedulePDFExporter {
     // MARK: - Day Header Bar
 
     private static func drawDayHeaderBar(
-        context: CGContext,
+        canvas: PDFCanvas,
         margin: CGFloat,
         width: CGFloat,
         day: ShootDay,
@@ -308,8 +293,7 @@ struct ShootingSchedulePDFExporter {
         let rect = CGRect(x: margin, y: yPosition - rowH, width: width, height: rowH)
 
         // Dark Slate Blue Background (#2E4057)
-        context.setFillColor(CGColor(red: 0.18, green: 0.25, blue: 0.34, alpha: 1.0))
-        context.fill(rect)
+        canvas.fill(rect, color: CGColor(red: 0.18, green: 0.25, blue: 0.34, alpha: 1.0))
 
         let df = DateFormatter()
         df.locale = appLocale()
@@ -319,8 +303,8 @@ struct ShootingSchedulePDFExporter {
         let shootDayPrefix = isSpanish ? "DÍA DE RODAJE" : "SHOOT DAY"
         let headerText = "\(shootDayPrefix) #\(dayNumber) — \(dateStr)"
 
-        let font = NSFont.boldSystemFont(ofSize: 9.5)
-        drawText(headerText, at: CGPoint(x: margin + 8, y: yPosition - 15), font: font, color: .white, context: context)
+        let font = PDFFont.boldSystem(size: 9.5)
+        canvas.draw(headerText, at: CGPoint(x: margin + 8, y: yPosition - 15), font: font, color: .pdfWhite)
 
         // Crew Call, Set Call, Lunch Time on right side
         var milestones: [String] = []
@@ -337,7 +321,7 @@ struct ShootingSchedulePDFExporter {
 
         let milesStr = milestones.joined(separator: "  |  ")
         if !milesStr.isEmpty {
-            drawRightText(milesStr, at: CGPoint(x: margin + width - 8, y: yPosition - 15), font: NSFont.boldSystemFont(ofSize: 9), color: .white, context: context)
+            canvas.draw(milesStr, at: CGPoint(x: margin + width - 8, y: yPosition - 15), font: .boldSystem(size: 9), color: .pdfWhite, anchor: .trailing)
         }
 
         yPosition -= rowH
@@ -346,7 +330,7 @@ struct ShootingSchedulePDFExporter {
     // MARK: - Scene Row Strip (Full Width for Scene Title / Description, Script Page & Eighths)
 
     private static func drawSceneRow(
-        context: CGContext,
+        canvas: PDFCanvas,
         margin: CGFloat,
         width: CGFloat,
         scene: Scene,
@@ -360,11 +344,9 @@ struct ShootingSchedulePDFExporter {
         let rect = CGRect(x: margin, y: rowY, width: width, height: rowH)
 
         // Background color matching strip color
-        let bgColor = NSColor(scene.stripColor)
-        context.setFillColor(bgColor.cgColor)
-        context.fill(rect)
+        canvas.fill(rect, color: .of(scene.stripColor))
 
-        let textColor = NSColor(Color(hex: "1F2937"))
+        let textColor = CGColor.hex("1F2937")
 
         let col1W: CGFloat = 112
         let xCol1 = margin + 4
@@ -375,9 +357,8 @@ struct ShootingSchedulePDFExporter {
         // 1. Time Badge
         if !timeRange.isEmpty {
             let timeRect = CGRect(x: xCol1, y: rowY + 3, width: col1W, height: rowH - 6)
-            context.setFillColor(NSColor.black.withAlphaComponent(0.08).cgColor)
-            context.fill(timeRect)
-            drawTextCentered(timeRange, in: timeRect, font: NSFont.boldSystemFont(ofSize: 7.5), color: textColor.withAlphaComponent(0.85), context: context)
+            canvas.fill(timeRect, color: CGColor.pdfBlack.withAlpha(0.08))
+            drawTextCentered(timeRange, in: timeRect, font: .boldSystem(size: 7.5), color: textColor.withAlpha(0.85), canvas: canvas)
         }
 
         // 2. Scene Number + Clean Full Title
@@ -386,23 +367,19 @@ struct ShootingSchedulePDFExporter {
         let fullTitle = rawNum.isEmpty ? cleanTitle : "\(rawNum). \(cleanTitle)"
         let maxTitleW = (xCol3 - 10) - xCol2
 
-        drawBoundedText(fullTitle, at: CGPoint(x: xCol2, y: yPosition - 15), maxWidth: maxTitleW, font: NSFont.boldSystemFont(ofSize: 9), color: textColor, context: context)
+        canvas.draw(fullTitle, at: CGPoint(x: xCol2, y: yPosition - 15), font: .boldSystem(size: 9), color: textColor, maxWidth: maxTitleW)
 
         // 3. Script Page (Fixed Column)
         let pageStr = isSpanish ? "Pág. \(scriptPageNumber)" : "Pg. \(scriptPageNumber)"
-        drawText(pageStr, at: CGPoint(x: xCol3, y: yPosition - 15), font: NSFont.systemFont(ofSize: 8.5), color: textColor.withAlphaComponent(0.8), context: context)
+        canvas.draw(pageStr, at: CGPoint(x: xCol3, y: yPosition - 15), font: .system(size: 8.5), color: textColor.withAlpha(0.8))
 
         // 4. Page Duration in Eighths (Right Aligned)
         let eighthsUnit = isSpanish ? "pág" : "pgs"
         let eighthsStr = "\(formattedEighths(scene.duration)) \(eighthsUnit)"
-        drawRightText(eighthsStr, at: CGPoint(x: xCol4, y: yPosition - 15), font: NSFont.boldSystemFont(ofSize: 9), color: textColor, context: context)
+        canvas.draw(eighthsStr, at: CGPoint(x: xCol4, y: yPosition - 15), font: .boldSystem(size: 9), color: textColor, anchor: .trailing)
 
         // Bottom border line
-        context.setLineWidth(0.5)
-        context.setStrokeColor(CGColor(red: 0.85, green: 0.85, blue: 0.85, alpha: 1.0))
-        context.move(to: CGPoint(x: margin, y: rowY))
-        context.addLine(to: CGPoint(x: margin + width, y: rowY))
-        context.strokePath()
+        drawRowBorder(canvas: canvas, margin: margin, width: width, y: rowY)
 
         yPosition -= rowH
     }
@@ -410,7 +387,7 @@ struct ShootingSchedulePDFExporter {
     // MARK: - Banner / Notice Row Strip
 
     private static func drawBannerRow(
-        context: CGContext,
+        canvas: PDFCanvas,
         margin: CGFloat,
         width: CGFloat,
         scene: Scene,
@@ -426,36 +403,33 @@ struct ShootingSchedulePDFExporter {
         let isCrewCall = scene.title.lowercased().contains("llegada") || scene.title.lowercased().contains("crew call")
         let isSetCall = scene.title.lowercased().contains("inicio") || scene.title.lowercased().contains("set call")
 
-        let bannerBgColor: NSColor
-        let accentColor: NSColor
-        let textColor: NSColor
+        let bannerBgColor: CGColor
+        let accentColor: CGColor
+        let textColor: CGColor
 
         if isMeal {
-            bannerBgColor = NSColor(Color(hex: "FEF3C7"))
-            accentColor = NSColor(Color(hex: "D97706"))
-            textColor = NSColor(Color(hex: "B45309"))
+            bannerBgColor = .hex("FEF3C7")
+            accentColor = .hex("D97706")
+            textColor = .hex("B45309")
         } else if isCrewCall {
-            bannerBgColor = NSColor(Color(hex: "EFF6FF"))
-            accentColor = NSColor(Color(hex: "3B82F6"))
-            textColor = NSColor(Color(hex: "1D4ED8"))
+            bannerBgColor = .hex("EFF6FF")
+            accentColor = .hex("3B82F6")
+            textColor = .hex("1D4ED8")
         } else if isSetCall {
-            bannerBgColor = NSColor(Color(hex: "ECFDF5"))
-            accentColor = NSColor(Color(hex: "10B981"))
-            textColor = NSColor(Color(hex: "047857"))
+            bannerBgColor = .hex("ECFDF5")
+            accentColor = .hex("10B981")
+            textColor = .hex("047857")
         } else {
-            bannerBgColor = NSColor(Color(hex: "E5E7EB"))
-            accentColor = NSColor(Color(hex: "4B5563"))
-            textColor = NSColor(Color(hex: "374151"))
+            bannerBgColor = .hex("E5E7EB")
+            accentColor = .hex("4B5563")
+            textColor = .hex("374151")
         }
 
         // Tinted background
-        context.setFillColor(bannerBgColor.cgColor)
-        context.fill(rect)
+        canvas.fill(rect, color: bannerBgColor)
 
         // 4pt left accent bar
-        let accentRect = CGRect(x: margin, y: rowY, width: 4, height: rowH)
-        context.setFillColor(accentColor.cgColor)
-        context.fill(accentRect)
+        canvas.fill(CGRect(x: margin, y: rowY, width: 4, height: rowH), color: accentColor)
 
         let col1W: CGFloat = 112
         let xCol1 = margin + 6
@@ -463,9 +437,8 @@ struct ShootingSchedulePDFExporter {
 
         if !timeRange.isEmpty {
             let timeRect = CGRect(x: xCol1, y: rowY + 3, width: col1W, height: rowH - 6)
-            context.setFillColor(accentColor.withAlphaComponent(0.14).cgColor)
-            context.fill(timeRect)
-            drawTextCentered(timeRange, in: timeRect, font: NSFont.boldSystemFont(ofSize: 7.5), color: textColor, context: context)
+            canvas.fill(timeRect, color: accentColor.withAlpha(0.14))
+            drawTextCentered(timeRange, in: timeRect, font: .boldSystem(size: 7.5), color: textColor, canvas: canvas)
         }
 
         // Cleaned and localized title
@@ -473,20 +446,16 @@ struct ShootingSchedulePDFExporter {
         let icon = isMeal ? "🍽️ " : (isCrewCall ? "🚌 " : (isSetCall ? "🎬 " : ""))
         let titleText = "\(icon)\(cleanedTitle.uppercased())"
         let maxTitleW = width - (col1W + 90)
-        drawBoundedText(titleText, at: CGPoint(x: xCol2, y: yPosition - 14), maxWidth: maxTitleW, font: NSFont.boldSystemFont(ofSize: 8.5), color: textColor, context: context)
+        canvas.draw(titleText, at: CGPoint(x: xCol2, y: yPosition - 14), font: .boldSystem(size: 8.5), color: textColor, maxWidth: maxTitleW)
 
         // Right side estimated duration
         if scene.estimatedTime > 0 {
             let timeHM = formattedTimeHM(scene.estimatedTime)
-            drawRightText("Est: \(timeHM)", at: CGPoint(x: margin + width - 8, y: yPosition - 14), font: NSFont.boldSystemFont(ofSize: 8.5), color: textColor, context: context)
+            canvas.draw("Est: \(timeHM)", at: CGPoint(x: margin + width - 8, y: yPosition - 14), font: .boldSystem(size: 8.5), color: textColor, anchor: .trailing)
         }
 
         // Bottom border line
-        context.setLineWidth(0.5)
-        context.setStrokeColor(CGColor(red: 0.85, green: 0.85, blue: 0.85, alpha: 1.0))
-        context.move(to: CGPoint(x: margin, y: rowY))
-        context.addLine(to: CGPoint(x: margin + width, y: rowY))
-        context.strokePath()
+        drawRowBorder(canvas: canvas, margin: margin, width: width, y: rowY)
 
         yPosition -= rowH
     }
@@ -494,7 +463,7 @@ struct ShootingSchedulePDFExporter {
     // MARK: - End of Day Strip
 
     private static func drawEndOfDayStrip(
-        context: CGContext,
+        canvas: PDFCanvas,
         margin: CGFloat,
         width: CGFloat,
         day: ShootDay,
@@ -507,8 +476,7 @@ struct ShootingSchedulePDFExporter {
         let rowY = yPosition - rowH
         let rect = CGRect(x: margin, y: rowY, width: width, height: rowH)
 
-        context.setFillColor(NSColor(Color(hex: "E5E7EB")).cgColor)
-        context.fill(rect)
+        canvas.fill(rect, color: .hex("E5E7EB"))
 
         let df = DateFormatter()
         df.locale = appLocale()
@@ -522,61 +490,21 @@ struct ShootingSchedulePDFExporter {
 
         let wrapText = day.callSheet.wrapTime.isEmpty ? endTimeStr : day.callSheet.wrapTime
         let footerText = "-- \(endDayPrefix) #\(dayNumber) \(fullDate) -- \(wrapLabel) \(wrapText) -- \(totalPagesLabel) \(formattedEighths(day.totalDuration)) -- \(totalTimeLabel) \(formattedTimeHM(day.totalEstimatedTime)) --"
-        drawTextCentered(footerText, in: rect, font: NSFont.boldSystemFont(ofSize: 8.5), color: NSColor(Color(hex: "374151")), context: context)
+        drawTextCentered(footerText, in: rect, font: .boldSystem(size: 8.5), color: .hex("374151"), canvas: canvas)
 
         yPosition -= rowH
     }
 
-    // MARK: - Text Drawing Helpers
+    // MARK: - Drawing Helpers
 
-    private static func drawText(_ text: String, at point: CGPoint, font: NSFont, color: NSColor, context: CGContext) {
-        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
-        let attrStr = NSAttributedString(string: text, attributes: attrs)
-        let line = CTLineCreateWithAttributedString(attrStr)
-        context.textPosition = point
-        CTLineDraw(line, context)
+    /// Centers a single line in `rect`, with the baseline a third of the point size
+    /// below the vertical middle (a cheap optical centering for all-caps labels).
+    private static func drawTextCentered(_ text: String, in rect: CGRect, font: PDFFont, color: CGColor, canvas: PDFCanvas) {
+        canvas.draw(text, at: CGPoint(x: rect.midX, y: rect.midY - (font.pointSize / 3)), font: font, color: color, anchor: .center)
     }
 
-    private static func drawBoundedText(_ text: String, at point: CGPoint, maxWidth: CGFloat, font: NSFont, color: NSColor, context: CGContext) {
-        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
-        let attrStr = NSAttributedString(string: text, attributes: attrs)
-        let line = CTLineCreateWithAttributedString(attrStr)
-        let width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
-
-        if width <= maxWidth {
-            context.textPosition = point
-            CTLineDraw(line, context)
-        } else {
-            let tokenAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
-            let token = CTLineCreateWithAttributedString(NSAttributedString(string: "…", attributes: tokenAttrs))
-            if let truncated = CTLineCreateTruncatedLine(line, Double(maxWidth), .end, token) {
-                context.textPosition = point
-                CTLineDraw(truncated, context)
-            } else {
-                context.textPosition = point
-                CTLineDraw(line, context)
-            }
-        }
-    }
-
-    private static func drawRightText(_ text: String, at point: CGPoint, font: NSFont, color: NSColor, context: CGContext) {
-        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
-        let attrStr = NSAttributedString(string: text, attributes: attrs)
-        let line = CTLineCreateWithAttributedString(attrStr)
-        let textSize = CTLineGetTypographicBounds(line, nil, nil, nil)
-        context.textPosition = CGPoint(x: point.x - CGFloat(textSize), y: point.y)
-        CTLineDraw(line, context)
-    }
-
-    private static func drawTextCentered(_ text: String, in rect: CGRect, font: NSFont, color: NSColor, context: CGContext) {
-        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
-        let attrStr = NSAttributedString(string: text, attributes: attrs)
-        let line = CTLineCreateWithAttributedString(attrStr)
-        let textSize = CTLineGetTypographicBounds(line, nil, nil, nil)
-        let x = rect.midX - (CGFloat(textSize) / 2)
-        let y = rect.midY - (font.pointSize / 3)
-        context.textPosition = CGPoint(x: x, y: y)
-        CTLineDraw(line, context)
+    private static func drawRowBorder(canvas: PDFCanvas, margin: CGFloat, width: CGFloat, y: CGFloat) {
+        canvas.line(from: CGPoint(x: margin, y: y), to: CGPoint(x: margin + width, y: y),
+                    color: CGColor(red: 0.85, green: 0.85, blue: 0.85, alpha: 1.0), lineWidth: 0.5)
     }
 }
-#endif

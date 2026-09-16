@@ -7,8 +7,9 @@
 //  leak Spanish abbreviations, and the export options must control the scene chips.
 //
 
-// The exporters are gated to macOS until the shared drawing helper lands (#3), so
-// this suite is gated with them; it is meant to run on every platform once they do.
+// PDFExporter still draws through AppKit and is gated to macOS until it moves onto
+// PDFCanvas (see StripboardPDFExporter for the shape), so this suite is gated with it;
+// it is meant to run on every platform once it does.
 #if os(macOS)
 import Testing
 import PDFKit

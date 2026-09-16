@@ -27,8 +27,9 @@ Add `CODE_SIGNING_ALLOWED=NO` for a headless build that should not touch signing
 
 **iOS and visionOS** build and test against the simulators (the installed 27.0 runtimes have
 iPhone 17, iPad Pro 13-inch (M5) and Apple Vision Pro; `xcrun simctl list devices available`
-for the current names). The exporters are gated to the Mac (ADR 0003), so
-`MonthPDFExporterTests` is skipped on the simulator; everything else must pass there.
+for the current names). The four exporters still on AppKit are gated to the Mac (ADR 0003), so
+`MonthPDFExporterTests` is skipped on the simulator; everything else, including `PDFCanvasTests`
+and `SchedulePDFExporterTests`, must pass there.
 
 ```bash
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -scheme "LSVR CineSched" -destination 'platform=iOS Simulator,name=iPhone 17' CODE_SIGNING_ALLOWED=NO build
@@ -73,13 +74,17 @@ All sources are flat in `LSVR CineSched/`, one responsibility per file:
 - `RecentFilesStore.swift`: recent-file bookmarks and every `Notification.Name` used by menus.
 - `Models.swift`: all value types. `Scene` doubles as banner, auto-meal, and calendar event via flags.
 - `CalendarView.swift`, `StripboardView.swift`: the two schedule views.
-- `*Sheet.swift`: modal editors. `*Exporter.swift`: PDF generators (Mac-only for now; every call
-  site is in `ProjectStore+PDFExports.swift`). `Fountain*`, `FinalDraftParser`, `HighlandArchiveReader`: importers.
+- `*Sheet.swift`: modal editors. `*Exporter.swift`: PDF generators; every call site is in
+  `ProjectStore+PDFExports.swift`. `PDFCanvas.swift` is the shared drawing helper (CoreGraphics +
+  CoreText, no AppKit); `StripboardPDFExporter` and `ShootingSchedulePDFExporter` draw on it and
+  build everywhere, the other four still draw through AppKit and are Mac-only until they are
+  migrated (its header comment is the migration recipe). `Fountain*`, `FinalDraftParser`,
+  `HighlandArchiveReader`: importers.
 - Platform seams (ADR 0003): `FilePanels`, `SelectAllTextField`, `WindowAccessor`, `ModifierKeys`,
   `PlatformControlStyles`, `PlatformColors`, `PlatformPlaceholderView`, plus the root/tabbing
-  choice in `CineSchedApp`, and the temporary `#if os(macOS)` gate on the six `*Exporter.swift`
-  files, `ProjectStore+PDFExports.swift` and `MonthPDFExporterTests`. These are the only files
-  allowed to contain `#if os(...)`.
+  choice in `CineSchedApp`, and the temporary `#if os(macOS)` gate on `PDFExporter`,
+  `CallSheetExporter`, `BreakdownExporter`, `DaysOutOfDaysExporter`, `ProjectStore+PDFExports.swift`
+  and `MonthPDFExporterTests`. These are the only files allowed to contain `#if os(...)`.
 
 ## Conventions
 
@@ -96,6 +101,9 @@ All sources are flat in `LSVR CineSched/`, one responsibility per file:
   `decodeIfPresent(...) ?? default` line in the hand-written `init(from:)`. Old project files must
   still open. There is no schema version.
 - **Colors**: resolve scene colors only via `Scene.stripColor`. Exporters must not hardcode strip colors.
+- **PDF drawing**: new or migrated exporters draw through `PDFCanvas` (`PDFFont`, `CGColor`
+  helpers, `draw(_:in:)` / `draw(_:at:)`), never through `NSFont` / `NSColor` /
+  `NSAttributedString.draw`. Do not add `#if os` to an exporter; migrate it instead.
 - **Platform APIs**: no `#if os(...)` outside the seam files listed above, and no `AppKit`/`UIKit`
   import in the pure core (models, parsers, importers, scanners, formatting, row logic, palette
   settings) or the views. Need `NSEvent`, a panel, a Mac-only control style, a system color? Add
@@ -114,8 +122,10 @@ All sources are flat in `LSVR CineSched/`, one responsibility per file:
 
 The test targets are Xcode template stubs. `LSVR CineSchedTests` uses Swift Testing (`@Test`,
 `#expect`). Pure, testable units: `FountainParser`, `FountainPaginator`, `FractionParser`,
-`TimeParser`, `Formatting.swift` free functions, `ConflictScanner`, `ScheduleLockScanner`, and
-`DaysOutOfDaysExporter.buildRows`. Prefer adding tests there over UI tests.
+`TimeParser`, `Formatting.swift` free functions, `ConflictScanner`, `ScheduleLockScanner`,
+`DaysOutOfDaysExporter.buildRows`, `PDFCanvas`, and the two PDFCanvas-based exporters (rendered from
+a fixture and read back through PDFKit in `SchedulePDFExporterTests`, which can also dump the
+PDFs to disk for a visual diff; see its header). Prefer adding tests there over UI tests.
 
 ## Working agreements
 

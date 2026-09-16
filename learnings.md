@@ -9,6 +9,48 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-16 — Moving two exporters off AppKit: TextKit's layout is reproducible, its truncation is not (#4)
+
+`PDFCanvas` replaces `NSAttributedString.draw(in:)` with CoreText. What it took to keep the
+strip schedule pixel-identical, measured by dumping the fixture PDFs before and after
+(`SchedulePDFExporterTests` + `TEST_RUNNER_CINESCHED_PDF_DUMP_DIR`, decompressing the content
+streams and rasterizing both for a pixel diff):
+
+- **TextKit rounds line metrics; CoreText does not.** `draw(in:)` puts the first baseline
+  `round(ascent)` below the top of the rect and advances `round(ascent) + ceil(descent) +
+  ceil(leading)` per line (SF 18pt: 17 + 4 = 21, not 21.2; 11pt: 11 + 3 = 14, not 12.95;
+  SF's leading is 0). `boundingRect` reports
+  the same whole numbers. `PDFFont.baselineOffset` / `lineHeight` encode that rule and
+  `PDFCanvasTests` pins the measured table, so nothing moved by a fraction of a point.
+- **The system font is the same font.** `CTFontCreateUIFontForLanguage(.system / .emphasizedSystem)`
+  is exactly `NSFont.systemFont` / `boldSystemFont`: same glyphs, same metrics, and CoreText
+  applies SF's optical tracking (the `Tc` operator in the PDF) on its own, so plain lines came
+  out byte-for-byte equal.
+- **Colors convert exactly.** `Color.resolve(in: EnvironmentValues()).cgColor` gives the same
+  extended-sRGB components as `NSColor(Color)`, and `CGColor(genericGrayGamma2_2Gray:)` is the
+  space `NSColor(white:alpha:)` used.
+- **TextKit draws truncated lines tighter than everything else.** A line it cut with "…" was
+  tracked about 13/1000 em tighter than the untruncated line above it (the PDF shows `Tc 0.0013`
+  where its neighbours have `0.0152`), and the ellipsis was appended un-kerned. Nothing in
+  CoreText reproduces that (`kCTTrackingAttributeName: 0` and `kCTKernAttributeName: 0` both
+  give the normal width), and it looks like a quirk rather than a design, so `PDFCanvas` does
+  not try: truncated lines keep their neighbours' tracking, which means a strip-schedule title
+  may now end one character before the ellipsis where it used to squeeze one more in.
+  Deliberate; noted in the changelog. `CTLineCreateTruncatedLine` (what the shooting schedule
+  used directly) was also rejected because it measures the prefix and the token separately and
+  so gives up a character early; the helper binary-searches the longest prefix whose width
+  *with* the ellipsis fits, so on the shooting schedule the change runs the other way — a
+  truncated title now keeps one more character when it fits, and the ellipsis is kerned to it.
+- **iOS has a different SF.** The same point sizes give different ascents and widths on the
+  simulator (18pt line height 22, not 21; the wrap fixture takes two lines, not three), so the
+  Mac-measured tables in `PDFCanvasTests` are `.enabled(if:)` the Mac face is present, and
+  everything else asserts the rule, not the numbers. iOS output is therefore not pixel-equal
+  to the Mac's, which no ticket asked for.
+- **Dumping files from tests on the Mac needs `ENABLE_APP_SANDBOX=NO`**, and the env var must
+  be a real environment variable (`TEST_RUNNER_X=… xcodebuild …`), not a build-setting
+  argument after `xcodebuild`. The test host is the sandboxed app, which cannot write outside
+  its container, and the terminal cannot read inside it (TCC), so the two never meet otherwise.
+
 ## 2026-09-16 — Getting the target to build for iOS was mostly a plist collision and AppKit hunting (#3)
 
 Three things that surprised, in the order they bit:
