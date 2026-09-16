@@ -82,6 +82,53 @@ struct PDFCanvasTests {
         #expect(PDFFont.named("Helvetica-Oblique", size: 8.5).pointSize == 8.5)
     }
 
+    /// TextKit gives a named face without leading a synthetic gap above its ascent (a fifth
+    /// of the size, rounded) and rounds its descent, so Helvetica sits lower in its line than
+    /// SF does. Measured with `NSLayoutManager.defaultBaselineOffset(for:)` / `defaultLineHeight(for:)`
+    /// and `NSAttributedString.size()` on the Mac (all three agree for these faces).
+    @Test(.enabled(if: hasMacSystemFace, "TextKit reference values are from the Mac"))
+    func namedFaceMetricsMatchTextKit() {
+        // (size, TextKit line height, TextKit baseline offset)
+        let expected: [(CGFloat, CGFloat, CGFloat)] = [
+            (7, 8, 6), (7.5, 10, 8), (8.5, 11, 9), (10, 12, 10), (12, 14, 11), (20, 24, 19),
+        ]
+        for (size, lineHeight, baseline) in expected {
+            let font = PDFFont.named("Helvetica-Oblique", size: size)
+            #expect(font.lineHeight == lineHeight, "\(size)pt line height")
+            #expect(font.baselineOffset == baseline, "\(size)pt baseline")
+        }
+    }
+
+    /// The semibold weight is the same SF face as the regular one (same metrics, same
+    /// tracking), just heavier — what `NSFont.systemFont(ofSize:weight: .semibold)` gave.
+    @Test func semiboldSystemIsTheSystemFaceAtASemiboldWeight() {
+        let regular  = PDFFont.system(size: 8)
+        let semibold = PDFFont.semiboldSystem(size: 8)
+        #expect(semibold.postScriptName.localizedCaseInsensitiveContains("semibold"))
+        #expect(semibold.postScriptName != regular.postScriptName)
+        #expect(semibold.ascent == regular.ascent)
+        #expect(semibold.descent == regular.descent)
+        #expect(semibold.lineHeight == regular.lineHeight)
+        #expect(semibold.baselineOffset == regular.baselineOffset)
+    }
+
+    /// A paragraph style's `lineSpacing` went between lines, never after the last one, so
+    /// two 8.5pt bold lines with 3pt spacing measured 23pt, not 26.
+    @Test func lineSpacingIsAddedBetweenLinesOnly() {
+        let canvas = PDFCanvas(pageSize: CGSize(width: 612, height: 792))!
+        let font = PDFFont.boldSystem(size: 8.5)
+        let one = canvas.height(of: "One line", font: font, width: 500, lineSpacing: 3)
+        let two = canvas.height(of: "One line\nTwo lines", font: font, width: 500, lineSpacing: 3)
+        let three = canvas.height(of: "One line\nTwo lines\nThree", font: font, width: 500, lineSpacing: 3)
+        #expect(one == font.lineHeight)
+        #expect(two == 2 * font.lineHeight + 3)
+        #expect(three == 3 * font.lineHeight + 6)
+        #expect(canvas.height(of: "", font: font, width: 500, lineSpacing: 3) == 0)
+        if Self.hasMacSystemFace {
+            #expect(two == 23)
+        }
+    }
+
     @Test func truncationKeepsWhatFitsAndEndsWithAnEllipsis() {
         let canvas = PDFCanvas(pageSize: CGSize(width: 612, height: 792))!
         let font = PDFFont.boldSystem(size: 9.5)

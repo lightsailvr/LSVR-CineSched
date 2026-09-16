@@ -1,13 +1,14 @@
 // PDFExporter.swift
 // Generates a landscape US Letter PDF calendar from shoot data
+//
+// Draws through PDFCanvas (CoreGraphics + CoreText), so it builds and runs on every
+// platform. The rects handed to `canvas.draw(_:in:…)` are the ones the AppKit version
+// handed to `NSAttributedString.draw(in:)`, and `draw(_:lineOrigin:…)` takes the points
+// `draw(at:)` took; PDFCanvas lays text out in them the way TextKit did, which is what
+// keeps the output identical — pixel for pixel, apart from lines cut with "…", which
+// TextKit tracked tighter (verified by pixel-diffing the fixture exports, #5).
 
-// Platform seam: macOS only for now. The exporters still draw through AppKit
-// (NSGraphicsContext, NSFont, NSColor, NSAttributedString), so they are gated out
-// of the iOS and visionOS builds until the shared CoreGraphics/CoreText drawing
-// helper lands (see docs/adr/0003 and the exporter tickets under #1).
-#if os(macOS)
 import SwiftUI
-import AppKit
 
 // MARK: - PDFExporter
 
@@ -31,10 +32,7 @@ class PDFExporter {
             height: pageHeight - 2 * margin
         )
 
-        let pdfData = NSMutableData()
-        guard let consumer = CGDataConsumer(data: pdfData) else { return nil }
-        var mediaBox = CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight)
-        guard let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else { return nil }
+        guard let canvas = PDFCanvas(pageSize: CGSize(width: pageWidth, height: pageHeight)) else { return nil }
 
         let weeks      = groupDaysIntoWeeks(shootDays)
         let rowHeights = calculateIdealRowHeights(weeks: weeks)
@@ -47,11 +45,7 @@ class PDFExporter {
 
         while weekIndex < weeks.count {
             pageNumber += 1
-            context.beginPDFPage(nil)
-
-            let gctx = NSGraphicsContext(cgContext: context, flipped: false)
-            NSGraphicsContext.saveGraphicsState()
-            NSGraphicsContext.current = gctx
+            canvas.beginPage()
 
             // Header on first page only
             if pageNumber == 1 {
@@ -63,6 +57,7 @@ class PDFExporter {
                     height: headerHeight
                 )
                 drawHeader(
+                    on: canvas,
                     in: headerRect,
                     projectTitle: projectTitle,
                     startDate: startDate,
@@ -87,29 +82,29 @@ class PDFExporter {
                     width: contentRect.width,
                     height: rowHeight
                 )
-                drawWeekRow(week: weeks[weekIndex], in: rowRect, cellWidth: cellWidth, dayNumbers: dayNumbers)
+                drawWeekRow(on: canvas, week: weeks[weekIndex], in: rowRect, cellWidth: cellWidth, dayNumbers: dayNumbers)
                 currentY -= rowHeight
                 horizontalLines.append(currentY)
                 weekIndex += 1
             }
 
             drawGridLines(
+                on: canvas,
                 horizontalLines: horizontalLines,
                 minX: contentRect.minX, maxX: contentRect.maxX,
                 minY: contentRect.minY, maxY: contentRect.maxY
             )
 
-            NSGraphicsContext.restoreGraphicsState()
-            context.endPDFPage()
+            canvas.endPage()
         }
 
-        context.closePDF()
-        return pdfData as Data
+        return canvas.finish()
     }
 
     // MARK: - Private Drawing Helpers
 
     private static func drawHeader(
+        on canvas: PDFCanvas,
         in rect: CGRect,
         projectTitle: String,
         startDate: Date,
@@ -117,21 +112,13 @@ class PDFExporter {
         allScenes: [Scene],
         shootDays: [ShootDay]
     ) {
-        let titleAttr: [NSAttributedString.Key: Any] = [
-            .font: NSFont.boldSystemFont(ofSize: 14),
-            .foregroundColor: NSColor.black
-        ]
         let displayTitle = projectTitle.isEmpty ? "Untitled Movie" : projectTitle
-        NSAttributedString(string: displayTitle, attributes: titleAttr)
-            .draw(in: CGRect(x: rect.minX, y: rect.maxY - 25, width: rect.width, height: 25))
+        canvas.draw(displayTitle, in: CGRect(x: rect.minX, y: rect.maxY - 25, width: rect.width, height: 25),
+                    font: .boldSystem(size: 14), color: .pdfBlack)
 
-        let smallAttr: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 10),
-            .foregroundColor: NSColor.gray
-        ]
         let scheduled = shootDays.filter { !$0.scenes.isEmpty }.count
-        NSAttributedString(string: "Shoot Days: \(scheduled)", attributes: smallAttr)
-            .draw(in: CGRect(x: rect.minX, y: rect.maxY - 50, width: rect.width, height: 20))
+        canvas.draw("Shoot Days: \(scheduled)", in: CGRect(x: rect.minX, y: rect.maxY - 50, width: rect.width, height: 20),
+                    font: .system(size: 10), color: .pdfGray)
     }
 
     private static func calculateIdealRowHeights(weeks: [[ShootDay?]]) -> [CGFloat] {
@@ -145,7 +132,7 @@ class PDFExporter {
         }
     }
 
-    private static func drawWeekRow(week: [ShootDay?], in rowRect: CGRect, cellWidth: CGFloat, dayNumbers: [UUID: Int]) {
+    private static func drawWeekRow(on canvas: PDFCanvas, week: [ShootDay?], in rowRect: CGRect, cellWidth: CGFloat, dayNumbers: [UUID: Int]) {
         for (col, day) in week.enumerated() {
             let cellRect = CGRect(
                 x: rowRect.minX + CGFloat(col) * cellWidth,
@@ -153,20 +140,17 @@ class PDFExporter {
                 width: cellWidth,
                 height: rowRect.height
             )
-            if let day = day { drawDay(day: day, in: cellRect, dayNumber: dayNumbers[day.id]) }
+            if let day = day { drawDay(on: canvas, day: day, in: cellRect, dayNumber: dayNumbers[day.id]) }
         }
     }
 
     private static func drawGridLines(
+        on canvas: PDFCanvas,
         horizontalLines: [CGFloat],
         minX: CGFloat, maxX: CGFloat,
         minY: CGFloat, maxY: CGFloat
     ) {
         guard !horizontalLines.isEmpty else { return }
-
-        let path = NSBezierPath()
-        path.lineWidth = 0.5
-        NSColor.lightGray.setStroke()
 
         let top    = horizontalLines.first ?? maxY
         let bottom = horizontalLines.last  ?? minY
@@ -174,19 +158,16 @@ class PDFExporter {
         // Vertical lines spanning actual calendar content only
         for i in 0...7 {
             let x = minX + CGFloat(i) * ((maxX - minX) / 7)
-            path.move(to: CGPoint(x: x, y: bottom))
-            path.line(to: CGPoint(x: x, y: top))
+            canvas.line(from: CGPoint(x: x, y: bottom), to: CGPoint(x: x, y: top), color: .pdfLightGray, lineWidth: 0.5)
         }
 
         // Horizontal row separators
         for y in horizontalLines {
-            path.move(to: CGPoint(x: minX, y: y))
-            path.line(to: CGPoint(x: maxX, y: y))
+            canvas.line(from: CGPoint(x: minX, y: y), to: CGPoint(x: maxX, y: y), color: .pdfLightGray, lineWidth: 0.5)
         }
-        path.stroke()
     }
 
-    private static func drawDay(day: ShootDay, in rect: CGRect, dayNumber: Int?) {
+    private static func drawDay(on canvas: PDFCanvas, day: ShootDay, in rect: CGRect, dayNumber: Int?) {
         let padding = CGFloat(8)
         let content = CGRect(
             x: rect.minX + padding, y: rect.minY + padding,
@@ -197,35 +178,18 @@ class PDFExporter {
         // Date header (top of cell)
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "E MMM d"
-        let dateAttr: [NSAttributedString.Key: Any] = [
-            .font: NSFont.boldSystemFont(ofSize: 10),
-            .foregroundColor: NSColor.black
-        ]
-        NSAttributedString(string: dateFormatter.string(from: day.date), attributes: dateAttr)
-            .draw(in: CGRect(x: content.minX, y: content.maxY - 12, width: content.width, height: 12))
+        canvas.draw(dateFormatter.string(from: day.date), in: CGRect(x: content.minX, y: content.maxY - 12, width: content.width, height: 12),
+                    font: .boldSystem(size: 10), color: .pdfBlack)
 
         // Production day number, right-justified — matches the on-screen calendar
         if let dayNumber {
-            let para = NSMutableParagraphStyle(); para.alignment = .right
-            let dayNumAttr: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 8),
-                .foregroundColor: NSColor(white: 0.4, alpha: 1),
-                .paragraphStyle: para
-            ]
-            NSAttributedString(string: "Day \(dayNumber)", attributes: dayNumAttr)
-                .draw(in: CGRect(x: content.minX, y: content.maxY - 12, width: content.width, height: 12))
+            canvas.draw("Day \(dayNumber)", in: CGRect(x: content.minX, y: content.maxY - 12, width: content.width, height: 12),
+                        font: .system(size: 8), color: .gray(0.4), alignment: .trailing)
         }
 
         // Scene strips
-        let boxHeight:     CGFloat = 11
-        let paragraphStyle         = NSMutableParagraphStyle()
-        paragraphStyle.lineBreakMode = .byTruncatingTail
-
-        let sceneAttr: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 8),
-            .foregroundColor: NSColor.black,
-            .paragraphStyle: paragraphStyle
-        ]
+        let boxHeight: CGFloat = 11
+        let sceneFont          = PDFFont.system(size: 8)
 
         var yOffset: CGFloat = 16
         for scene in day.scenes {
@@ -236,36 +200,25 @@ class PDFExporter {
                 height: boxHeight
             )
 
-            let boxPath = NSBezierPath(roundedRect: boxRect, xRadius: 2, yRadius: 2)
-            (scene.dayNightType == .night
-                ? NSColor(white: 0.9, alpha: 1.0)
-                : NSColor.white).setFill()
-            boxPath.fill()
-            NSColor.lightGray.setStroke()
-            boxPath.lineWidth = 0.5
-            boxPath.stroke()
+            canvas.fill(boxRect, cornerRadius: 2, color: scene.dayNightType == .night ? .gray(0.9) : .pdfWhite)
+            canvas.stroke(boxRect, cornerRadius: 2, color: .pdfLightGray, lineWidth: 0.5)
 
-            let attrStr    = NSAttributedString(string: scene.displayTitle, attributes: sceneAttr)
-            let textHeight = attrStr.size().height
+            let textHeight = sceneFont.lineHeight
             let textRect   = CGRect(
                 x: content.minX + 3,
                 y: content.maxY - yOffset - boxHeight + (boxHeight - textHeight) / 2,
                 width: content.width - 6,
                 height: textHeight
             )
-            attrStr.draw(in: textRect)
+            canvas.draw(scene.displayTitle, in: textRect, font: sceneFont, color: .pdfBlack, lineBreak: .truncateTail)
             yOffset += boxHeight
         }
 
         // Totals at bottom
         if !day.scenes.isEmpty {
-            let totalAttr: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 7),
-                .foregroundColor: NSColor.gray
-            ]
             let totalText = "Total: \(formattedEighths(day.totalDuration))\nEst: \(formattedTime(day.totalEstimatedTime))"
-            NSAttributedString(string: totalText, attributes: totalAttr)
-                .draw(in: CGRect(x: content.minX, y: content.minY, width: content.width, height: 20))
+            canvas.draw(totalText, in: CGRect(x: content.minX, y: content.minY, width: content.width, height: 20),
+                        font: .system(size: 7), color: .pdfGray)
         }
     }
 
@@ -366,15 +319,9 @@ class PDFExporter {
             monthWeeks.append(currentWeek)
         }
 
-        let pdfData = NSMutableData()
-        guard let consumer = CGDataConsumer(data: pdfData) else { return nil }
-        var mediaBox = CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight)
-        guard let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else { return nil }
+        guard let canvas = PDFCanvas(pageSize: CGSize(width: pageWidth, height: pageHeight)) else { return nil }
 
-        context.beginPDFPage(nil)
-        let gctx = NSGraphicsContext(cgContext: context, flipped: false)
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = gctx
+        canvas.beginPage()
 
         // Header (Month & Year + Project info)
         let headerHeight: CGFloat = 46
@@ -391,24 +338,16 @@ class PDFExporter {
         df.dateFormat = "MMMM yyyy"
         let monthTitle = df.string(from: month).uppercased()
 
-        let titleAttr: [NSAttributedString.Key: Any] = [
-            .font: NSFont.boldSystemFont(ofSize: 16),
-            .foregroundColor: NSColor.black
-        ]
         let displayTitle = (projectTitle.isEmpty ? "CineSched" : projectTitle) + " — " + monthTitle
-        NSAttributedString(string: displayTitle, attributes: titleAttr)
-            .draw(in: CGRect(x: headerRect.minX, y: headerRect.maxY - 20, width: headerRect.width, height: 20))
+        canvas.draw(displayTitle, in: CGRect(x: headerRect.minX, y: headerRect.maxY - 20, width: headerRect.width, height: 20),
+                    font: .boldSystem(size: 16), color: .pdfBlack)
 
-        let metaAttr: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 9),
-            .foregroundColor: NSColor.darkGray
-        ]
         let scheduledCount = shootDays.filter { !$0.scenes.isEmpty && cal.isDate($0.date, equalTo: month, toGranularity: .month) }.count
         let metaText = isSpanish
             ? "Días de Rodaje en el Mes: \(scheduledCount)  ·  Director: \(productionInfo.directorName.isEmpty ? "—" : productionInfo.directorName)  ·  Productor: \(productionInfo.producerName.isEmpty ? "—" : productionInfo.producerName)"
             : "Month Shoot Days: \(scheduledCount)  ·  Director: \(productionInfo.directorName.isEmpty ? "—" : productionInfo.directorName)  ·  Producer: \(productionInfo.producerName.isEmpty ? "—" : productionInfo.producerName)"
-        NSAttributedString(string: metaText, attributes: metaAttr)
-            .draw(in: CGRect(x: headerRect.minX, y: headerRect.maxY - 36, width: headerRect.width, height: 16))
+        canvas.draw(metaText, in: CGRect(x: headerRect.minX, y: headerRect.maxY - 36, width: headerRect.width, height: 16),
+                    font: .system(size: 9), color: .pdfDarkGray)
 
         // Weekday header bar
         let weekdayBarHeight: CGFloat = 16
@@ -419,24 +358,16 @@ class PDFExporter {
             height: weekdayBarHeight
         )
 
-        let barPath = NSBezierPath(roundedRect: weekdayBarRect, xRadius: 3, yRadius: 3)
-        NSColor(white: 0.92, alpha: 1.0).setFill()
-        barPath.fill()
+        canvas.fill(weekdayBarRect, cornerRadius: 3, color: .gray(0.92))
 
         let weekdaySymbols = isSpanish
             ? ["DOMINGO", "LUNES", "MARTES", "MIÉRCOLES", "JUEVES", "VIERNES", "SÁBADO"]
             : ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"]
 
         let cellWidth = contentRect.width / 7
-        let weekAttr: [NSAttributedString.Key: Any] = [
-            .font: NSFont.boldSystemFont(ofSize: 8.5),
-            .foregroundColor: NSColor(white: 0.3, alpha: 1.0)
-        ]
         for (col, symbol) in weekdaySymbols.enumerated() {
             let colRect = CGRect(x: weekdayBarRect.minX + CGFloat(col) * cellWidth, y: weekdayBarRect.minY + 2, width: cellWidth, height: 12)
-            let para = NSMutableParagraphStyle(); para.alignment = .center
-            var attr = weekAttr; attr[.paragraphStyle] = para
-            NSAttributedString(string: symbol, attributes: attr).draw(in: colRect)
+            canvas.draw(symbol, in: colRect, font: .boldSystem(size: 8.5), color: .gray(0.3), alignment: .center)
         }
 
         // Draw Weeks Grid (Page 1 gets 100% full height for maximum cell room)
@@ -455,6 +386,7 @@ class PDFExporter {
                 let dayNum = cell.shootDay != nil ? dayNumbers[cell.shootDay!.id] : nil
 
                 drawMonthGridCell(
+                    on: canvas,
                     date: cell.date,
                     shootDay: cell.shootDay,
                     dayNumber: dayNum,
@@ -464,8 +396,7 @@ class PDFExporter {
             }
         }
 
-        NSGraphicsContext.restoreGraphicsState()
-        context.endPDFPage()
+        canvas.endPage()
 
         // Pages 2+: Detailed Activity & Shoot Schedule Breakdown (if month has scheduled content)
         // Days with something to say: scenes, events, or a day note. A typed day with no note
@@ -477,7 +408,7 @@ class PDFExporter {
 
         if !activeDays.isEmpty {
             drawMonthBreakdownPages(
-                context: context,
+                on: canvas,
                 contentRect: contentRect,
                 monthTitle: monthTitle,
                 projectTitle: projectTitle,
@@ -488,36 +419,32 @@ class PDFExporter {
             )
         }
 
-        context.closePDF()
-
-        return pdfData as Data
+        return canvas.finish()
     }
 
     private static func drawMonthGridCell(
+        on canvas: PDFCanvas,
         date: Date,
         shootDay: ShootDay?,
         dayNumber: Int?,
         in rect: CGRect,
         isCurrentMonth: Bool
     ) {
-        let path = NSBezierPath(rect: rect)
         let isShoot = shootDay != nil && shootDay!.dayType.isShootable && (dayNumber != nil || !shootDay!.scenes.filter { !$0.isCalendarEvent }.isEmpty)
 
+        let cellFill: CGColor
         if isShoot {
-            NSColor(red: 0.94, green: 0.97, blue: 1.0, alpha: 1.0).setFill()
+            cellFill = .srgb(0.94, 0.97, 1.0)
         } else if let sd = shootDay, !sd.dayType.isShootable {
             // Same tint the calendar cell uses for this day type, washed out for print.
-            NSColor(hexString: sd.dayType.colorHex).withAlphaComponent(0.12).setFill()
+            cellFill = tint(sd.dayType.colorHex).withAlpha(0.12)
         } else if !isCurrentMonth {
-            NSColor(white: 0.97, alpha: 1.0).setFill()
+            cellFill = .gray(0.97)
         } else {
-            NSColor.white.setFill()
+            cellFill = .pdfWhite
         }
-        path.fill()
-
-        NSColor(white: 0.82, alpha: 1.0).setStroke()
-        path.lineWidth = 0.5
-        path.stroke()
+        canvas.fill(rect, color: cellFill)
+        canvas.stroke(rect, color: .gray(0.82), lineWidth: 0.5)
 
         let cal = Calendar.current
         let dayDigit = cal.component(.day, from: date)
@@ -525,52 +452,28 @@ class PDFExporter {
         let inner = rect.insetBy(dx: padding, dy: padding)
 
         // Day Number Header
-        let dayNumAttr: [NSAttributedString.Key: Any] = [
-            .font: NSFont.boldSystemFont(ofSize: 9.5),
-            .foregroundColor: isCurrentMonth ? NSColor.black : NSColor.lightGray
-        ]
-        NSAttributedString(string: "\(dayDigit)", attributes: dayNumAttr)
-            .draw(at: CGPoint(x: inner.minX, y: inner.maxY - 13))
+        canvas.draw("\(dayDigit)", lineOrigin: CGPoint(x: inner.minX, y: inner.maxY - 13),
+                    font: .boldSystem(size: 9.5), color: isCurrentMonth ? .pdfBlack : .pdfLightGray)
 
         // Shoot Day Badge
         if let dayNumber = dayNumber, isShoot {
-            let para = NSMutableParagraphStyle(); para.alignment = .right
-            let badgeAttr: [NSAttributedString.Key: Any] = [
-                .font: NSFont.boldSystemFont(ofSize: 8.5),
-                .foregroundColor: NSColor(red: 0.1, green: 0.35, blue: 0.85, alpha: 1.0),
-                .paragraphStyle: para
-            ]
             let badgeText = LocalizationManager.shared.currentLanguage == .spanish ? "DÍA #\(dayNumber)" : "DAY #\(dayNumber)"
-            NSAttributedString(string: badgeText, attributes: badgeAttr)
-                .draw(in: CGRect(x: inner.minX, y: inner.maxY - 13, width: inner.width, height: 13))
+            canvas.draw(badgeText, in: CGRect(x: inner.minX, y: inner.maxY - 13, width: inner.width, height: 13),
+                        font: .boldSystem(size: 8.5), color: badgeBlue, alignment: .trailing)
         } else if let sd = shootDay, !sd.dayType.isShootable {
             // Day type badge in the same slot the DAY # badge uses on shoot days.
-            let para = NSMutableParagraphStyle(); para.alignment = .right
-            para.lineBreakMode = .byTruncatingTail
-            let badgeAttr: [NSAttributedString.Key: Any] = [
-                .font: NSFont.boldSystemFont(ofSize: 7.5),
-                .foregroundColor: NSColor(hexString: sd.dayType.colorHex),
-                .paragraphStyle: para
-            ]
-            NSAttributedString(string: sd.dayType.localizedName.uppercased(), attributes: badgeAttr)
-                .draw(in: CGRect(x: inner.minX + 14, y: inner.maxY - 13, width: inner.width - 14, height: 13))
+            canvas.draw(sd.dayType.localizedName.uppercased(), in: CGRect(x: inner.minX + 14, y: inner.maxY - 13, width: inner.width - 14, height: 13),
+                        font: .boldSystem(size: 7.5), color: tint(sd.dayType.colorHex), alignment: .trailing, lineBreak: .truncateTail)
         }
 
         // Scenes and Calendar Events list
         if let day = shootDay {
             let boxHeight: CGFloat = 12
             var yOff: CGFloat = 16
-            let pStyle = NSMutableParagraphStyle()
-            pStyle.lineBreakMode = .byTruncatingTail
 
             if !day.dayNote.isEmpty {
-                let noteAttr: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.systemFont(ofSize: 7),
-                    .foregroundColor: NSColor(white: 0.3, alpha: 1.0),
-                    .paragraphStyle: pStyle
-                ]
-                NSAttributedString(string: day.dayNote, attributes: noteAttr)
-                    .draw(in: CGRect(x: inner.minX, y: inner.maxY - yOff - 10, width: inner.width, height: 10))
+                canvas.draw(day.dayNote, in: CGRect(x: inner.minX, y: inner.maxY - yOff - 10, width: inner.width, height: 10),
+                            font: .system(size: 7), color: .gray(0.3), lineBreak: .truncateTail)
                 yOff += 12
             }
 
@@ -578,36 +481,19 @@ class PDFExporter {
                 guard inner.maxY - yOff - boxHeight >= inner.minY + 4 else { break }
 
                 let bRect = CGRect(x: inner.minX, y: inner.maxY - yOff - boxHeight, width: inner.width, height: boxHeight)
-                let bPath = NSBezierPath(roundedRect: bRect, xRadius: 2.5, yRadius: 2.5)
 
                 if scene.isCalendarEvent {
-                    let evColor = NSColor(hexString: scene.bannerColorHex.isEmpty ? "6366F1" : scene.bannerColorHex)
-                    evColor.withAlphaComponent(0.18).setFill()
-                    bPath.fill()
-                    evColor.withAlphaComponent(0.6).setStroke()
-                    bPath.lineWidth = 0.5
-                    bPath.stroke()
+                    let evColor = tint(scene.bannerColorHex)
+                    canvas.fill(bRect, cornerRadius: 2.5, color: evColor.withAlpha(0.18))
+                    canvas.stroke(bRect, cornerRadius: 2.5, color: evColor.withAlpha(0.6), lineWidth: 0.5)
 
-                    let evAttr: [NSAttributedString.Key: Any] = [
-                        .font: NSFont.boldSystemFont(ofSize: 6.8),
-                        .foregroundColor: evColor,
-                        .paragraphStyle: pStyle
-                    ]
                     let timePrefix = scene.customStartTime.isEmpty ? "" : "\(scene.customStartTime) · "
-                    NSAttributedString(string: "\(timePrefix)\(scene.title)", attributes: evAttr)
-                        .draw(in: bRect.insetBy(dx: 3, dy: 1))
+                    canvas.draw("\(timePrefix)\(scene.title)", in: bRect.insetBy(dx: 3, dy: 1),
+                                font: .boldSystem(size: 6.8), color: evColor, lineBreak: .truncateTail)
                 } else if !scene.isBanner {
-                    (scene.dayNightType == .night ? NSColor(red: 0.88, green: 0.92, blue: 0.98, alpha: 1.0) : NSColor.white).setFill()
-                    bPath.fill()
-                    NSColor(white: 0.72, alpha: 1.0).setStroke()
-                    bPath.lineWidth = 0.5
-                    bPath.stroke()
+                    canvas.fill(bRect, cornerRadius: 2.5, color: scene.dayNightType == .night ? .srgb(0.88, 0.92, 0.98) : .pdfWhite)
+                    canvas.stroke(bRect, cornerRadius: 2.5, color: .gray(0.72), lineWidth: 0.5)
 
-                    let scAttr: [NSAttributedString.Key: Any] = [
-                        .font: NSFont.systemFont(ofSize: 6.8),
-                        .foregroundColor: NSColor.black,
-                        .paragraphStyle: pStyle
-                    ]
                     // Scene number + shooting location, not the slugline — the cell is tiny
                     // and the full breakdown follows on the next pages. Scenes without a
                     // Real Location fall back to the slugline so the line is never bare.
@@ -615,8 +501,8 @@ class PDFExporter {
                     let loc = scene.realLocation.trimmingCharacters(in: .whitespaces)
                     let body = loc.isEmpty ? scene.title : loc
                     let durStr = scene.duration > 0 ? " (\(formattedEighths(scene.duration)))" : ""
-                    NSAttributedString(string: "\(numPrefix)\(body)\(durStr)", attributes: scAttr)
-                        .draw(in: bRect.insetBy(dx: 3, dy: 1))
+                    canvas.draw("\(numPrefix)\(body)\(durStr)", in: bRect.insetBy(dx: 3, dy: 1),
+                                font: .system(size: 6.8), color: .pdfBlack, lineBreak: .truncateTail)
                 }
                 yOff += boxHeight + 2
             }
@@ -636,68 +522,52 @@ class PDFExporter {
     /// Wrapping-aware text item: measured at `width`, capped at `maxLines` whole lines,
     /// so a long note wraps instead of clipping mid-word but can never swallow the card.
     private static func makeBreakdownLine(
+        on canvas: PDFCanvas,
         _ string: String,
-        font: NSFont,
-        color: NSColor,
+        font: PDFFont,
+        color: CGColor,
         width: CGFloat,
         maxLines: Int
     ) -> BreakdownItem {
-        let para = NSMutableParagraphStyle()
-        para.lineBreakMode = .byWordWrapping
-        let str = NSAttributedString(string: string, attributes: [
-            .font: font, .foregroundColor: color, .paragraphStyle: para
-        ])
-        // .size() never wraps, so it is the height of exactly one line in this font
-        // (emoji prefixes included, which sit taller than the letters).
-        let lineHeight = str.size().height
-        let wrapped = str.boundingRect(
-            with: NSSize(width: width, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin]
-        ).height
-        let lineCount = max(1, min(maxLines, Int((wrapped / lineHeight).rounded())))
-        let height = ceil(lineHeight) * CGFloat(lineCount)
-        return BreakdownItem(height: height, draw: { rect in str.draw(in: rect) })
+        // One TextKit line in this font per wrapped line; an emoji prefix draws from the
+        // fallback face but does not make the line taller.
+        let lineCount = max(1, min(maxLines, canvas.lineCount(of: string, font: font, width: width)))
+        let height = font.lineHeight * CGFloat(lineCount)
+        return BreakdownItem(height: height, draw: { rect in canvas.draw(string, in: rect, font: font, color: color) })
     }
 
     // MARK: Scene pills
 
     private struct PDFPill {
-        let text:   NSAttributedString
+        let text:   String
+        let font:   PDFFont
+        let color:  CGColor
         let size:   CGSize
-        let fill:   NSColor
-        let stroke: NSColor
+        let fill:   CGColor
+        let stroke: CGColor
     }
 
     /// A rounded pill ("📍 HOLLYWOOD"). One that can't fit a single row becomes a
     /// full-width pill with wrapped text (≤3 lines) so a long cast list keeps every
     /// name instead of truncating.
-    private static func makePill(_ string: String, tint: NSColor?, maxWidth: CGFloat) -> PDFPill {
-        let para = NSMutableParagraphStyle()
-        para.lineBreakMode = .byWordWrapping
-        let str = NSAttributedString(string: string, attributes: [
-            .font: NSFont.systemFont(ofSize: 6.8),
-            .foregroundColor: tint ?? NSColor(white: 0.25, alpha: 1.0),
-            .paragraphStyle: para
-        ])
-        let fill   = tint?.withAlphaComponent(0.07) ?? NSColor.white
-        let stroke = tint?.withAlphaComponent(0.4)  ?? NSColor(white: 0.78, alpha: 1.0)
-        // Box height comes from the measured line height (emoji sit taller than the
-        // letters): a rect shorter than one line makes draw(in:) render nothing.
-        let lineHeight = str.size().height
-        let lineWidth  = ceil(str.size().width)
+    private static func makePill(on canvas: PDFCanvas, _ string: String, tint: CGColor?, maxWidth: CGFloat) -> PDFPill {
+        let font   = PDFFont.system(size: 6.8)
+        let color  = tint ?? .gray(0.25)
+        let fill   = tint?.withAlpha(0.07) ?? .pdfWhite
+        let stroke = tint?.withAlpha(0.4)  ?? .gray(0.78)
+        // Box height comes from the line height: a rect shorter than one line clips the
+        // text.
+        let lineHeight = font.lineHeight
+        let lineWidth  = ceil(canvas.width(of: string, font: font))
         if lineWidth + 10 <= maxWidth {
-            return PDFPill(text: str, size: CGSize(width: lineWidth + 10, height: ceil(lineHeight) + 4), fill: fill, stroke: stroke)
+            return PDFPill(text: string, font: font, color: color, size: CGSize(width: lineWidth + 10, height: lineHeight + 4), fill: fill, stroke: stroke)
         }
-        let wrapped = str.boundingRect(
-            with: NSSize(width: maxWidth - 10, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin]
-        ).height
-        let lines = max(1, min(3, Int((wrapped / lineHeight).rounded())))
-        return PDFPill(text: str, size: CGSize(width: maxWidth, height: ceil(lineHeight) * CGFloat(lines) + 4), fill: fill, stroke: stroke)
+        let lines = max(1, min(3, canvas.lineCount(of: string, font: font, width: maxWidth - 10)))
+        return PDFPill(text: string, font: font, color: color, size: CGSize(width: maxWidth, height: lineHeight * CGFloat(lines) + 4), fill: fill, stroke: stroke)
     }
 
     /// Lays pills into left-aligned rows (3pt gaps), one BreakdownItem per row.
-    private static func pillRowItems(_ pills: [PDFPill], width: CGFloat, indent: CGFloat) -> [BreakdownItem] {
+    private static func pillRowItems(on canvas: PDFCanvas, _ pills: [PDFPill], width: CGFloat, indent: CGFloat) -> [BreakdownItem] {
         var items: [BreakdownItem] = []
         var row: [PDFPill] = []
         var rowWidth: CGFloat = 0
@@ -711,10 +581,9 @@ class PDFExporter {
                 for pill in rowPills {
                     let pRect = CGRect(x: x, y: rect.maxY - pill.size.height, width: pill.size.width, height: pill.size.height)
                     let radius = min(pill.size.height / 2, 6)
-                    let path = NSBezierPath(roundedRect: pRect, xRadius: radius, yRadius: radius)
-                    pill.fill.setFill();   path.fill()
-                    pill.stroke.setStroke(); path.lineWidth = 0.5; path.stroke()
-                    pill.text.draw(in: pRect.insetBy(dx: 5, dy: 2))
+                    canvas.fill(pRect, cornerRadius: radius, color: pill.fill)
+                    canvas.stroke(pRect, cornerRadius: radius, color: pill.stroke, lineWidth: 0.5)
+                    canvas.draw(pill.text, in: pRect.insetBy(dx: 5, dy: 2), font: pill.font, color: pill.color)
                     x += pill.size.width + 3
                 }
             }))
@@ -734,6 +603,7 @@ class PDFExporter {
     /// pgs/time), the synopsis on its own italic line, then a row of tinted pills for
     /// the fields chosen in the export dialog — built to be read at a glance.
     private static func sceneItems(
+        on canvas: PDFCanvas,
         for scene: Scene,
         options: MonthPDFOptions,
         width: CGFloat
@@ -746,37 +616,27 @@ class PDFExporter {
         var metaParts: [String] = []
         if options.includePageCount, scene.duration > 0 { metaParts.append("\(formattedEighths(scene.duration)) \(L("pgs"))") }
         if options.includeEstimatedTime, scene.estimatedTime > 0 { metaParts.append(formattedTime(scene.estimatedTime)) }
-        let metaStr: NSAttributedString? = metaParts.isEmpty ? nil : NSAttributedString(
-            string: metaParts.joined(separator: " · "),
-            attributes: [.font: NSFont.systemFont(ofSize: 7), .foregroundColor: NSColor(white: 0.4, alpha: 1.0)])
-        let metaWidth = metaStr.map { ceil($0.size().width) } ?? 0
+        let metaFont = PDFFont.system(size: 7)
+        let metaStr: String? = metaParts.isEmpty ? nil : metaParts.joined(separator: " · ")
+        let metaWidth = metaStr.map { ceil(canvas.width(of: $0, font: metaFont)) } ?? 0
 
         let numStr = scene.sceneNumber.isEmpty ? "" : "\(L("Sc")) \(scene.sceneNumber): "
-        let headingPara = NSMutableParagraphStyle()
-        headingPara.lineBreakMode = .byWordWrapping
-        let headingStr = NSAttributedString(
-            string: "\(numStr)\(scene.title) [\(scene.intExtString) \(scene.dayNightType.rawValue.uppercased())]",
-            attributes: [
-                .font: NSFont.systemFont(ofSize: 8, weight: .semibold),
-                .foregroundColor: NSColor.black,
-                .paragraphStyle: headingPara
-            ])
+        let headingFont = PDFFont.semiboldSystem(size: 8)
+        let headingStr = "\(numStr)\(scene.title) [\(scene.intExtString) \(scene.dayNightType.rawValue.uppercased())]"
         let headingTextWidth = contentWidth - (metaWidth > 0 ? metaWidth + 8 : 0)
-        let headingLineHeight = headingStr.size().height
-        let headingWrapped = headingStr.boundingRect(
-            with: NSSize(width: headingTextWidth, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin]
-        ).height
-        let headingLines = max(1, min(2, Int((headingWrapped / headingLineHeight).rounded())))
-        let headingHeight = ceil(headingLineHeight) * CGFloat(headingLines)
-        let swatchColor = NSColor(scene.stripColor)   // convention: colors only via stripColor
+        let headingLineHeight = headingFont.lineHeight
+        let headingLines = max(1, min(2, canvas.lineCount(of: headingStr, font: headingFont, width: headingTextWidth)))
+        let headingHeight = headingLineHeight * CGFloat(headingLines)
+        let swatchColor = CGColor.of(scene.stripColor)   // convention: colors only via stripColor
         items.append(BreakdownItem(height: headingHeight, draw: { rect in
-            let swatch = NSBezierPath(roundedRect: CGRect(x: rect.minX, y: rect.maxY - 8.5, width: 7, height: 7), xRadius: 2, yRadius: 2)
-            swatchColor.setFill(); swatch.fill()
-            NSColor(white: 0, alpha: 0.15).setStroke(); swatch.lineWidth = 0.5; swatch.stroke()
-            headingStr.draw(in: CGRect(x: rect.minX + indent, y: rect.minY, width: headingTextWidth, height: rect.height))
+            let swatch = CGRect(x: rect.minX, y: rect.maxY - 8.5, width: 7, height: 7)
+            canvas.fill(swatch, cornerRadius: 2, color: swatchColor)
+            canvas.stroke(swatch, cornerRadius: 2, color: .gray(0, alpha: 0.15), lineWidth: 0.5)
+            canvas.draw(headingStr, in: CGRect(x: rect.minX + indent, y: rect.minY, width: headingTextWidth, height: rect.height),
+                        font: headingFont, color: .pdfBlack)
             if let metaStr {
-                metaStr.draw(in: CGRect(x: rect.maxX - metaWidth, y: rect.maxY - ceil(headingLineHeight), width: metaWidth, height: ceil(headingLineHeight)))
+                canvas.draw(metaStr, in: CGRect(x: rect.maxX - metaWidth, y: rect.maxY - headingLineHeight, width: metaWidth, height: headingLineHeight),
+                            font: metaFont, color: .gray(0.4))
             }
         }))
 
@@ -784,9 +644,7 @@ class PDFExporter {
         if options.fields.contains(.summary) {
             let synopsis = StripboardField.summary.displayValue(for: scene)
             if !synopsis.isEmpty {
-                let base = NSFont.systemFont(ofSize: 7.5)
-                let italic = NSFont(descriptor: base.fontDescriptor.withSymbolicTraits(.italic), size: 7.5) ?? base
-                let line = makeBreakdownLine(synopsis, font: italic, color: NSColor(white: 0.32, alpha: 1.0),
+                let line = makeBreakdownLine(on: canvas, synopsis, font: .italicSystem(size: 7.5), color: .gray(0.32),
                                              width: contentWidth, maxLines: 3)
                 items.append(BreakdownItem(height: line.height, draw: { rect in
                     line.draw(CGRect(x: rect.minX + indent, y: rect.minY, width: contentWidth, height: rect.height))
@@ -800,15 +658,15 @@ class PDFExporter {
         for field in StripboardField.allCases where field != .summary && options.fields.contains(field) {
             let value = field.displayValue(for: scene)
             guard !value.isEmpty else { continue }
-            let tint: NSColor?
+            let tint: CGColor?
             switch field {
-            case .realLocation:     tint = NSColor(red: 0.1, green: 0.35, blue: 0.85, alpha: 1.0)
-            case .specialEquipment: tint = NSColor(red: 0.72, green: 0.42, blue: 0.03, alpha: 1.0)
+            case .realLocation:     tint = badgeBlue
+            case .specialEquipment: tint = .srgb(0.72, 0.42, 0.03)
             default:                tint = nil
             }
-            pills.append(makePill("\(field.pdfEmoji) \(value)", tint: tint, maxWidth: contentWidth))
+            pills.append(makePill(on: canvas, "\(field.pdfEmoji) \(value)", tint: tint, maxWidth: contentWidth))
         }
-        items.append(contentsOf: pillRowItems(pills, width: contentWidth, indent: indent))
+        items.append(contentsOf: pillRowItems(on: canvas, pills, width: contentWidth, indent: indent))
 
         return items
     }
@@ -819,6 +677,7 @@ class PDFExporter {
     /// everything else — the old fixed-height estimate forgot it and pushed scene
     /// lines past the card border.
     private static func breakdownContent(
+        on canvas: PDFCanvas,
         for day: ShootDay,
         isShoot: Bool,
         isSpanish: Bool,
@@ -834,32 +693,32 @@ class PDFExporter {
             if !day.callSheet.lunchTime.isEmpty { callParts.append("\(isSpanish ? "Almuerzo" : "Lunch"): \(day.callSheet.lunchTime)") }
             if !day.callSheet.dinnerTime.isEmpty { callParts.append("Wrap: \(day.callSheet.dinnerTime)") }
             if !day.callSheet.basecampLocation.isEmpty { callParts.append("\(isSpanish ? "Loc" : "Base"): \(day.callSheet.basecampLocation)") }
-            fixed.append(makeBreakdownLine("⏰ " + callParts.joined(separator: "  ·  "),
-                                           font: .systemFont(ofSize: 7.8),
-                                           color: NSColor(white: 0.35, alpha: 1.0),
+            fixed.append(makeBreakdownLine(on: canvas, "⏰ " + callParts.joined(separator: "  ·  "),
+                                           font: .system(size: 7.8),
+                                           color: .gray(0.35),
                                            width: width, maxLines: 2))
         }
 
         // Day note (travel details, hold reason, …)
         if !day.dayNote.isEmpty {
-            fixed.append(makeBreakdownLine("📝 " + day.dayNote,
-                                           font: .systemFont(ofSize: 7.8),
-                                           color: NSColor(white: 0.3, alpha: 1.0),
+            fixed.append(makeBreakdownLine(on: canvas, "📝 " + day.dayNote,
+                                           font: .system(size: 7.8),
+                                           color: .gray(0.3),
                                            width: width, maxLines: 2))
         }
 
         // Events list
         for ev in day.scenes where ev.isCalendarEvent {
             let evTime = ev.customStartTime.isEmpty ? "" : "[\(ev.customStartTime)] "
-            fixed.append(makeBreakdownLine("🗓️  \(evTime)\(ev.title)",
-                                           font: .boldSystemFont(ofSize: 7.8),
-                                           color: NSColor(hexString: ev.bannerColorHex.isEmpty ? "6366F1" : ev.bannerColorHex),
+            fixed.append(makeBreakdownLine(on: canvas, "🗓️  \(evTime)\(ev.title)",
+                                           font: .boldSystem(size: 7.8),
+                                           color: tint(ev.bannerColorHex),
                                            width: width, maxLines: 2))
         }
 
         var sceneGroups: [[BreakdownItem]] = []
         for scene in day.scenes where !scene.isCalendarEvent && !scene.isBanner {
-            var group = sceneItems(for: scene, options: options, width: width)
+            var group = sceneItems(on: canvas, for: scene, options: options, width: width)
             group.append(BreakdownItem(height: 2, draw: { _ in }))   // breathing room between scenes
             sceneGroups.append(group)
         }
@@ -869,6 +728,7 @@ class PDFExporter {
 
     /// Header + divider for a breakdown page. Returns the Y where the first card starts.
     private static func drawBreakdownHeader(
+        on canvas: PDFCanvas,
         contentRect: CGRect,
         monthTitle: String,
         projectTitle: String,
@@ -877,29 +737,17 @@ class PDFExporter {
     ) -> CGFloat {
         var headerTitle = (projectTitle.isEmpty ? "CineSched" : projectTitle) + " — " + monthTitle + (isSpanish ? " — Desglose y Actividades" : " — Schedule & Breakdown")
         if isContinuation { headerTitle += " (cont.)" }
-        let titleAttr: [NSAttributedString.Key: Any] = [
-            .font: NSFont.boldSystemFont(ofSize: 15),
-            .foregroundColor: NSColor.black
-        ]
-        NSAttributedString(string: headerTitle, attributes: titleAttr)
-            .draw(at: CGPoint(x: contentRect.minX, y: contentRect.maxY - 20))
+        canvas.draw(headerTitle, lineOrigin: CGPoint(x: contentRect.minX, y: contentRect.maxY - 20),
+                    font: .boldSystem(size: 15), color: .pdfBlack)
 
         let subTitle = isSpanish
             ? "Detalle completo de escenas, llamados, personajes y eventos programados para este mes."
             : "Complete detail of scheduled scenes, call times, cast and calendar events for this month."
-        let subAttr: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 8.5),
-            .foregroundColor: NSColor.darkGray
-        ]
-        NSAttributedString(string: subTitle, attributes: subAttr)
-            .draw(at: CGPoint(x: contentRect.minX, y: contentRect.maxY - 34))
+        canvas.draw(subTitle, lineOrigin: CGPoint(x: contentRect.minX, y: contentRect.maxY - 34),
+                    font: .system(size: 8.5), color: .pdfDarkGray)
 
-        let divider = NSBezierPath()
-        divider.move(to: CGPoint(x: contentRect.minX, y: contentRect.maxY - 40))
-        divider.line(to: CGPoint(x: contentRect.maxX, y: contentRect.maxY - 40))
-        NSColor(white: 0.8, alpha: 1.0).setStroke()
-        divider.lineWidth = 0.75
-        divider.stroke()
+        canvas.line(from: CGPoint(x: contentRect.minX, y: contentRect.maxY - 40), to: CGPoint(x: contentRect.maxX, y: contentRect.maxY - 40),
+                    color: .gray(0.8), lineWidth: 0.75)
 
         return contentRect.maxY - 52
     }
@@ -909,7 +757,7 @@ class PDFExporter {
     /// the page filled. Owns its page lifecycle because the page count depends on content;
     /// the caller only closes the document.
     private static func drawMonthBreakdownPages(
-        context: CGContext,
+        on canvas: PDFCanvas,
         contentRect: CGRect,
         monthTitle: String,
         projectTitle: String,
@@ -932,10 +780,9 @@ class PDFExporter {
 
         func beginPage() {
             pageNumber += 1
-            context.beginPDFPage(nil)
-            NSGraphicsContext.saveGraphicsState()
-            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            canvas.beginPage()
             curY = drawBreakdownHeader(
+                on: canvas,
                 contentRect: contentRect,
                 monthTitle: monthTitle,
                 projectTitle: projectTitle,
@@ -944,14 +791,10 @@ class PDFExporter {
             )
         }
         func endPage() {
-            let para = NSMutableParagraphStyle(); para.alignment = .right
-            NSAttributedString(string: "\(isSpanish ? "Página" : "Page") \(pageNumber)", attributes: [
-                .font: NSFont.systemFont(ofSize: 7),
-                .foregroundColor: NSColor.gray,
-                .paragraphStyle: para
-            ]).draw(in: CGRect(x: contentRect.minX, y: contentRect.minY - 18, width: contentRect.width, height: 10))
-            NSGraphicsContext.restoreGraphicsState()
-            context.endPDFPage()
+            canvas.draw("\(isSpanish ? "Página" : "Page") \(pageNumber)",
+                        in: CGRect(x: contentRect.minX, y: contentRect.minY - 18, width: contentRect.width, height: 10),
+                        font: .system(size: 7), color: .pdfGray, alignment: .trailing)
+            canvas.endPage()
         }
 
         beginPage()
@@ -962,7 +805,7 @@ class PDFExporter {
             let totalEighths = scriptScenes.reduce(0) { $0 + $1.duration }
             let totalMins = scriptScenes.reduce(0) { $0 + $1.estimatedTime }
 
-            let content = breakdownContent(for: day, isShoot: isShoot, isSpanish: isSpanish, options: options, width: lineWidth)
+            let content = breakdownContent(on: canvas, for: day, isShoot: isShoot, isSpanish: isSpanish, options: options, width: lineWidth)
             var sceneGroups = content.sceneGroups
 
             // 22pt header row + measured items + bottom padding; 44 keeps a bare
@@ -982,9 +825,9 @@ class PDFExporter {
                     dropped += 1
                 }
                 items = assembled()
-                items.append(makeBreakdownLine(isSpanish ? "… y \(dropped) escenas más" : "… and \(dropped) more scenes",
-                                               font: .systemFont(ofSize: 7.8),
-                                               color: .gray,
+                items.append(makeBreakdownLine(on: canvas, isSpanish ? "… y \(dropped) escenas más" : "… and \(dropped) more scenes",
+                                               font: .system(size: 7.8),
+                                               color: .pdfGray,
                                                width: lineWidth, maxLines: 1))
             }
             let height = cardHeight(for: items)
@@ -995,54 +838,32 @@ class PDFExporter {
             }
 
             let cardRect = CGRect(x: contentRect.minX, y: curY - height, width: cardWidth, height: height)
-            let cardPath = NSBezierPath(roundedRect: cardRect, xRadius: 4, yRadius: 4)
 
             if isShoot {
-                NSColor(red: 0.96, green: 0.98, blue: 1.0, alpha: 1.0).setFill()
-                cardPath.fill()
-                NSColor(red: 0.7, green: 0.82, blue: 0.96, alpha: 1.0).setStroke()
+                canvas.fill(cardRect, cornerRadius: 4, color: .srgb(0.96, 0.98, 1.0))
+                canvas.stroke(cardRect, cornerRadius: 4, color: .srgb(0.7, 0.82, 0.96), lineWidth: 0.5)
             } else {
-                NSColor(white: 0.97, alpha: 1.0).setFill()
-                cardPath.fill()
-                NSColor(white: 0.85, alpha: 1.0).setStroke()
+                canvas.fill(cardRect, cornerRadius: 4, color: .gray(0.97))
+                canvas.stroke(cardRect, cornerRadius: 4, color: .gray(0.85), lineWidth: 0.5)
             }
-            cardPath.lineWidth = 0.5
-            cardPath.stroke()
 
             // Card Header: Date + Day Badge
             let dateString = df.string(from: day.date).capitalized
-            let dateAttr: [NSAttributedString.Key: Any] = [
-                .font: NSFont.boldSystemFont(ofSize: 9.5),
-                .foregroundColor: NSColor.black
-            ]
-            NSAttributedString(string: dateString, attributes: dateAttr)
-                .draw(at: CGPoint(x: cardRect.minX + 8, y: cardRect.maxY - 15))
+            canvas.draw(dateString, lineOrigin: CGPoint(x: cardRect.minX + 8, y: cardRect.maxY - 15),
+                        font: .boldSystem(size: 9.5), color: .pdfBlack)
 
+            let badgeFont   = PDFFont.boldSystem(size: 8.5)
+            let badgeOrigin = CGPoint(x: cardRect.minX + 220, y: cardRect.maxY - 15)
             if let dayNum = dayNumbers[day.id] {
                 let badgeText = isSpanish
                     ? "DÍA #\(dayNum) DE RODAJE (\(scriptScenes.count) esc · \(formattedEighths(totalEighths)) págs · \(formattedTime(totalMins)))"
                     : "SHOOT DAY #\(dayNum) (\(scriptScenes.count) sc · \(formattedEighths(totalEighths)) pgs · \(formattedTime(totalMins)))"
-                let badgeAttr: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.boldSystemFont(ofSize: 8.5),
-                    .foregroundColor: NSColor(red: 0.1, green: 0.35, blue: 0.85, alpha: 1.0)
-                ]
-                NSAttributedString(string: badgeText, attributes: badgeAttr)
-                    .draw(at: CGPoint(x: cardRect.minX + 220, y: cardRect.maxY - 15))
+                canvas.draw(badgeText, lineOrigin: badgeOrigin, font: badgeFont, color: badgeBlue)
             } else if !day.dayType.isShootable {
-                let badgeAttr: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.boldSystemFont(ofSize: 8.5),
-                    .foregroundColor: NSColor(hexString: day.dayType.colorHex)
-                ]
-                NSAttributedString(string: day.dayType.localizedName.uppercased(), attributes: badgeAttr)
-                    .draw(at: CGPoint(x: cardRect.minX + 220, y: cardRect.maxY - 15))
+                canvas.draw(day.dayType.localizedName.uppercased(), lineOrigin: badgeOrigin, font: badgeFont, color: tint(day.dayType.colorHex))
             } else {
                 let eventBadgeText = isSpanish ? "📅 DÍA DE AGENDA" : "📅 AGENDA / PREP DAY"
-                let badgeAttr: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.boldSystemFont(ofSize: 8.5),
-                    .foregroundColor: NSColor(hexString: "6366F1")
-                ]
-                NSAttributedString(string: eventBadgeText, attributes: badgeAttr)
-                    .draw(at: CGPoint(x: cardRect.minX + 220, y: cardRect.maxY - 15))
+                canvas.draw(eventBadgeText, lineOrigin: badgeOrigin, font: badgeFont, color: eventIndigo)
             }
 
             // Measured items, top-down under the header row.
@@ -1059,30 +880,19 @@ class PDFExporter {
     }
 }
 
-// MARK: - NSColor Hex Extension
+// MARK: - Tints
 
-private extension NSColor {
-    convenience init(hexString: String) {
-        let hex = hexString.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0
-        Scanner(string: hex).scanHexInt64(&int)
-        let a, r, g, b: UInt64
-        switch hex.count {
-        case 3: // RGB (12-bit)
-            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
-        case 6: // RGB (24-bit)
-            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
-        case 8: // ARGB (32-bit)
-            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
-        default:
-            (a, r, g, b) = (255, 99, 102, 241)
-        }
-        self.init(
-            red: CGFloat(r) / 255,
-            green: CGFloat(g) / 255,
-            blue: CGFloat(b) / 255,
-            alpha: CGFloat(a) / 255
-        )
+extension PDFExporter {
+    /// The blue of the "DAY #" badges and the location pill, and the indigo of calendar
+    /// events with no colour of their own.
+    fileprivate static let badgeBlue   = CGColor.srgb(0.1, 0.35, 0.85)
+    fileprivate static let eventIndigo = CGColor.hex("6366F1")
+
+    /// The colour behind an event's or day type's hex string. An empty or malformed string
+    /// gives `eventIndigo`, as the AppKit version's `NSColor(hexString:)` did (where
+    /// `Color(hex:)` would give black).
+    fileprivate static func tint(_ hex: String) -> CGColor {
+        let digits = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        return [3, 6, 8].contains(digits.count) ? .hex(digits) : eventIndigo
     }
 }
-#endif

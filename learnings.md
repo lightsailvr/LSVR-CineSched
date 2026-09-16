@@ -9,6 +9,53 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-16 — Month calendar and call sheet off AppKit: named fonts get a synthetic gap, `draw(at:)` is a line box, emoji change nothing (#5)
+
+Same method as #4 (dump the fixture PDFs before and after, rasterize, pixel-diff — the
+tools were a scratch Swift CLI on PDFKit + CoreGraphics, no ImageMagick on the machine).
+Everything came out identical except the known ellipsis lines, but a few things had to be
+measured first, all with a scratch AppKit script driving `NSLayoutManager` and reading the
+`Tm` operators back out of the PDF stream:
+
+- **Non-system faces get a synthetic leading in TextKit.** SF follows the #4 rule
+  (baseline `round(ascent)`, line `+ ceil(descent)`), but Helvetica, Times and Courier, which
+  report zero leading, are laid out with `round(0.2 × size)` added *above* the ascent and
+  `round(descent)` below: Helvetica-Oblique 8.5pt is an 11pt line with the baseline 9pt
+  down, where the SF rule would say 9 and 7. It fits every size 6–30 for those three faces;
+  faces that carry their own leading (Arial, Helvetica Neue) follow yet another rule that is
+  not modelled because nothing uses them. `PDFFont.named` encodes the gap; `PDFCanvasTests`
+  pins the numbers. The one Helvetica line in the app (the call sheet quote) sits exactly
+  where it did. (#5 asked for "font descriptor traits" in place of the `NSFontManager`
+  lookups; that is what the schedule line gets, but the quote was never the system italic,
+  so it keeps its Helvetica by name — traits would have changed its face.)
+- **`NSAttributedString.draw(at:)` is `draw(in:)` with a one-line-tall rect.** The point is
+  the bottom-left of the line box, so the baseline lands `lineHeight - baselineOffset`
+  (the rounded descent) above it — not at the point. `PDFCanvas.draw(_:lineOrigin:…)`.
+- **Emoji do not make a TextKit line taller.** `size().height` for "📍 HOLLYWOOD" equals
+  the plain line's at every size tried (the fallback face is used for the glyph, not for the
+  line metrics), so the old `PDFExporter` comment that pills had to measure their own line
+  height "because emoji sit taller" was wrong; `PDFFont.lineHeight` is the height.
+- **`NSParagraphStyle.lineSpacing` goes between lines only**, never after the last (two
+  8.5pt lines with 3pt spacing measure 23, not 26), and `.usesFontLeading` changes nothing
+  for SF (leading 0). `draw(in:lineSpacing:)` / `height(of:lineSpacing:)`.
+- **`NSFont.systemFont(ofSize:weight: .semibold)` is the system face with CoreText's
+  weight trait 0.3** (`.SFNS-Semibold`); `CTFontCreateCopyWithAttributes` on the UI font keeps
+  its tracking, and the pixel diff on the breakdown headings is clean.
+- **`NSColor(red:green:blue:alpha:)` is sRGB; `NSColor.gray` / `.lightGray` / `.darkGray`
+  are calibrated whites 1/2, 2/3, 1/3.** `CGColor.srgb` and the `pdf*Gray` statics.
+- **`PDFExporter.generatePDF` (File ▸ Export Schedule PDF) rides along** in the same file
+  and was diffed too: identical except its truncated titles and a 1/255 shade on the grid
+  lines (one path stroked once vs. one stroke per line).
+- **`NSAttributedString.size()` disagrees with `NSLayoutManager.defaultLineHeight(for:)` for
+  SF** at several sizes (11pt: 14 vs 13; 26pt: 30 vs 30 but the #4 rule says 31). The
+  exporters only ever place a single 26pt line by its baseline, so the mismatch at ≥ 26pt is
+  harmless today, but `height(of:)` at those sizes is not verified against TextKit.
+- **The call sheet already loses everything after its first page break** (#32): each
+  section keeps a local `var y` that `ensureRoom`'s page reset never reaches. Reproduced
+  faithfully here (the page count is pinned by a test); fix it separately.
+- **`-only-testing:` with a Swift Testing function needs the parentheses**
+  (`Suite/test()`); without them nothing runs and xcodebuild still reports success.
+
 ## 2026-09-16 — Moving two exporters off AppKit: TextKit's layout is reproducible, its truncation is not (#4)
 
 `PDFCanvas` replaces `NSAttributedString.draw(in:)` with CoreText. What it took to keep the

@@ -8,6 +8,7 @@ All notable changes to CineSched are documented here.
 
 ### Changed
 - **Strip schedule and shooting schedule PDFs no longer depend on AppKit.** They draw through a shared CoreGraphics/CoreText helper so they can later ship on iPad and iPhone. Page layout, fonts and colors are unchanged; the one visible difference is in lines cut off with "…": on the strip schedule they now use the same letter-spacing as the text around them (they used to be drawn slightly tighter) so a title or cast list may end one character sooner, and on the shooting schedule a title keeps one more character when it fits.
+- **Month calendar and call sheet PDFs no longer depend on AppKit either.** Both pages of the month export and the call sheet now draw through the same helper. Layout, fonts (including the italic synopsis, quote and schedule lines) and colors are unchanged, pixel for pixel; as with the strip schedule, a line cut off with "…" (a cell's cast list, address or synopsis on the call sheet, an event chip in a month cell) may end one character sooner.
 - **Requires macOS 27.** The deployment floor moves from 26.5 to 27.0 (on every platform in the project) as the baseline for the upcoming iPad, iPhone and Vision Pro work. Nothing about the Mac app's behavior changes.
 
 ## [4.6.0] - 2026-09-09

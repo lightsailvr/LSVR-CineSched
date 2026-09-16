@@ -77,8 +77,9 @@ CalendarView.swift        Month grid / full-schedule scroll, drag & drop, day ce
 StripboardView.swift      Strip schedule with time cascade and auto-meal sync.
 *Sheet.swift              Modal editors (Scene, CallSheet, ProductionSetup, Banner, CalendarEvent, SendToDay, ...).
 PDFCanvas.swift           Shared PDF drawing helper: pages, rects, lines, TextKit-compatible text on CoreGraphics + CoreText.
-*Exporter.swift           PDF generation, one file per document type. Stripboard and ShootingSchedule draw on PDFCanvas
-                          and build everywhere; the other four still use AppKit text and are Mac-only until migrated.
+*Exporter.swift           PDF generation, one file per document type. Stripboard, ShootingSchedule, the month calendar
+                          (PDFExporter) and CallSheet draw on PDFCanvas and build everywhere; Breakdown and
+                          DaysOutOfDays still use AppKit text and are Mac-only until migrated.
   ProjectStore+PDFExports.swift   every "generate then save" action, gated with the AppKit exporters.
 Fountain*.swift, FinalDraftParser.swift, HighlandArchiveReader.swift   Script importers (pure Swift).
 Parsers.swift, Formatting.swift                                        Eighths/time parsing, date/number formatting.

@@ -5,12 +5,11 @@
 //  Renders month PDFs from synthetic ShootDays and inspects them through PDFKit —
 //  the breakdown must paginate instead of dropping days, English output must not
 //  leak Spanish abbreviations, and the export options must control the scene chips.
+//  The fixture render at the end draws every cell and card style from the shared
+//  PDFTestSupport project; PDFExporter draws on PDFCanvas, so the whole suite runs on
+//  the Mac and on the iOS and visionOS simulators (#5).
 //
 
-// PDFExporter still draws through AppKit and is gated to macOS until it moves onto
-// PDFCanvas (see StripboardPDFExporter for the shape), so this suite is gated with it;
-// it is meant to run on every platform once it does.
-#if os(macOS)
 import Testing
 import PDFKit
 @testable import LSVR_CineSched
@@ -19,11 +18,7 @@ import PDFKit
 struct MonthPDFExporterTests {
 
     /// A date inside November 2026 (the month all fixtures schedule into).
-    private func novemberDate(day: Int) -> Date {
-        var comps = DateComponents()
-        comps.year = 2026; comps.month = 11; comps.day = day; comps.hour = 12
-        return Calendar.current.date(from: comps)!
-    }
+    private func novemberDate(day: Int) -> Date { PDFFixture.novemberDate(day: day) }
 
     private func makeScene(_ n: Int) -> Scene {
         Scene(
@@ -49,23 +44,24 @@ struct MonthPDFExporterTests {
         }
     }
 
-    private func render(_ days: [ShootDay], options: MonthPDFOptions = .default) -> PDFDocument {
+    private func render(
+        _ days: [ShootDay],
+        options: MonthPDFOptions = .default,
+        projectTitle: String = "Test Project",
+        productionInfo: ProductionInfo = ProductionInfo(),
+        dumpAs name: String? = nil
+    ) -> PDFDocument {
         let data = PDFExporter.generateMonthPDF(
             month: novemberDate(day: 1),
             shootDays: days,
-            projectTitle: "Test Project",
-            productionInfo: ProductionInfo(),
+            projectTitle: projectTitle,
+            productionInfo: productionInfo,
             options: options
         )
-        #expect(data != nil)
-        let doc = PDFDocument(data: data ?? Data())
-        #expect(doc != nil)
-        return doc ?? PDFDocument()
+        return pdfDocument(from: data, dumpAs: name)
     }
 
-    private func fullText(_ doc: PDFDocument) -> String {
-        (0..<doc.pageCount).compactMap { doc.page(at: $0)?.string }.joined(separator: "\n")
-    }
+    private func fullText(_ doc: PDFDocument) -> String { pdfFullText(doc) }
 
     /// Pages 2+ only — the grid page always shows scene number + location, so
     /// options-driven assertions must not read page 1.
@@ -138,5 +134,89 @@ struct MonthPDFExporterTests {
         // being truncated.
         #expect(text.contains("Performer Number 10"))
     }
+
+    // MARK: - Fixture render (both pages, every cell and card style)
+
+    /// The shared fixture plus one agenda-only day: a typed day with a note (TRAVEL badge,
+    /// note-only card), shoot days with night scenes, a banner and an event (DAY # badge,
+    /// event chips, full scene cards) and a day holding just a calendar event (the
+    /// "AGENDA / PREP DAY" card).
+    private var fixtureDays: [ShootDay] {
+        PDFFixture.days + [
+            ShootDay(date: PDFFixture.novemberDate(day: 9),
+                     scenes: [Scene.createCalendarEvent(title: "Location scout — ranch", time: "10:00 AM")])
+        ]
+    }
+
+    @Test func monthCalendarRendersFixtureProject() {
+        let doc = render(fixtureDays, projectTitle: PDFFixture.title, productionInfo: PDFFixture.productionInfo,
+                         dumpAs: "MonthCalendar.pdf")
+        #expect(doc.pageCount == 6)
+
+        let grid = doc.page(at: 0)?.string ?? ""
+        #expect(grid.contains("The Long Way Home — NOVEMBER 2026"))
+        #expect(grid.contains("Month Shoot Days: 6"))   // the agenda-only day counts
+        #expect(grid.contains("Director: Morgan Vale"))
+        #expect(grid.contains("DAY #1"))
+        #expect(grid.contains("TRAVEL"))
+        #expect(grid.contains("Fly LAX → ABQ"))
+        #expect(grid.contains("10:00 AM · Location s"))     // event chip, truncated to the cell
+        #expect(grid.contains("101 · HOLLYWOOD"))
+
+        let breakdown = breakdownText(doc)
+        #expect(breakdown.contains("Schedule & Breakdown"))
+        #expect(breakdown.contains("SHOOT DAY #1"))
+        #expect(breakdown.contains("SHOOT DAY #5"))
+        #expect(breakdown.contains("TRAVEL DAY"))
+        #expect(breakdown.contains("AGENDA / PREP DAY"))
+        #expect(breakdown.contains("Location scout"))
+        #expect(breakdown.contains("Call: 6:30 AM"))
+        #expect(breakdown.contains("Lunch: 1:00 PM"))
+        #expect(breakdown.contains("Sc 505:"))
+        #expect(breakdown.contains("Page 5"))
+    }
+
+    /// Every optional field on: the italic synopsis line and the full set of tinted pills.
+    @Test func monthCalendarRendersEveryFieldWhenAsked() {
+        var days = fixtureDays
+        days[1].scenes[0].specialEquipment = ["Drone", "Crane"]
+        days[1].scenes[0].props = ["Lantern"]
+        let everything = MonthPDFOptions(fields: Set(StripboardField.allCases), includePageCount: true, includeEstimatedTime: true)
+        let doc = render(days, options: everything, projectTitle: PDFFixture.title, productionInfo: PDFFixture.productionInfo,
+                         dumpAs: "MonthCalendar-AllFields.pdf")
+        #expect(doc.pageCount >= 6)
+
+        let breakdown = breakdownText(doc)
+        #expect(breakdown.contains("the crew regroups on the backlot"))   // synopsis, italic
+        #expect(breakdown.contains("Drone, Crane"))
+        #expect(breakdown.contains("Lantern"))
+        #expect(breakdown.contains(formattedTime(45)))
+    }
+
+    // MARK: - Full-schedule calendar (File ▸ Export Schedule PDF)
+
+    /// The older whole-production calendar in the same file: one landscape grid of every
+    /// week, header on page 1 only. Same fixture so its dump sits beside the month export.
+    @Test func scheduleCalendarRendersFixtureProject() {
+        let days = fixtureDays
+        let doc = pdfDocument(
+            from: PDFExporter.generatePDF(
+                shootDays: days,
+                projectTitle: PDFFixture.title,
+                allScenes: [],
+                startDate: days.first!.date,
+                endDate: days.last!.date
+            ),
+            dumpAs: "ScheduleCalendar.pdf"
+        )
+        #expect(doc.pageCount == 1)
+
+        let text = fullText(doc)
+        #expect(text.contains(PDFFixture.title))
+        #expect(text.contains("Shoot Days: 6"))
+        #expect(text.contains("Day 1"))
+        #expect(text.contains("Day 5"))
+        #expect(text.contains("Total: 3 1/8"))
+        #expect(text.contains("Est: \(formattedTime(345))"))   // six scenes plus the 30-minute lunch
+    }
 }
-#endif

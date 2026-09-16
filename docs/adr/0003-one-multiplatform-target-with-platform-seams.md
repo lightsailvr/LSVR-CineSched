@@ -26,7 +26,7 @@ starts with a header comment saying why the seam exists and what the non-Mac sid
 | Semantic backgrounds | `PlatformColors.swift` | `windowBackgroundColor` / `controlBackgroundColor` | UIKit system backgrounds |
 | Window tabbing and root view | `CineSchedApp.swift` | `allowsAutomaticWindowTabbing = false`, `ContentView` | `PlatformPlaceholderView` |
 | Placeholder root | `PlatformPlaceholderView.swift` | Not built | Names the platform as in progress |
-| Exporters (temporary) | `PDFExporter`, `CallSheetExporter`, `BreakdownExporter`, `DaysOutOfDaysExporter`, `ProjectStore+PDFExports.swift` | The AppKit-drawn PDF generators still to be migrated, and every save action | Gated out; the same entry points raise an alert |
+| Exporters (temporary) | `BreakdownExporter`, `DaysOutOfDaysExporter`, `ProjectStore+PDFExports.swift` | The AppKit-drawn PDF generators still to be migrated, and every save action | Gated out; the same entry points raise an alert |
 
 Issue #3 also named "the hover modifier" as a seam. None was needed: `.onHover`, `.help`,
 `.keyboardShortcut`, `.commands`, `NSItemProvider` and `DropDelegate` all compile on iOS and
@@ -53,8 +53,9 @@ Rules that follow from this:
 - The exporter gate is a debt: ADR 0002's "shared in-repo PDF drawing helper" is what removes
   it. That helper is `PDFCanvas` (#4): CoreGraphics + CoreText with platform-neutral fonts and
   colors, laying text out the way TextKit did so migrated output stays where it was.
-  `StripboardPDFExporter` and `ShootingSchedulePDFExporter` are on it and ungated; the other
-  four follow per the exporter tickets under #1, and the gate on `ProjectStore+PDFExports.swift`
+  `StripboardPDFExporter` and `ShootingSchedulePDFExporter` (#4) and `PDFExporter` and
+  `CallSheetExporter` (#5) are on it and ungated; `BreakdownExporter` and `DaysOutOfDaysExporter`
+  follow per the exporter tickets under #1, and the gate on `ProjectStore+PDFExports.swift`
   lifts with the last of them.
 - `FilePanels` is inert off the Mac by design; the document infrastructure of milestone 2
   replaces it rather than growing an iOS document picker inside it.

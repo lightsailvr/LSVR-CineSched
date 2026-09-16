@@ -1,14 +1,16 @@
 // CallSheetExporter.swift
 // Generates a professional Call Sheet PDF matching standard film industry layout with Basecamp and Actor Scenes.
+//
+// Draws through PDFCanvas (CoreGraphics + CoreText), so it builds and runs on every
+// platform. The rects handed to `canvas.draw(_:in:…)` are the ones the AppKit version
+// handed to `NSAttributedString.draw(in:)`; PDFCanvas lays text out in them the way
+// TextKit did, which is what keeps the output identical — pixel for pixel, apart from
+// lines cut with "…", which TextKit tracked tighter (verified by pixel-diffing the fixture
+// exports, #5). The two italic faces are the ones `NSFontManager` resolved: the schedule
+// line is the system italic (a descriptor trait), the quote is Helvetica Oblique by name,
+// because asking for the system italic there would have changed the face.
 
-// Platform seam: macOS only for now. The exporters still draw through AppKit
-// (NSGraphicsContext, NSFont, NSColor, NSAttributedString), so they are gated out
-// of the iOS and visionOS builds until the shared CoreGraphics/CoreText drawing
-// helper lands (see docs/adr/0003 and the exporter tickets under #1).
-#if os(macOS)
-import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 
 // MARK: - CallSheetExporter
 
@@ -20,23 +22,23 @@ class CallSheetExporter {
     private static let contentWidth: CGFloat = pageWidth - 2 * margin
 
     // Fonts
-    private static let fontBannerTitle = NSFont.boldSystemFont(ofSize: 13)
-    private static let fontCallBig     = NSFont.boldSystemFont(ofSize: 26)
-    private static let fontCallSub     = NSFont.systemFont(ofSize: 9)
-    private static let fontQuote       = NSFontManager.shared.font(withFamily: "Helvetica", traits: .italicFontMask, weight: 5, size: 8.5) ?? NSFont.systemFont(ofSize: 8.5)
-    private static let fontSectionHdr  = NSFont.boldSystemFont(ofSize: 9.5)
-    private static let fontTableHdr    = NSFont.boldSystemFont(ofSize: 8.5)
-    private static let fontBoldBody    = NSFont.boldSystemFont(ofSize: 8.5)
-    private static let fontRegularBody = NSFont.systemFont(ofSize: 8)
-    private static let fontSmall       = NSFont.systemFont(ofSize: 7.5)
-    private static let fontTiny        = NSFont.systemFont(ofSize: 7)
+    private static let fontBannerTitle = PDFFont.boldSystem(size: 13)
+    private static let fontCallBig     = PDFFont.boldSystem(size: 26)
+    private static let fontSchedule    = PDFFont.italicSystem(size: 8.5)
+    private static let fontQuote       = PDFFont.named("Helvetica-Oblique", size: 8.5)
+    private static let fontSectionHdr  = PDFFont.boldSystem(size: 9.5)
+    private static let fontTableHdr    = PDFFont.boldSystem(size: 8.5)
+    private static let fontBoldBody    = PDFFont.boldSystem(size: 8.5)
+    private static let fontRegularBody = PDFFont.system(size: 8)
+    private static let fontSmall       = PDFFont.system(size: 7.5)
+    private static let fontTiny        = PDFFont.system(size: 7)
 
     // Colors (Clean modern monochrome & subtle grays, NO orange)
-    private static let colorHeaderBar   = NSColor(white: 0.88, alpha: 1)
-    private static let colorGrayHeader  = NSColor(white: 0.93, alpha: 1)
-    private static let colorBorder      = NSColor(white: 0.25, alpha: 1)
-    private static let colorBlack       = NSColor.black
-    private static let colorDark        = NSColor(white: 0.15, alpha: 1)
+    private static let colorHeaderBar   = CGColor.gray(0.88)
+    private static let colorGrayHeader  = CGColor.gray(0.93)
+    private static let colorBorder      = CGColor.gray(0.25)
+    private static let colorBlack       = CGColor.pdfBlack
+    private static let colorDark        = CGColor.gray(0.15)
 
     // MARK: - Entry point
 
@@ -48,25 +50,17 @@ class CallSheetExporter {
         totalProductionDays: Int = 0,
         language: AppLanguage = LocalizationManager.shared.currentLanguage
     ) -> Data? {
-        let pdfData = NSMutableData()
-        guard let consumer = CGDataConsumer(data: pdfData) else { return nil }
-        var mediaBox = CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight)
-        guard let ctx = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else { return nil }
+        guard let canvas = PDFCanvas(pageSize: CGSize(width: pageWidth, height: pageHeight)) else { return nil }
 
         var y: CGFloat = pageHeight - margin
-        var pageNumber = 0
 
         func beginPage() {
-            pageNumber += 1
-            ctx.beginPDFPage(nil)
-            NSGraphicsContext.saveGraphicsState()
-            NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+            canvas.beginPage()
             y = pageHeight - margin
         }
 
         func endPage() {
-            NSGraphicsContext.restoreGraphicsState()
-            ctx.endPDFPage()
+            canvas.endPage()
         }
 
         func ensureRoom(_ height: CGFloat) {
@@ -79,128 +73,94 @@ class CallSheetExporter {
         beginPage()
 
         // 1. Top Header Banner
-        y = drawTopBanner(y: y, shootDay: shootDay, dayNumber: dayNumber, lang: language)
+        y = drawTopBanner(on: canvas, y: y, shootDay: shootDay, dayNumber: dayNumber, lang: language)
 
         // 2. General Call Banner (with Quote of the day if exists)
-        y = drawGeneralCallBanner(y: y, callSheet: shootDay.callSheet, lang: language)
+        y = drawGeneralCallBanner(on: canvas, y: y, callSheet: shootDay.callSheet, lang: language)
 
         // 3. Three-Block Info Row (Shooting Contacts, Milestones, Weather)
-        y = drawThreeBlockInfoRow(y: y, shootDay: shootDay, productionInfo: productionInfo, lang: language)
+        y = drawThreeBlockInfoRow(on: canvas, y: y, shootDay: shootDay, productionInfo: productionInfo, lang: language)
 
         // 4. Basecamp Bar (Above Nearest Hospital)
-        y = drawBasecampBar(y: y, callSheet: shootDay.callSheet, lang: language)
+        y = drawBasecampBar(on: canvas, y: y, callSheet: shootDay.callSheet, lang: language)
 
         // 5. Nearest Hospital
-        y = drawHospitalBar(y: y, callSheet: shootDay.callSheet, lang: language)
+        y = drawHospitalBar(on: canvas, y: y, callSheet: shootDay.callSheet, lang: language)
 
         // 6. Scenes Breakdown Table
-        y = drawScenesTable(y: y, shootDay: shootDay, lang: language, ensureRoom: ensureRoom)
+        y = drawScenesTable(on: canvas, y: y, shootDay: shootDay, lang: language, ensureRoom: ensureRoom)
 
         // 7. Cast Call Table (with SCENES column)
-        y = drawCastTable(y: y, shootDay: shootDay, productionInfo: productionInfo, lang: language, ensureRoom: ensureRoom)
+        y = drawCastTable(on: canvas, y: y, shootDay: shootDay, productionInfo: productionInfo, lang: language, ensureRoom: ensureRoom)
 
         // 8. Crew Call Times (Role: Name + Call Time)
-        y = drawCrewTable(y: y, shootDay: shootDay, productionInfo: productionInfo, lang: language, ensureRoom: ensureRoom)
+        y = drawCrewTable(on: canvas, y: y, shootDay: shootDay, productionInfo: productionInfo, lang: language, ensureRoom: ensureRoom)
 
         // 9. General Notes (Unified in one single block)
-        y = drawProductionNotes(y: y, callSheet: shootDay.callSheet, lang: language, ensureRoom: ensureRoom)
+        y = drawProductionNotes(on: canvas, y: y, callSheet: shootDay.callSheet, lang: language, ensureRoom: ensureRoom)
 
         endPage()
-        ctx.closePDF()
-        return pdfData as Data
+        return canvas.finish()
     }
 
     // MARK: - 1. Top Banner
 
-    private static func drawTopBanner(y: CGFloat, shootDay: ShootDay, dayNumber: Int?, lang: AppLanguage) -> CGFloat {
+    private static func drawTopBanner(on canvas: PDFCanvas, y: CGFloat, shootDay: ShootDay, dayNumber: Int?, lang: AppLanguage) -> CGFloat {
         let height: CGFloat = 22
         let rect = CGRect(x: margin, y: y - height, width: contentWidth, height: height)
 
-        colorHeaderBar.setFill()
-        NSBezierPath(rect: rect).fill()
-        colorBorder.setStroke()
-        let border = NSBezierPath(rect: rect); border.lineWidth = 1; border.stroke()
+        canvas.fill(rect, color: colorHeaderBar)
+        canvas.stroke(rect, color: colorBorder, lineWidth: 1)
 
         let numStr = dayNumber.map { String(format: "%02d", $0) } ?? "01"
         let titleLabel = lang == .spanish ? "ORDEN DE RODAJE Nº" : "CALL SHEET #"
         let fullText = "\(titleLabel) \(numStr) — \(formattedFullDate(shootDay.date))"
 
-        let para = NSMutableParagraphStyle(); para.alignment = .center
-        let attr: [NSAttributedString.Key: Any] = [
-            .font: fontBannerTitle,
-            .foregroundColor: colorBlack,
-            .paragraphStyle: para
-        ]
-        NSAttributedString(string: fullText, attributes: attr)
-            .draw(in: CGRect(x: rect.minX, y: rect.midY - 7.5, width: rect.width, height: 16))
+        canvas.draw(fullText, in: CGRect(x: rect.minX, y: rect.midY - 7.5, width: rect.width, height: 16),
+                    font: fontBannerTitle, color: colorBlack, alignment: .center)
 
         return y - height
     }
 
     // MARK: - 2. General Call Banner
 
-    private static func drawGeneralCallBanner(y: CGFloat, callSheet: CallSheetData, lang: AppLanguage) -> CGFloat {
+    private static func drawGeneralCallBanner(on canvas: PDFCanvas, y: CGFloat, callSheet: CallSheetData, lang: AppLanguage) -> CGFloat {
         let hasQuote = !callSheet.quoteOfTheDay.trimmingCharacters(in: .whitespaces).isEmpty
         let height: CGFloat = hasQuote ? 72 : 62
         let rect = CGRect(x: margin, y: y - height, width: contentWidth, height: height)
 
-        colorGrayHeader.setFill()
-        NSBezierPath(rect: rect).fill()
-        colorBorder.setStroke()
-        let border = NSBezierPath(rect: rect); border.lineWidth = 1; border.stroke()
-
-        let para = NSMutableParagraphStyle(); para.alignment = .center
+        canvas.fill(rect, color: colorGrayHeader)
+        canvas.stroke(rect, color: colorBorder, lineWidth: 1)
 
         // Subtitle
         let callTitle = lang == .spanish ? "CITACIÓN GENERAL" : "GENERAL CALL"
-        let subAttr: [NSAttributedString.Key: Any] = [
-            .font: fontSectionHdr,
-            .foregroundColor: colorDark,
-            .paragraphStyle: para
-        ]
-        NSAttributedString(string: callTitle, attributes: subAttr)
-            .draw(in: CGRect(x: rect.minX, y: rect.maxY - 14, width: rect.width, height: 12))
+        canvas.draw(callTitle, in: CGRect(x: rect.minX, y: rect.maxY - 14, width: rect.width, height: 12),
+                    font: fontSectionHdr, color: colorDark, alignment: .center)
 
         // Big Call Time (12h)
         let callTime = callSheet.generalCallTime.isEmpty ? "07:30 AM" : callSheet.generalCallTime
-        let bigAttr: [NSAttributedString.Key: Any] = [
-            .font: fontCallBig,
-            .foregroundColor: colorBlack,
-            .paragraphStyle: para
-        ]
-        NSAttributedString(string: callTime, attributes: bigAttr)
-            .draw(in: CGRect(x: rect.minX, y: rect.midY - (hasQuote ? 18 : 14), width: rect.width, height: 28))
+        canvas.draw(callTime, in: CGRect(x: rect.minX, y: rect.midY - (hasQuote ? 18 : 14), width: rect.width, height: 28),
+                    font: fontCallBig, color: colorBlack, alignment: .center)
 
         // Schedule range & Quote
         var bottomY = rect.minY + 4
         if hasQuote {
-            let quoteAttr: [NSAttributedString.Key: Any] = [
-                .font: fontQuote,
-                .foregroundColor: colorBlack,
-                .paragraphStyle: para
-            ]
             let quotePrefix = lang == .spanish ? "Frase del día" : "Quote of the day"
             let quoteStr = "“\(quotePrefix): \(callSheet.quoteOfTheDay)”"
-            NSAttributedString(string: quoteStr, attributes: quoteAttr)
-                .draw(in: CGRect(x: rect.minX + 8, y: bottomY, width: rect.width - 16, height: 11))
+            canvas.draw(quoteStr, in: CGRect(x: rect.minX + 8, y: bottomY, width: rect.width - 16, height: 11),
+                        font: fontQuote, color: colorBlack, alignment: .center)
             bottomY += 12
         }
 
         if !callSheet.workDaySchedule.isEmpty {
-            let italicFont = NSFontManager.shared.font(withFamily: fontCallSub.familyName ?? "Helvetica", traits: .italicFontMask, weight: 5, size: 8.5) ?? fontCallSub
-            let schedAttr: [NSAttributedString.Key: Any] = [
-                .font: italicFont,
-                .foregroundColor: colorDark,
-                .paragraphStyle: para
-            ]
             let rawSched = callSheet.workDaySchedule
                 .replacingOccurrences(of: "Jornada de ", with: "")
                 .replacingOccurrences(of: "Jornada ", with: "")
                 .replacingOccurrences(of: "Schedule: ", with: "")
             let prefix = lang == .spanish ? "Jornada: " : "Schedule: "
             let schedText = "\(prefix)\(rawSched)"
-            NSAttributedString(string: schedText, attributes: schedAttr)
-                .draw(in: CGRect(x: rect.minX, y: bottomY, width: rect.width, height: 11))
+            canvas.draw(schedText, in: CGRect(x: rect.minX, y: bottomY, width: rect.width, height: 11),
+                        font: fontSchedule, color: colorDark, alignment: .center)
         }
 
         return y - height
@@ -208,7 +168,7 @@ class CallSheetExporter {
 
     // MARK: - 3. Three-Block Info Row
 
-    private static func drawThreeBlockInfoRow(y: CGFloat, shootDay: ShootDay, productionInfo: ProductionInfo, lang: AppLanguage) -> CGFloat {
+    private static func drawThreeBlockInfoRow(on canvas: PDFCanvas, y: CGFloat, shootDay: ShootDay, productionInfo: ProductionInfo, lang: AppLanguage) -> CGFloat {
         let height: CGFloat = 68
         let w1: CGFloat = contentWidth * 0.33
         let w2: CGFloat = contentWidth * 0.33
@@ -219,21 +179,21 @@ class CallSheetExporter {
         let r3 = CGRect(x: margin + w1 + w2, y: y - height, width: w3, height: height)
 
         for r in [r1, r2, r3] {
-            let b = NSBezierPath(rect: r); b.lineWidth = 0.75; colorBorder.setStroke(); b.stroke()
+            canvas.stroke(r, color: colorBorder, lineWidth: 0.75)
         }
 
         let cs = shootDay.callSheet
 
         // --- Box 1: SHOOTING CONTACTS ---
-        let cPara = NSMutableParagraphStyle(); cPara.alignment = .center
         let contactsTitle = lang == .spanish ? "☎ CONTACTOS EN RODAJE" : "☎ SHOOTING CONTACTS"
-        let cTitleAttr: [NSAttributedString.Key: Any] = [.font: fontSectionHdr, .foregroundColor: colorBlack, .paragraphStyle: cPara]
-        NSAttributedString(string: contactsTitle, attributes: cTitleAttr)
-            .draw(in: CGRect(x: r1.minX + 4, y: r1.maxY - 13, width: r1.width - 8, height: 12))
+        canvas.draw(contactsTitle, in: CGRect(x: r1.minX + 4, y: r1.maxY - 13, width: r1.width - 8, height: 12),
+                    font: fontSectionHdr, color: colorBlack, alignment: .center)
 
-        let bPara = NSMutableParagraphStyle(); bPara.alignment = .center
-        let nameAttr: [NSAttributedString.Key: Any] = [.font: fontBoldBody, .foregroundColor: colorBlack, .paragraphStyle: bPara]
-        let subAttr:  [NSAttributedString.Key: Any] = [.font: fontRegularBody, .foregroundColor: colorDark, .paragraphStyle: bPara]
+        /// A centered contact line: the role in bold, the name and phone under it.
+        func drawContactLine(_ text: String, bold: Bool, y: CGFloat) {
+            canvas.draw(text, in: CGRect(x: r1.minX + 4, y: y, width: r1.width - 8, height: 10),
+                        font: bold ? fontBoldBody : fontRegularBody, color: bold ? colorBlack : colorDark, alignment: .center)
+        }
 
         var cY = r1.maxY - 25
 
@@ -248,11 +208,9 @@ class CallSheetExporter {
 
         if !prodContact.isEmpty {
             let prodLabel = lang == .spanish ? "PRODUCTOR" : "PRODUCER"
-            NSAttributedString(string: prodLabel, attributes: nameAttr)
-                .draw(in: CGRect(x: r1.minX + 4, y: cY, width: r1.width - 8, height: 10))
+            drawContactLine(prodLabel, bold: true, y: cY)
             cY -= 10
-            NSAttributedString(string: prodContact, attributes: subAttr)
-                .draw(in: CGRect(x: r1.minX + 4, y: cY, width: r1.width - 8, height: 10))
+            drawContactLine(prodContact, bold: false, y: cY)
             cY -= 10
         }
 
@@ -273,11 +231,9 @@ class CallSheetExporter {
         }
 
         if !secondContact.isEmpty {
-            NSAttributedString(string: secondRole, attributes: nameAttr)
-                .draw(in: CGRect(x: r1.minX + 4, y: cY, width: r1.width - 8, height: 10))
+            drawContactLine(secondRole, bold: true, y: cY)
             cY -= 10
-            NSAttributedString(string: secondContact, attributes: subAttr)
-                .draw(in: CGRect(x: r1.minX + 4, y: cY, width: r1.width - 8, height: 10))
+            drawContactLine(secondContact, bold: false, y: cY)
         }
 
         // --- Box 2: MILESTONES & MEAL TIMES ---
@@ -299,23 +255,20 @@ class CallSheetExporter {
         let rowH = height / CGFloat(milestones.count)
         for (i, m) in milestones.enumerated() {
             let mRect = CGRect(x: r2.minX, y: r2.maxY - CGFloat(i + 1) * rowH, width: r2.width, height: rowH)
-            let b = NSBezierPath(rect: mRect); b.lineWidth = 0.5; colorBorder.setStroke(); b.stroke()
+            canvas.stroke(mRect, color: colorBorder, lineWidth: 0.5)
 
             let mLabel = "\(m.0)................................."
-            let lAttr: [NSAttributedString.Key: Any] = [.font: fontBoldBody, .foregroundColor: colorBlack]
-            NSAttributedString(string: mLabel, attributes: lAttr)
-                .draw(in: CGRect(x: mRect.minX + 6, y: mRect.midY - 5, width: mRect.width - 52, height: 11))
+            canvas.draw(mLabel, in: CGRect(x: mRect.minX + 6, y: mRect.midY - 5, width: mRect.width - 52, height: 11),
+                        font: fontBoldBody, color: colorBlack)
 
-            let rPara = NSMutableParagraphStyle(); rPara.alignment = .center
-            let vAttr: [NSAttributedString.Key: Any] = [.font: fontBoldBody, .foregroundColor: colorBlack, .paragraphStyle: rPara]
-            NSAttributedString(string: m.1, attributes: vAttr)
-                .draw(in: CGRect(x: mRect.maxX - 50, y: mRect.midY - 5, width: 46, height: 11))
+            canvas.draw(m.1, in: CGRect(x: mRect.maxX - 50, y: mRect.midY - 5, width: 46, height: 11),
+                        font: fontBoldBody, color: colorBlack, alignment: .center)
         }
 
         // --- Box 3: WEATHER FORECAST ---
         let weatherTitle = lang == .spanish ? "☁ PREVISIÓN METEOROLÓGICA" : "☁ WEATHER FORECAST"
-        NSAttributedString(string: weatherTitle, attributes: cTitleAttr)
-            .draw(in: CGRect(x: r3.minX + 4, y: r3.maxY - 13, width: r3.width - 8, height: 12))
+        canvas.draw(weatherTitle, in: CGRect(x: r3.minX + 4, y: r3.maxY - 13, width: r3.width - 8, height: 12),
+                    font: fontSectionHdr, color: colorBlack, alignment: .center)
 
         var wY = r3.maxY - 25
         var weatherLines: [String] = []
@@ -326,13 +279,8 @@ class CallSheetExporter {
 
         for line in weatherLines {
             let bold = line.uppercased().contains("SUNRISE") || line.uppercased().contains("AMANECE")
-            let attr: [NSAttributedString.Key: Any] = [
-                .font: bold ? fontBoldBody : fontRegularBody,
-                .foregroundColor: colorBlack,
-                .paragraphStyle: cPara
-            ]
-            NSAttributedString(string: line, attributes: attr)
-                .draw(in: CGRect(x: r3.minX + 4, y: wY, width: r3.width - 8, height: 10))
+            canvas.draw(line, in: CGRect(x: r3.minX + 4, y: wY, width: r3.width - 8, height: 10),
+                        font: bold ? fontBoldBody : fontRegularBody, color: colorBlack, alignment: .center)
             wY -= 10
         }
 
@@ -341,51 +289,41 @@ class CallSheetExporter {
 
     // MARK: - 4. Basecamp Bar (Above Hospital)
 
-    private static func drawBasecampBar(y: CGFloat, callSheet: CallSheetData, lang: AppLanguage) -> CGFloat {
+    private static func drawBasecampBar(on canvas: PDFCanvas, y: CGFloat, callSheet: CallSheetData, lang: AppLanguage) -> CGFloat {
         let height: CGFloat = 18
         let rect = CGRect(x: margin, y: y - height, width: contentWidth, height: height)
 
-        colorBorder.setStroke()
-        let b = NSBezierPath(rect: rect); b.lineWidth = 0.75; b.stroke()
+        canvas.stroke(rect, color: colorBorder, lineWidth: 0.75)
 
         let basecampTitle = lang == .spanish ? "⛺ BASECAMP / BASE DE RODAJE:" : "⛺ BASECAMP:"
         let basecampText = callSheet.basecampLocation.trimmingCharacters(in: .whitespaces)
         let full = basecampText.isEmpty ? basecampTitle : "\(basecampTitle) \(basecampText)"
-        let attr: [NSAttributedString.Key: Any] = [
-            .font: fontBoldBody,
-            .foregroundColor: colorBlack
-        ]
-        NSAttributedString(string: full, attributes: attr)
-            .draw(in: CGRect(x: rect.minX + 6, y: rect.midY - 5, width: rect.width - 12, height: 11))
+        canvas.draw(full, in: CGRect(x: rect.minX + 6, y: rect.midY - 5, width: rect.width - 12, height: 11),
+                    font: fontBoldBody, color: colorBlack)
 
         return y - height
     }
 
     // MARK: - 5. Nearest Hospital
 
-    private static func drawHospitalBar(y: CGFloat, callSheet: CallSheetData, lang: AppLanguage) -> CGFloat {
+    private static func drawHospitalBar(on canvas: PDFCanvas, y: CGFloat, callSheet: CallSheetData, lang: AppLanguage) -> CGFloat {
         let height: CGFloat = 18
         let rect = CGRect(x: margin, y: y - height, width: contentWidth, height: height)
 
-        colorBorder.setStroke()
-        let b = NSBezierPath(rect: rect); b.lineWidth = 1; b.stroke()
+        canvas.stroke(rect, color: colorBorder, lineWidth: 1)
 
         let hospTitle = lang == .spanish ? "✚ HOSPITAL MÁS CERCANO:" : "✚ NEAREST HOSPITAL:"
         let hospText = callSheet.nearestHospital.trimmingCharacters(in: .whitespaces)
         let full = hospText.isEmpty ? hospTitle : "\(hospTitle) \(hospText)"
-        let attr: [NSAttributedString.Key: Any] = [
-            .font: fontBoldBody,
-            .foregroundColor: colorBlack
-        ]
-        NSAttributedString(string: full, attributes: attr)
-            .draw(in: CGRect(x: rect.minX + 6, y: rect.midY - 5, width: rect.width - 12, height: 11))
+        canvas.draw(full, in: CGRect(x: rect.minX + 6, y: rect.midY - 5, width: rect.width - 12, height: 11),
+                    font: fontBoldBody, color: colorBlack)
 
         return y - height - 4
     }
 
     // MARK: - 6. Scenes Table
 
-    private static func drawScenesTable(y: CGFloat, shootDay: ShootDay, lang: AppLanguage, ensureRoom: (CGFloat) -> Void) -> CGFloat {
+    private static func drawScenesTable(on canvas: PDFCanvas, y: CGFloat, shootDay: ShootDay, lang: AppLanguage, ensureRoom: (CGFloat) -> Void) -> CGFloat {
         var y = y
         let headerH: CGFloat = 16
         let cols: [(title: String, width: CGFloat)] = [
@@ -400,21 +338,7 @@ class CallSheetExporter {
         ensureRoom(headerH + 30)
 
         // Draw Table Header
-        let hRect = CGRect(x: margin, y: y - headerH, width: contentWidth, height: headerH)
-        colorGrayHeader.setFill()
-        NSBezierPath(rect: hRect).fill()
-
-        var curX = margin
-        for c in cols {
-            let cell = CGRect(x: curX, y: y - headerH, width: c.width, height: headerH)
-            let b = NSBezierPath(rect: cell); b.lineWidth = 0.5; colorBorder.setStroke(); b.stroke()
-
-            let para = NSMutableParagraphStyle(); para.alignment = .center
-            let attr: [NSAttributedString.Key: Any] = [.font: fontTableHdr, .foregroundColor: colorBlack, .paragraphStyle: para]
-            NSAttributedString(string: c.title, attributes: attr)
-                .draw(in: CGRect(x: cell.minX, y: cell.midY - 5, width: cell.width, height: 11))
-            curX += c.width
-        }
+        drawTableHeader(on: canvas, cols: cols, y: y, height: headerH)
         y -= headerH
 
         let dayLocations = shootDay.callSheet.locations
@@ -428,36 +352,36 @@ class CallSheetExporter {
 
             // Col 1: SCENE (# + INT/EXT/DAY)
             let c1 = CGRect(x: x, y: y - rowH, width: cols[0].width, height: rowH)
-            drawCellBorder(c1)
+            drawCellBorder(on: canvas, c1)
             let numStr = scene.extractedSceneNumber
             let typeStr = "\(scene.intExtString) / \(scene.dayNightType.rawValue.uppercased())"
-            drawCenteredText(numStr, font: fontBannerTitle, in: CGRect(x: c1.minX, y: c1.midY - 2, width: c1.width, height: 14))
-            drawCenteredText(typeStr, font: fontSmall, in: CGRect(x: c1.minX, y: c1.minY + 3, width: c1.width, height: 10))
+            drawCenteredText(on: canvas, numStr, font: fontBannerTitle, in: CGRect(x: c1.minX, y: c1.midY - 2, width: c1.width, height: 14))
+            drawCenteredText(on: canvas, typeStr, font: fontSmall, in: CGRect(x: c1.minX, y: c1.minY + 3, width: c1.width, height: 10))
             x += cols[0].width
 
             // Col 2: SET / DESCRIPTION (Clean decorado name without INT/EXT or time suffix!)
             let c2 = CGRect(x: x, y: y - rowH, width: cols[1].width, height: rowH)
-            drawCellBorder(c2)
+            drawCellBorder(on: canvas, c2)
             let decoradoStr = scene.decoradoOnly
             let synStr = scene.summary.isEmpty ? "" : scene.summary
-            drawCenteredText(decoradoStr, font: fontBoldBody, in: CGRect(x: c2.minX + 4, y: c2.midY - 2, width: c2.width - 8, height: 12))
+            drawCenteredText(on: canvas, decoradoStr, font: fontBoldBody, in: CGRect(x: c2.minX + 4, y: c2.midY - 2, width: c2.width - 8, height: 12))
             if !synStr.isEmpty {
-                drawCenteredText(synStr, font: fontSmall, in: CGRect(x: c2.minX + 4, y: c2.minY + 3, width: c2.width - 8, height: 10))
+                drawCenteredText(on: canvas, synStr, font: fontSmall, in: CGRect(x: c2.minX + 4, y: c2.minY + 3, width: c2.width - 8, height: 10))
             }
             x += cols[1].width
 
             // Col 3: CAST
             let c3 = CGRect(x: x, y: y - rowH, width: cols[2].width, height: rowH)
-            drawCellBorder(c3)
+            drawCellBorder(on: canvas, c3)
             let castStr = scene.cast.joined(separator: ", ")
-            drawCenteredText(castStr, font: fontRegularBody, in: CGRect(x: c3.minX + 4, y: c3.midY - 6, width: c3.width - 8, height: 12))
+            drawCenteredText(on: canvas, castStr, font: fontRegularBody, in: CGRect(x: c3.minX + 4, y: c3.midY - 6, width: c3.width - 8, height: 12))
             x += cols[2].width
 
             // Col 4: PAGES
             let c4 = CGRect(x: x, y: y - rowH, width: cols[3].width, height: rowH)
-            drawCellBorder(c4)
+            drawCellBorder(on: canvas, c4)
             let pgs = formattedEighths(scene.duration)
-            drawCenteredText(pgs, font: fontRegularBody, in: CGRect(x: c4.minX, y: c4.midY - 6, width: c4.width, height: 12))
+            drawCenteredText(on: canvas, pgs, font: fontRegularBody, in: CGRect(x: c4.minX, y: c4.midY - 6, width: c4.width, height: 12))
             x += cols[3].width
 
             // Determine LOC index and Address
@@ -476,14 +400,14 @@ class CallSheetExporter {
 
             // Col 5: LOC
             let c5 = CGRect(x: x, y: y - rowH, width: cols[4].width, height: rowH)
-            drawCellBorder(c5)
-            drawCenteredText(locIndexStr, font: fontRegularBody, in: CGRect(x: c5.minX, y: c5.midY - 6, width: c5.width, height: 12))
+            drawCellBorder(on: canvas, c5)
+            drawCenteredText(on: canvas, locIndexStr, font: fontRegularBody, in: CGRect(x: c5.minX, y: c5.midY - 6, width: c5.width, height: 12))
             x += cols[4].width
 
             // Col 6: ADDRESS
             let c6 = CGRect(x: x, y: y - rowH, width: cols[5].width, height: rowH)
-            drawCellBorder(c6)
-            drawCenteredText(addrStr, font: fontTiny, in: CGRect(x: c6.minX + 4, y: c6.midY - 10, width: c6.width - 8, height: 20))
+            drawCellBorder(on: canvas, c6)
+            drawCenteredText(on: canvas, addrStr, font: fontTiny, in: CGRect(x: c6.minX + 4, y: c6.midY - 10, width: c6.width - 8, height: 20))
 
             y -= rowH
         }
@@ -493,7 +417,7 @@ class CallSheetExporter {
 
     // MARK: - 7. Cast Table (with SCENES column)
 
-    private static func drawCastTable(y: CGFloat, shootDay: ShootDay, productionInfo: ProductionInfo, lang: AppLanguage, ensureRoom: (CGFloat) -> Void) -> CGFloat {
+    private static func drawCastTable(on canvas: PDFCanvas, y: CGFloat, shootDay: ShootDay, productionInfo: ProductionInfo, lang: AppLanguage, ensureRoom: (CGFloat) -> Void) -> CGFloat {
         var y = y
         let headerH: CGFloat = 16
         let cols: [(title: String, width: CGFloat)] = [
@@ -511,21 +435,7 @@ class CallSheetExporter {
         ensureRoom(headerH + 20)
 
         // Draw Table Header
-        let hRect = CGRect(x: margin, y: y - headerH, width: contentWidth, height: headerH)
-        colorGrayHeader.setFill()
-        NSBezierPath(rect: hRect).fill()
-
-        var curX = margin
-        for c in cols {
-            let cell = CGRect(x: curX, y: y - headerH, width: c.width, height: headerH)
-            let b = NSBezierPath(rect: cell); b.lineWidth = 0.5; colorBorder.setStroke(); b.stroke()
-
-            let para = NSMutableParagraphStyle(); para.alignment = .center
-            let attr: [NSAttributedString.Key: Any] = [.font: fontTableHdr, .foregroundColor: colorBlack, .paragraphStyle: para]
-            NSAttributedString(string: c.title, attributes: attr)
-                .draw(in: CGRect(x: cell.minX, y: cell.midY - 5, width: cell.width, height: 11))
-            curX += c.width
-        }
+        drawTableHeader(on: canvas, cols: cols, y: y, height: headerH)
         y -= headerH
 
         let entries = shootDay.callSheet.castCallEntries
@@ -558,18 +468,12 @@ class CallSheetExporter {
 
             for (i, val) in vals.enumerated() {
                 let cell = CGRect(x: x, y: y - rowH, width: cols[i].width, height: rowH)
-                drawCellBorder(cell)
+                drawCellBorder(on: canvas, cell)
                 let isLeft = (i == 0 || i == 1)
-                let para = NSMutableParagraphStyle(); para.alignment = isLeft ? .left : .center
-                let attr: [NSAttributedString.Key: Any] = [
-                    .font: isLeft ? fontBoldBody : fontRegularBody,
-                    .foregroundColor: colorBlack,
-                    .paragraphStyle: para
-                ]
                 let textX = isLeft ? cell.minX + 4 : cell.minX
                 let textW = isLeft ? cell.width - 8 : cell.width
-                NSAttributedString(string: val, attributes: attr)
-                    .draw(in: CGRect(x: textX, y: cell.midY - 5, width: textW, height: 11))
+                canvas.draw(val, in: CGRect(x: textX, y: cell.midY - 5, width: textW, height: 11),
+                            font: isLeft ? fontBoldBody : fontRegularBody, color: colorBlack, alignment: isLeft ? .leading : .center)
                 x += cols[i].width
             }
             y -= rowH
@@ -580,22 +484,14 @@ class CallSheetExporter {
 
     // MARK: - 8. Crew Call Table
 
-    private static func drawCrewTable(y: CGFloat, shootDay: ShootDay, productionInfo: ProductionInfo, lang: AppLanguage, ensureRoom: (CGFloat) -> Void) -> CGFloat {
+    private static func drawCrewTable(on canvas: PDFCanvas, y: CGFloat, shootDay: ShootDay, productionInfo: ProductionInfo, lang: AppLanguage, ensureRoom: (CGFloat) -> Void) -> CGFloat {
         var y = y
         let bannerH: CGFloat = 16
         ensureRoom(bannerH + 30)
 
         // Banner Header
-        let bRect = CGRect(x: margin, y: y - bannerH, width: contentWidth, height: bannerH)
-        colorGrayHeader.setFill()
-        NSBezierPath(rect: bRect).fill()
-        let b = NSBezierPath(rect: bRect); b.lineWidth = 0.5; colorBorder.setStroke(); b.stroke()
-
-        let para = NSMutableParagraphStyle(); para.alignment = .center
         let crewTitle = lang == .spanish ? "CITACIÓN ESPECÍFICA DEL EQUIPO TÉCNICO" : "CREW CALL TIMES"
-        let attr: [NSAttributedString.Key: Any] = [.font: fontSectionHdr, .foregroundColor: colorBlack, .paragraphStyle: para]
-        NSAttributedString(string: crewTitle, attributes: attr)
-            .draw(in: CGRect(x: bRect.minX, y: bRect.midY - 5, width: bRect.width, height: 11))
+        drawSectionBanner(on: canvas, crewTitle, y: y, height: bannerH)
         y -= bannerH
 
         let entries = shootDay.callSheet.crewCallEntries.isEmpty
@@ -613,10 +509,9 @@ class CallSheetExporter {
             ensureRoom(rowH)
             for (cIdx, member) in chunk.enumerated() {
                 let cRect = CGRect(x: margin + CGFloat(cIdx) * colWidth3, y: y - rowH, width: colWidth3, height: rowH)
-                drawCellBorder(cRect)
+                drawCellBorder(on: canvas, cRect)
 
                 let roleWidth: CGFloat = colWidth3 - 52
-                let lAttr: [NSAttributedString.Key: Any] = [.font: fontRegularBody, .foregroundColor: colorBlack]
 
                 var memberName = member.name.trimmingCharacters(in: .whitespaces)
                 let memberRole = member.role.trimmingCharacters(in: .whitespaces)
@@ -637,14 +532,12 @@ class CallSheetExporter {
                     label = "—"
                 }
 
-                NSAttributedString(string: label, attributes: lAttr)
-                    .draw(in: CGRect(x: cRect.minX + 4, y: cRect.midY - 5, width: roleWidth - 6, height: 11))
+                canvas.draw(label, in: CGRect(x: cRect.minX + 4, y: cRect.midY - 5, width: roleWidth - 6, height: 11),
+                            font: fontRegularBody, color: colorBlack)
 
-                let rPara = NSMutableParagraphStyle(); rPara.alignment = .center
-                let vAttr: [NSAttributedString.Key: Any] = [.font: fontBoldBody, .foregroundColor: colorBlack, .paragraphStyle: rPara]
                 let timeStr = member.callTime.isEmpty ? "07:30 AM" : member.callTime
-                NSAttributedString(string: timeStr, attributes: vAttr)
-                    .draw(in: CGRect(x: cRect.maxX - 48, y: cRect.midY - 5, width: 46, height: 11))
+                canvas.draw(timeStr, in: CGRect(x: cRect.maxX - 48, y: cRect.midY - 5, width: 46, height: 11),
+                            font: fontBoldBody, color: colorBlack, alignment: .center)
             }
             y -= rowH
         }
@@ -654,21 +547,13 @@ class CallSheetExporter {
 
     // MARK: - 9. General Notes
 
-    private static func drawProductionNotes(y: CGFloat, callSheet: CallSheetData, lang: AppLanguage, ensureRoom: (CGFloat) -> Void) -> CGFloat {
+    private static func drawProductionNotes(on canvas: PDFCanvas, y: CGFloat, callSheet: CallSheetData, lang: AppLanguage, ensureRoom: (CGFloat) -> Void) -> CGFloat {
         var y = y
         let bannerH: CGFloat = 16
         ensureRoom(bannerH + 30)
 
-        let bRect = CGRect(x: margin, y: y - bannerH, width: contentWidth, height: bannerH)
-        colorGrayHeader.setFill()
-        NSBezierPath(rect: bRect).fill()
-        let b = NSBezierPath(rect: bRect); b.lineWidth = 0.5; colorBorder.setStroke(); b.stroke()
-
-        let para = NSMutableParagraphStyle(); para.alignment = .center
         let notesTitle = lang == .spanish ? "OBSERVACIONES GENERALES" : "GENERAL NOTES"
-        let attr: [NSAttributedString.Key: Any] = [.font: fontSectionHdr, .foregroundColor: colorBlack, .paragraphStyle: para]
-        NSAttributedString(string: notesTitle, attributes: attr)
-            .draw(in: CGRect(x: bRect.minX, y: bRect.midY - 5, width: bRect.width, height: 11))
+        drawSectionBanner(on: canvas, notesTitle, y: y, height: bannerH)
         y -= bannerH
 
         let notesText = callSheet.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -676,31 +561,22 @@ class CallSheetExporter {
             : callSheet.notes
 
         if !notesText.isEmpty {
-            let paraLeft = NSMutableParagraphStyle()
-            paraLeft.alignment = .left
-            paraLeft.lineSpacing = 3
-
-            let nAttr: [NSAttributedString.Key: Any] = [
-                .font: fontBoldBody,
-                .foregroundColor: colorDark,
-                .paragraphStyle: paraLeft
-            ]
-
-            let attrString = NSAttributedString(string: notesText, attributes: nAttr)
-            let textRect = attrString.boundingRect(with: CGSize(width: contentWidth - 16, height: CGFloat.greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading])
-            let boxHeight = max(30, textRect.height + 14)
+            // Wrapped with 3pt between lines, the paragraph style the notes always had.
+            let textHeight = canvas.height(of: notesText, font: fontBoldBody, width: contentWidth - 16, lineSpacing: 3)
+            let boxHeight = max(30, textHeight + 14)
 
             ensureRoom(boxHeight)
             let rRect = CGRect(x: margin, y: y - boxHeight, width: contentWidth, height: boxHeight)
-            drawCellBorder(rRect)
+            drawCellBorder(on: canvas, rRect)
 
-            attrString.draw(in: CGRect(x: rRect.minX + 8, y: rRect.minY + 7, width: rRect.width - 16, height: boxHeight - 14))
+            canvas.draw(notesText, in: CGRect(x: rRect.minX + 8, y: rRect.minY + 7, width: rRect.width - 16, height: boxHeight - 14),
+                        font: fontBoldBody, color: colorDark, lineSpacing: 3)
             y -= boxHeight
         } else {
             let emptyH: CGFloat = 30
             ensureRoom(emptyH)
             let rRect = CGRect(x: margin, y: y - emptyH, width: contentWidth, height: emptyH)
-            drawCellBorder(rRect)
+            drawCellBorder(on: canvas, rRect)
             y -= emptyH
         }
 
@@ -709,23 +585,35 @@ class CallSheetExporter {
 
     // MARK: - Drawing Helpers
 
-    private static func drawCellBorder(_ rect: CGRect) {
-        let path = NSBezierPath(rect: rect)
-        path.lineWidth = 0.5
-        colorBorder.setStroke()
-        path.stroke()
+    private static func drawCellBorder(on canvas: PDFCanvas, _ rect: CGRect) {
+        canvas.stroke(rect, color: colorBorder, lineWidth: 0.5)
     }
 
-    private static func drawCenteredText(_ text: String, font: NSFont, in rect: CGRect) {
-        let para = NSMutableParagraphStyle(); para.alignment = .center
-        para.lineBreakMode = .byTruncatingTail
-        let attr: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: colorBlack,
-            .paragraphStyle: para
-        ]
-        NSAttributedString(string: text, attributes: attr)
-            .draw(in: rect)
+    private static func drawCenteredText(on canvas: PDFCanvas, _ text: String, font: PDFFont, in rect: CGRect) {
+        canvas.draw(text, in: rect, font: font, color: colorBlack, alignment: .center, lineBreak: .truncateTail)
+    }
+
+    /// A gray header row of centered column titles, each cell bordered.
+    private static func drawTableHeader(on canvas: PDFCanvas, cols: [(title: String, width: CGFloat)], y: CGFloat, height headerH: CGFloat) {
+        let hRect = CGRect(x: margin, y: y - headerH, width: contentWidth, height: headerH)
+        canvas.fill(hRect, color: colorGrayHeader)
+
+        var curX = margin
+        for c in cols {
+            let cell = CGRect(x: curX, y: y - headerH, width: c.width, height: headerH)
+            canvas.stroke(cell, color: colorBorder, lineWidth: 0.5)
+            canvas.draw(c.title, in: CGRect(x: cell.minX, y: cell.midY - 5, width: cell.width, height: 11),
+                        font: fontTableHdr, color: colorBlack, alignment: .center)
+            curX += c.width
+        }
+    }
+
+    /// A full-width gray banner with a centered section title (crew calls, notes).
+    private static func drawSectionBanner(on canvas: PDFCanvas, _ title: String, y: CGFloat, height bannerH: CGFloat) {
+        let bRect = CGRect(x: margin, y: y - bannerH, width: contentWidth, height: bannerH)
+        canvas.fill(bRect, color: colorGrayHeader)
+        canvas.stroke(bRect, color: colorBorder, lineWidth: 0.5)
+        canvas.draw(title, in: CGRect(x: bRect.minX, y: bRect.midY - 5, width: bRect.width, height: 11),
+                    font: fontSectionHdr, color: colorBlack, alignment: .center)
     }
 }
-#endif

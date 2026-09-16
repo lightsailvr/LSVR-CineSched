@@ -18,6 +18,6 @@ the note below). No Swift Package Manager dependencies, CocoaPods, or Carthage.
 - Builds are hermetic and the GPL-v3 licensing story stays simple.
 - Exporters duplicate small drawing helpers (`drawText`, `drawCell`, page constants). A shared
   in-repo PDF drawing helper is the right fix, not a package. *Update 2026-09-16 (#4):* that
-  helper is `PDFCanvas.swift` (CoreGraphics + CoreText, no AppKit); two exporters are on it and
-  the rest migrate per the exporter tickets under #1.
+  helper is `PDFCanvas.swift` (CoreGraphics + CoreText, no AppKit); four exporters are on it
+  (#4, #5) and the last two migrate per the exporter tickets under #1.
 - Reopen this decision only if a system framework genuinely cannot do the job.
