@@ -1,10 +1,10 @@
 // FountainImporter.swift
-// NSOpenPanel-driven import pipeline for .fountain / .md / .spmd screenplay
-// files: reads the file, runs it through FountainParser + FountainPaginator on
-// a background thread, and maps the result into [Scene] for the Boneyard.
+// Import pipeline for .fountain / .md / .spmd / .highland screenplay files:
+// reads the file, runs it through FountainParser + FountainPaginator on a
+// background thread, and maps the result into [Scene] for the Boneyard. The
+// file is chosen by the caller (see FilePanels.swift); nothing here touches UI.
 
-import AppKit
-import UniformTypeIdentifiers
+import Foundation
 
 // MARK: - FountainImportResult
 
@@ -41,28 +41,6 @@ enum FountainImportError: LocalizedError {
 struct FountainImporter {
 
     static let supportedExtensions = ["fountain", "md", "spmd", "highland"]
-
-    // MARK: - Open panel
-
-    static func showOpenPanel(defaultDirectory: URL?, completion: @escaping (URL) -> Void) {
-        let panel = NSOpenPanel()
-        panel.title  = "Import Fountain Script"
-        panel.prompt = "Import"
-        var allowedTypes: [UTType] = []
-        for ext in supportedExtensions {
-            if let type = UTType(filenameExtension: ext) { allowedTypes.append(type) }
-        }
-        panel.allowedContentTypes     = allowedTypes
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories    = false
-        if let dir = defaultDirectory { panel.directoryURL = dir }
-        panel.begin { response in
-            DispatchQueue.main.async {
-                guard response == .OK, let url = panel.url else { return }
-                completion(url)
-            }
-        }
-    }
 
     // MARK: - Import
 

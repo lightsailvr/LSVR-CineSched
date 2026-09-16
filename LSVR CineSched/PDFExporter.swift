@@ -1,9 +1,13 @@
 // PDFExporter.swift
 // Generates a landscape US Letter PDF calendar from shoot data
 
+// Platform seam: macOS only for now. The exporters still draw through AppKit
+// (NSGraphicsContext, NSFont, NSColor, NSAttributedString), so they are gated out
+// of the iOS and visionOS builds until the shared CoreGraphics/CoreText drawing
+// helper lands (see docs/adr/0003 and the exporter tickets under #1).
+#if os(macOS)
 import SwiftUI
 import AppKit
-import UniformTypeIdentifiers
 
 // MARK: - PDFExporter
 
@@ -1081,39 +1085,4 @@ private extension NSColor {
         )
     }
 }
-
-// MARK: - PDFFile (FileDocument wrapper)
-
-struct PDFFile: FileDocument {
-    static var readableContentTypes:  [UTType] = [.pdf]
-    static var writableContentTypes: [UTType] = [.pdf]
-
-    private let shootDays:    [ShootDay]
-    private let projectTitle: String
-    private let allScenes:    [Scene]
-    private let startDate:    Date
-    private let endDate:      Date
-
-    init(shootDays: [ShootDay], projectTitle: String, allScenes: [Scene], startDate: Date, endDate: Date) {
-        self.shootDays    = shootDays
-        self.projectTitle = projectTitle
-        self.allScenes    = allScenes
-        self.startDate    = startDate
-        self.endDate      = endDate
-    }
-
-    init(configuration: ReadConfiguration) throws {
-        throw CocoaError(.fileReadUnsupportedScheme)
-    }
-
-    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        guard let data = PDFExporter.generatePDF(
-            shootDays: shootDays,
-            projectTitle: projectTitle,
-            allScenes: allScenes,
-            startDate: startDate,
-            endDate: endDate
-        ) else { throw CocoaError(.fileWriteUnknown) }
-        return FileWrapper(regularFileWithContents: data)
-    }
-}
+#endif

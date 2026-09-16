@@ -244,7 +244,7 @@ struct DayDetailSheet: View {
                 .onSubmit { commitNote() }
         }
         .padding(14)
-        .background(Color(NSColor.controlBackgroundColor))
+        .background(Color.controlBackground)
         .cornerRadius(10)
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.08), lineWidth: 1))
     }
@@ -278,7 +278,7 @@ struct DayDetailSheet: View {
             }
         }
         .padding(14)
-        .background(Color(NSColor.controlBackgroundColor))
+        .background(Color.controlBackground)
         .cornerRadius(10)
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.08), lineWidth: 1))
     }

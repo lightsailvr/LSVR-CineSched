@@ -7,6 +7,9 @@
 //  leak Spanish abbreviations, and the export options must control the scene chips.
 //
 
+// The exporters are gated to macOS until the shared drawing helper lands (#3), so
+// this suite is gated with them; it is meant to run on every platform once they do.
+#if os(macOS)
 import Testing
 import PDFKit
 @testable import LSVR_CineSched
@@ -135,3 +138,4 @@ struct MonthPDFExporterTests {
         #expect(text.contains("Performer Number 10"))
     }
 }
+#endif

@@ -9,6 +9,32 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-16 — Getting the target to build for iOS was mostly a plist collision and AppKit hunting (#3)
+
+Three things that surprised, in the order they bit:
+
+- **A stray `Info.plist` in the synchronized folder breaks the iOS build, not the Mac one.**
+  `ProcessInfoPlistFile … Multiple commands produce …/LSVR CineSched.app/Info.plist`. The
+  hand-written plist was documented as unused, but a synchronized folder copies it into the
+  bundle as a resource; on the Mac that lands in `Contents/Resources/` and nobody notices,
+  in a flat iOS bundle it is the same path as the generated plist. Deleted it; do not add one.
+- **`URL.BookmarkCreationOptions.withSecurityScope` is macOS-only.** iOS bookmarks are
+  implicitly security-scoped, so the option simply does not exist there. `FilePanels` owns
+  the options now; grep for `withSecurityScope` should only hit that file.
+- **The compiler stops at the first missing module, one file at a time.** `import AppKit`
+  in one file hides every other error in the build, so "fix, rebuild, repeat" is slow.
+  `grep -ln "^import AppKit"` plus a grep for `NSEvent|NSColor|NSSavePanel|NSOpenPanel|
+  \.checkbox|\.radioGroup|borderlessButton|withSecurityScope` up front found everything
+  the compiler later would have, in one pass. After that the whole UI compiled unchanged on
+  iOS and visionOS: `.help`, `.onHover`, `.keyboardShortcut`, `.commands`, `NSItemProvider`
+  and `DropDelegate` are all cross-platform.
+- **Simulator names drift from the spec.** #3 asked for "iPhone 17 Pro" and "iPad Pro
+  13-inch (M4)"; the installed 27.0 runtime has iPhone 17 and iPad Pro 13-inch (M5).
+  Check `xcrun simctl list devices available` before copying a destination string. Also,
+  `xcodebuild test` on a simulator runs in a *clone* and reboots the original device, so a
+  `simctl launch` right after a test run can hit a device that is still booting (black
+  screen with an Apple logo in the screenshot); `simctl bootstatus <device> -b` first.
+
 ## 2026-09-16 — Moving to the release Xcode 27 SDK at a 27.0 floor was a one-warning affair (#2)
 
 The spec for the 27 baseline (#2) expected source fixes for "the state property wrapper
@@ -127,10 +153,10 @@ or copied into the app bundle as a resource (anything else). Two consequences:
 - Non-source files in that folder (README, CHANGELOG, `1024.png`, the old `*.app.zip` bundles)
   get copied into the built `.app`. Keep large or unrelated files out of that folder.
 
-## 2026-09-02 — `Info.plist` in the source folder is not the one the target uses
+## 2026-09-02 — `Info.plist` in the source folder is not the one the target uses *(superseded 2026-09-16)*
 
-The target has `GENERATE_INFOPLIST_FILE = YES` and no `INFOPLIST_FILE` setting, so Xcode
-synthesizes its own Info.plist. The hand-written `LSVR CineSched/Info.plist` (which declares the
-`.json` document type and version 4.5.1) is treated as a plain resource, not merged. If document
-types or the version string need to take effect, either set `INFOPLIST_FILE` to point at it or
-move the keys into `INFOPLIST_KEY_*` build settings.
+Historical: the target has `GENERATE_INFOPLIST_FILE = YES` and no `INFOPLIST_FILE` setting, so
+Xcode synthesizes its own Info.plist and the hand-written `LSVR CineSched/Info.plist` was a plain
+resource, not merged. That file is gone (see the 2026-09-16 entry on #3: it collided with the
+generated plist in the flat iOS bundle). If document types need to take effect, use
+`INFOPLIST_KEY_*` build settings; do not reintroduce a plist in the source folder.

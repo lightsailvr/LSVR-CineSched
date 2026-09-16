@@ -4,6 +4,11 @@
 // Enhanced with smart dynamic space allocation (shrinking unused categories to 24pt),
 // bulleted list formatting, larger legible typography, and color-coded department titles.
 
+// Platform seam: macOS only for now. The exporters still draw through AppKit
+// (NSGraphicsContext, NSFont, NSColor, NSAttributedString), so they are gated out
+// of the iOS and visionOS builds until the shared CoreGraphics/CoreText drawing
+// helper lands (see docs/adr/0003 and the exporter tickets under #1).
+#if os(macOS)
 import AppKit
 
 struct BreakdownExporter {
@@ -363,4 +368,4 @@ struct BreakdownExporter {
         return (number, intExt, working)
     }
 }
-
+#endif

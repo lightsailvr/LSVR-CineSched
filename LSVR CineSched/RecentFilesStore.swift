@@ -21,7 +21,6 @@ extension Notification.Name {
     static let csExportSchedulePDF   = Notification.Name("CineSched.exportSchedulePDF")
     static let csExportStripboardPDF = Notification.Name("CineSched.exportStripboardPDF")
     static let csExportDaysOutOfDays = Notification.Name("CineSched.exportDaysOutOfDays")
-    static let csExportCallSheetPDF  = Notification.Name("CineSched.exportCallSheetPDF")
     static let csOpenProductionSetup = Notification.Name("CineSched.openProductionSetup")
     static let csScanForConflicts    = Notification.Name("CineSched.scanForConflicts")
     static let csOpenBreakdownBrowser = Notification.Name("CineSched.openBreakdownBrowser")
@@ -43,6 +42,7 @@ extension Notification.Name {
 /// user-selected file for the lifetime of the process that opened it — a plain saved
 /// path can't be reopened, or even checked for existence, in a later launch. A security-
 /// scoped bookmark is macOS's actual mechanism for "remember this file across launches."
+/// The bookmark options come from FilePanels, the platform seam for user-chosen files.
 final class RecentFilesStore: ObservableObject {
     @Published private(set) var urls: [URL] = []
 
@@ -57,7 +57,7 @@ final class RecentFilesStore: ObservableObject {
 
     func record(_ url: URL) {
         guard let bookmark = try? url.bookmarkData(
-            options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil
+            options: FilePanels.bookmarkCreationOptions, includingResourceValuesForKeys: nil, relativeTo: nil
         ) else { return }
 
         bookmarks.removeAll { existing in resolvedPath(existing) == url.path }
@@ -79,14 +79,14 @@ final class RecentFilesStore: ObservableObject {
     private func resolveAll() {
         urls = bookmarks.compactMap { data in
             var isStale = false
-            return try? URL(resolvingBookmarkData: data, options: .withSecurityScope,
+            return try? URL(resolvingBookmarkData: data, options: FilePanels.bookmarkResolutionOptions,
                              relativeTo: nil, bookmarkDataIsStale: &isStale)
         }
     }
 
     private func resolvedPath(_ bookmark: Data) -> String? {
         var isStale = false
-        return (try? URL(resolvingBookmarkData: bookmark, options: .withSecurityScope,
+        return (try? URL(resolvingBookmarkData: bookmark, options: FilePanels.bookmarkResolutionOptions,
                           relativeTo: nil, bookmarkDataIsStale: &isStale))?.path
     }
 }

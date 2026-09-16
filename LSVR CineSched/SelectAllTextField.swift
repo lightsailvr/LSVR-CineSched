@@ -7,8 +7,14 @@
 //
 // Plain SwiftUI TextField has no hook for this on macOS, so this wraps a real
 // NSTextField via NSViewRepresentable.
+//
+// Platform seam: the wrapper is AppKit. On iOS and visionOS the same name is a plain
+// SwiftUI TextField that honours `focusTrigger` but does not select-all — the shared
+// adaptive editors of milestone 3 will decide what "type over the value" means on touch.
 
 import SwiftUI
+
+#if os(macOS)
 import AppKit
 
 struct SelectAllTextField: NSViewRepresentable {
@@ -76,3 +82,26 @@ struct SelectAllTextField: NSViewRepresentable {
         }
     }
 }
+
+#else
+
+struct SelectAllTextField: View {
+    var placeholder: String
+    @Binding var text: String
+    @Binding var focusTrigger: Bool
+
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        TextField(placeholder, text: $text)
+            .textFieldStyle(.roundedBorder)
+            .focused($isFocused)
+            .onChange(of: focusTrigger) { _, requested in
+                guard requested else { return }
+                isFocused = true
+                focusTrigger = false
+            }
+    }
+}
+
+#endif

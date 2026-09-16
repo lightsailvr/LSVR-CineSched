@@ -1,7 +1,9 @@
 # CLAUDE.md
 
-CineSched: a macOS SwiftUI app for film production scheduling. Read `CONTEXT.md` for the glossary
-and system map before touching the code, and `learnings.md` for things that have already cost time.
+CineSched: a SwiftUI app for film production scheduling. The Mac app is the shipping product;
+iOS, iPadOS and visionOS build from the same target and currently launch to a placeholder (#1).
+Read `CONTEXT.md` for the glossary and system map before touching the code, and `learnings.md`
+for things that have already cost time.
 
 ## Build and run
 
@@ -23,6 +25,25 @@ avoids.)
 
 Add `CODE_SIGNING_ALLOWED=NO` for a headless build that should not touch signing.
 
+**iOS and visionOS** build and test against the simulators (the installed 27.0 runtimes have
+iPhone 17, iPad Pro 13-inch (M5) and Apple Vision Pro; `xcrun simctl list devices available`
+for the current names). The exporters are gated to the Mac (ADR 0003), so
+`MonthPDFExporterTests` is skipped on the simulator; everything else must pass there.
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -scheme "LSVR CineSched" -destination 'platform=iOS Simulator,name=iPhone 17' CODE_SIGNING_ALLOWED=NO build
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -scheme "LSVR CineSched" -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5)' CODE_SIGNING_ALLOWED=NO build
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -scheme "LSVR CineSched" -destination 'platform=visionOS Simulator,name=Apple Vision Pro' CODE_SIGNING_ALLOWED=NO build
+```
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -scheme "LSVR CineSched" -destination 'platform=iOS Simulator,name=iPhone 17' -derivedDataPath "$(mktemp -d)" -only-testing:"LSVR CineSchedTests" CODE_SIGNING_ALLOWED=NO test
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -scheme "LSVR CineSched" -destination 'platform=visionOS Simulator,name=Apple Vision Pro' -derivedDataPath "$(mktemp -d)" -only-testing:"LSVR CineSchedTests" CODE_SIGNING_ALLOWED=NO test
+```
+
+To see it run: `xcrun simctl install <device> <DerivedData>/Build/Products/Debug-iphonesimulator/LSVR\ CineSched.app`,
+then `xcrun simctl launch <device> com.lsvr.LSVR-CineSched` (`Debug-xrsimulator` for Vision Pro).
+
 **Releases**: `scripts/release.sh <version>` cuts a release — bumps the versions in build
 settings, rolls the changelog's `[Unreleased]` into a dated section, builds Release, installs
 to `/Applications`, commits, tags `v<version>`, pushes, and publishes a GitHub Release with
@@ -35,9 +56,8 @@ app target (7 deprecated one-argument `onChange`, 4 main-actor-isolated `Codable
 
 Project facts: single scheme `LSVR CineSched`; Swift 5 language mode with
 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` and approachable concurrency on; deployment target
-27.0 on macOS, iOS and visionOS (the target lists all three platforms, but only the macOS
-destination is built and shipped today); sandboxed with user-selected file read/write; no SPM
-packages or other dependencies.
+27.0 on macOS, iOS and visionOS (one target builds all three; only the Mac ships today);
+sandboxed with user-selected file read/write; no SPM packages or other dependencies.
 
 The Xcode target is a **synchronized folder group**. Any file placed in `LSVR CineSched/` is
 automatically compiled (`.swift`) or bundled as a resource (everything else). No pbxproj edits are
@@ -53,7 +73,13 @@ All sources are flat in `LSVR CineSched/`, one responsibility per file:
 - `RecentFilesStore.swift`: recent-file bookmarks and every `Notification.Name` used by menus.
 - `Models.swift`: all value types. `Scene` doubles as banner, auto-meal, and calendar event via flags.
 - `CalendarView.swift`, `StripboardView.swift`: the two schedule views.
-- `*Sheet.swift`: modal editors. `*Exporter.swift`: PDF generators. `Fountain*`, `FinalDraftParser`, `HighlandArchiveReader`: importers.
+- `*Sheet.swift`: modal editors. `*Exporter.swift`: PDF generators (Mac-only for now; every call
+  site is in `ProjectStore+PDFExports.swift`). `Fountain*`, `FinalDraftParser`, `HighlandArchiveReader`: importers.
+- Platform seams (ADR 0003): `FilePanels`, `SelectAllTextField`, `WindowAccessor`, `ModifierKeys`,
+  `PlatformControlStyles`, `PlatformColors`, `PlatformPlaceholderView`, plus the root/tabbing
+  choice in `CineSchedApp`, and the temporary `#if os(macOS)` gate on the six `*Exporter.swift`
+  files, `ProjectStore+PDFExports.swift` and `MonthPDFExporterTests`. These are the only files
+  allowed to contain `#if os(...)`.
 
 ## Conventions
 
@@ -70,6 +96,10 @@ All sources are flat in `LSVR CineSched/`, one responsibility per file:
   `decodeIfPresent(...) ?? default` line in the hand-written `init(from:)`. Old project files must
   still open. There is no schema version.
 - **Colors**: resolve scene colors only via `Scene.stripColor`. Exporters must not hardcode strip colors.
+- **Platform APIs**: no `#if os(...)` outside the seam files listed above, and no `AppKit`/`UIKit`
+  import in the pure core (models, parsers, importers, scanners, formatting, row logic, palette
+  settings) or the views. Need `NSEvent`, a panel, a Mac-only control style, a system color? Add
+  to the matching seam and call it from the view. Color arithmetic uses `Color.Resolved`.
 - **`ContentView.body`** is a chain of `applyX(_:)` helper functions to keep the type-checker fast.
   Add new modifiers inside one of those helpers, not inline.
 - Use the two-argument `onChange(of:) { old, new in }` form. The one-argument form is deprecated.
@@ -92,7 +122,8 @@ The test targets are Xcode template stubs. `LSVR CineSchedTests` uses Swift Test
 - Log anything non-obvious you learn in `learnings.md` (newest first). Promote durable rules here or to an ADR.
 - Update `LSVR CineSched/CHANGELOG.md` under `[Unreleased]` for user-visible changes.
 - Keep the `.app.zip` bundles, `1024.png`, and other non-source files out of `LSVR CineSched/`; they get copied into the app.
-- The hand-written `LSVR CineSched/Info.plist` is not used by the target (`GENERATE_INFOPLIST_FILE = YES`). Version and document-type settings live in build settings.
+- There is no hand-written `Info.plist` (`GENERATE_INFOPLIST_FILE = YES`); do not add one to the source folder, it would be
+  bundled as a resource and collide with the generated plist in the flat iOS bundle. Version and document-type settings live in build settings.
 
 ## Agent skills
 

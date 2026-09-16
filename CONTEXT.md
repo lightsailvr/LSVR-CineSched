@@ -1,8 +1,10 @@
 # CineSched — Domain Context
 
-CineSched is a macOS SwiftUI app for scheduling film shoots: import a screenplay, break it into
+CineSched is a SwiftUI app for scheduling film shoots: import a screenplay, break it into
 scenes, drag scenes onto shoot days, track cast availability, and export industry-standard PDFs
-(shooting schedule, stripboard, call sheets, breakdown sheets, Days Out of Days).
+(shooting schedule, stripboard, call sheets, breakdown sheets, Days Out of Days). The Mac app is
+the product today; one target also builds iOS, iPadOS and visionOS, which currently launch to a
+placeholder while the port (#1) is in progress.
 
 This file is the glossary and system map. Use these terms exactly in issues, code, and tests.
 Architecture decisions live in `docs/adr/`. Hard-won surprises live in `learnings.md`.
@@ -58,6 +60,8 @@ Film-production terms first, then app-specific ones.
 | **Project file** | A `.json` document holding `ProjectData`: all scenes, shoot days, call sheets, production info, and schedule lock. Human-readable and portable. |
 | **Autosave** | The whole project blob written to `UserDefaults` two seconds after the last change. Distinct from the manual Save to a `.json` file. |
 | **Fountain / FDX / Highland** | Supported screenplay import formats: plain-text Fountain, Final Draft XML, and Highland's zipped TextBundle. |
+| **Pure core** | The platform-free part of the code: models, parsers and importers, scanners, formatting, row logic, palette settings. Compiles on every platform with no `#if os`. |
+| **Platform seam** | A file that exists to hold a platform difference (`FilePanels`, `ModifierKeys`, `PlatformControlStyles`, …). The only places `#if os(...)` may appear; each starts with a comment saying why. See ADR 0003. |
 
 ## System shape
 
@@ -72,12 +76,15 @@ Models.swift              All value types (Scene, ShootDay, ProjectData, CallShe
 CalendarView.swift        Month grid / full-schedule scroll, drag & drop, day cells.
 StripboardView.swift      Strip schedule with time cascade and auto-meal sync.
 *Sheet.swift              Modal editors (Scene, CallSheet, ProductionSetup, Banner, CalendarEvent, SendToDay, ...).
-*Exporter.swift           PDF generation via CoreGraphics + AppKit text. One file per document type.
+*Exporter.swift           PDF generation via CoreGraphics + AppKit text. One file per document type. Mac-only for now;
+  ProjectStore+PDFExports.swift   every "generate then save" action, gated with the exporters.
 Fountain*.swift, FinalDraftParser.swift, HighlandArchiveReader.swift   Script importers (pure Swift).
 Parsers.swift, Formatting.swift                                        Eighths/time parsing, date/number formatting.
 ConflictScanner.swift, ScheduleLockScanner.swift                       Pure analysis over shoot days.
 Localization.swift, ThemeManager.swift, SceneColorSettings.swift       Cross-cutting settings.
-HoverTooltip.swift, SelectAllTextField.swift, LocationAutocompleteField.swift   UI utilities.
+HoverTooltip.swift, LocationAutocompleteField.swift                            UI utilities.
+FilePanels, SelectAllTextField, WindowAccessor, ModifierKeys, PlatformControlStyles,
+PlatformColors, PlatformPlaceholderView                                        Platform seams (ADR 0003).
 ```
 
 ### Data flow
@@ -91,7 +98,8 @@ HoverTooltip.swift, SelectAllTextField.swift, LocationAutocompleteField.swift   
    Manual Save writes the same JSON to the current file URL via a security-scoped bookmark.
 4. Undo is a manual 30-deep snapshot stack of `(allScenes, shootDays)` in `ContentView`, not `UndoManager`.
    It does not cover call sheets, production info, or the title.
-5. Exporters are pure functions from model values to `Data` (PDF). Save panels live in `ProjectStore.swift`.
+5. Exporters are pure functions from model values to `Data` (PDF). The save-panel actions around them
+   live in `ProjectStore+PDFExports.swift`; the panels themselves come from `FilePanels`.
 
 ### Invariants to preserve
 

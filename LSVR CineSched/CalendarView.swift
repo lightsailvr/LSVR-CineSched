@@ -3,7 +3,6 @@
 
 import SwiftUI
 import UniformTypeIdentifiers
-import AppKit
 
 // MARK: - DropIndicatorView & Delegates
 
@@ -220,7 +219,7 @@ struct DayCellView: View {
                 if isShootDay {
                     currentTheme.shootDayRangeHighlight(isDarkMode: colorScheme == .dark)
                 } else {
-                    Color(NSColor.controlBackgroundColor)
+                    Color.controlBackground
                 }
                 if isWeekend(day.date) { Color.black.opacity(colorScheme == .dark ? 0.15 : 0.03) }
                 if !day.dayType.isShootable { dayTypeColor.opacity(colorScheme == .dark ? 0.22 : 0.1) }
@@ -502,6 +501,9 @@ struct CompactMonthCalendarView: View {
     let onBeforeSceneChange: () -> Void
     let onSceneChanged: () -> Void
     let onCallSheetExport: (ShootDay) -> Void
+    /// Month PDF export, handed the displayed month and the confirmed options; the
+    /// exporter call and the save panel live with the other exports in ContentView.
+    let onExportMonthPDF: (Date, MonthPDFOptions) -> Void
 
     // View Mode Switcher
     @AppStorage("CineSchedCalendarViewMode") private var calendarViewMode: CalendarViewMode = .monthGrid
@@ -923,7 +925,7 @@ struct CompactMonthCalendarView: View {
         .background(
             isShootRange
                 ? currentTheme.shootDayRangeHighlight(isDarkMode: colorScheme == .dark)
-                : Color(NSColor.controlBackgroundColor).opacity(0.5)
+                : Color.controlBackground.opacity(0.5)
         )
         .cornerRadius(8)
         .overlay(
@@ -1034,29 +1036,7 @@ struct CompactMonthCalendarView: View {
             includePageCount: monthPDFShowPages,
             includeEstimatedTime: monthPDFShowTime
         )
-        guard let pdfData = PDFExporter.generateMonthPDF(
-            month: displayedMonth,
-            shootDays: shootDays,
-            projectTitle: projectTitle,
-            productionInfo: productionInfo,
-            options: options
-        ) else { return }
-
-        let df = DateFormatter()
-        df.dateFormat = "yyyy_MM"
-        let monthStr = df.string(from: displayedMonth)
-        let savePanel = NSSavePanel()
-        savePanel.allowedContentTypes = [.pdf]
-        savePanel.canCreateDirectories = true
-        savePanel.isExtensionHidden = false
-        savePanel.title = L("Export Month (PDF)")
-        savePanel.nameFieldStringValue = "Calendar_\(monthStr).pdf"
-
-        savePanel.begin { response in
-            if response == .OK, let url = savePanel.url {
-                try? pdfData.write(to: url)
-            }
-        }
+        onExportMonthPDF(displayedMonth, options)
     }
 
     // MARK: - Day Cell Component
@@ -1173,14 +1153,15 @@ struct CompactMonthCalendarView: View {
     }
 
     private func selectScene(_ scene: Scene, dayId: UUID) {
-        if NSEvent.modifierFlags.contains(.command) {
+        let flags = ModifierKeys.current
+        if flags.contains(.command) {
             if selectedSceneIDs.contains(scene.id) {
                 selectedSceneIDs.remove(scene.id)
             } else {
                 selectedSceneIDs.insert(scene.id)
             }
             lastSelectedSceneID = scene.id
-        } else if NSEvent.modifierFlags.contains(.shift), let lastID = lastSelectedSceneID {
+        } else if flags.contains(.shift), let lastID = lastSelectedSceneID {
             let dayScenes = shootDays.first(where: { $0.id == dayId })?.scenes ?? []
             if let lastIdx = dayScenes.firstIndex(where: { $0.id == lastID }),
                let currentIdx = dayScenes.firstIndex(where: { $0.id == scene.id }) {

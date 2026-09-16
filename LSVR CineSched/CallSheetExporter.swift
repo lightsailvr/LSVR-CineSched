@@ -1,6 +1,11 @@
 // CallSheetExporter.swift
 // Generates a professional Call Sheet PDF matching standard film industry layout with Basecamp and Actor Scenes.
 
+// Platform seam: macOS only for now. The exporters still draw through AppKit
+// (NSGraphicsContext, NSFont, NSColor, NSAttributedString), so they are gated out
+// of the iOS and visionOS builds until the shared CoreGraphics/CoreText drawing
+// helper lands (see docs/adr/0003 and the exporter tickets under #1).
+#if os(macOS)
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -723,3 +728,4 @@ class CallSheetExporter {
             .draw(in: rect)
     }
 }
+#endif

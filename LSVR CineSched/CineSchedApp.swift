@@ -6,6 +6,9 @@
 //
 
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 @main
 struct CineSchedApp: App {
@@ -19,14 +22,24 @@ struct CineSchedApp: App {
     @AppStorage("CineSchedTheme") private var currentTheme: AppTheme = .blue
 
     init() {
+        // Platform seam: window tabbing is a Mac-only concept (the "+" tab bar the system
+        // adds to every multi-window app), and a schedule window makes no sense as a tab.
+        #if os(macOS)
         NSWindow.allowsAutomaticWindowTabbing = false
+        #endif
     }
 
     var body: some SwiftUI.Scene {
         WindowGroup {
+            // Platform seam: the Mac keeps its full editor as the root; the other platforms
+            // show the in-progress placeholder until their own layouts land (#1, M3/M4).
+            #if os(macOS)
             ContentView()
                 .environmentObject(recentFiles)
                 .accentColor(currentTheme.primaryAccent(isDarkMode: isDarkMode))
+            #else
+            PlatformPlaceholderView()
+            #endif
         }
         .commands {
             // File menu — New / Open / Open Recent / Import

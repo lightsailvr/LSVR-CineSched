@@ -3,6 +3,11 @@
 // member, one column per shoot day, showing when each character starts, works,
 // holds, and finishes across the schedule.
 
+// Platform seam: macOS only for now. The exporters still draw through AppKit
+// (NSGraphicsContext, NSFont, NSColor, NSAttributedString), so they are gated out
+// of the iOS and visionOS builds until the shared CoreGraphics/CoreText drawing
+// helper lands (see docs/adr/0003 and the exporter tickets under #1).
+#if os(macOS)
 import SwiftUI
 import AppKit
 
@@ -363,3 +368,4 @@ struct DaysOutOfDaysExporter {
         path.stroke()
     }
 }
+#endif

@@ -91,7 +91,7 @@ struct MonthPDFOptionsSheet: View {
                 Spacer()
             }
         }
-        .toggleStyle(.checkbox)
+        .checkboxToggleStyle()
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.gray.opacity(0.08)))
     }

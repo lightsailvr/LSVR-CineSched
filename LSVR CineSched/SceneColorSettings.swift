@@ -4,7 +4,6 @@
 // derive from it — so making it read from here covers all of them automatically.
 
 import SwiftUI
-import AppKit
 
 /// Every distinct color slot Scene.stripColor's (interior/exterior × time-of-day) matrix
 /// can produce, plus Custom. Matches that matrix exactly so customizing a slot here changes
@@ -78,11 +77,13 @@ enum SceneColorSettings {
 extension Color {
     /// Best-effort hex string for persisting a user-picked color from a ColorPicker.
     /// Rounds to 8-bit sRGB, which is plenty of precision for a strip-color swatch.
+    /// Goes through `Color.Resolved` instead of NSColor so it is platform-neutral;
+    /// a wide-gamut pick is clamped into sRGB rather than producing a garbage byte.
+    /// Resolving in a default `EnvironmentValues()` is fine for a picker color, which
+    /// carries no appearance-dependent component.
     var hexString: String {
-        let ns = NSColor(self).usingColorSpace(.sRGB) ?? NSColor(self)
-        let r = Int(round(ns.redComponent * 255))
-        let g = Int(round(ns.greenComponent * 255))
-        let b = Int(round(ns.blueComponent * 255))
-        return String(format: "%02X%02X%02X", r, g, b)
+        let c = resolve(in: EnvironmentValues())
+        func byte(_ component: Float) -> Int { Int((Double(min(max(component, 0), 1)) * 255).rounded()) }
+        return String(format: "%02X%02X%02X", byte(c.red), byte(c.green), byte(c.blue))
     }
 }

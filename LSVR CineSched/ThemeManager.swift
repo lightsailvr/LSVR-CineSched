@@ -80,7 +80,7 @@ enum AppTheme: String, CaseIterable, Codable {
     func canvasBackground(isDarkMode: Bool) -> Color {
         switch self {
         case .system:
-            return Color(NSColor.windowBackgroundColor)
+            return Color.windowBackground
         case .blue:
             return isDarkMode ? Color(hex: "121A24") : Color(hex: "FCFBF5")
         case .green:
@@ -93,7 +93,7 @@ enum AppTheme: String, CaseIterable, Codable {
     func panelBackground(isDarkMode: Bool) -> Color {
         switch self {
         case .system:
-            return Color(NSColor.controlBackgroundColor)
+            return Color.controlBackground
         case .blue:
             return isDarkMode ? Color(hex: "1C2634") : Color(hex: "DDEEFA")
         case .green:

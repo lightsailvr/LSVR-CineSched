@@ -1,10 +1,11 @@
 // ProjectStore.swift
-// Handles all project persistence: auto-save, manual save/load, and the
-// FileDocument wrapper used by the native file importer/exporter.
+// Handles all project persistence: auto-save, manual save/load, script import, and the
+// FileDocument wrapper used by the native file importer/exporter. File choosing goes
+// through FilePanels (the platform seam); the PDF export actions live in
+// ProjectStore+PDFExports.swift because the exporters are Mac-only for now.
 
 import SwiftUI
 import Foundation
-import AppKit
 import UniformTypeIdentifiers
 
 // MARK: - ProjectFile (FileDocument for JSON import/export)
@@ -110,7 +111,7 @@ extension ContentView {
     func setCurrentFileURL(_ url: URL) {
         currentFileURL = url
         if let bookmark = try? url.bookmarkData(
-            options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil
+            options: FilePanels.bookmarkCreationOptions, includingResourceValuesForKeys: nil, relativeTo: nil
         ) {
             UserDefaults.standard.set(bookmark, forKey: Self.currentFileBookmarkKey)
         }
@@ -120,12 +121,12 @@ extension ContentView {
     func restoreCurrentFileURL() {
         guard let bookmarkData = UserDefaults.standard.data(forKey: Self.currentFileBookmarkKey) else { return }
         var isStale = false
-        guard let url = try? URL(resolvingBookmarkData: bookmarkData, options: .withSecurityScope,
+        guard let url = try? URL(resolvingBookmarkData: bookmarkData, options: FilePanels.bookmarkResolutionOptions,
                                   relativeTo: nil, bookmarkDataIsStale: &isStale),
               url.startAccessingSecurityScopedResource() else { return }
         currentFileURL = url
         if isStale {
-            if let refreshed = try? url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil) {
+            if let refreshed = try? url.bookmarkData(options: FilePanels.bookmarkCreationOptions, includingResourceValuesForKeys: nil, relativeTo: nil) {
                 UserDefaults.standard.set(refreshed, forKey: Self.currentFileBookmarkKey)
             }
         }
@@ -136,7 +137,7 @@ extension ContentView {
         currentFileURL?.deletingLastPathComponent()
     }
 
-    // MARK: - Manual save (native NSSavePanel)
+    // MARK: - Manual save (native save panel)
 
     /// "Save": writes silently to the file this project was last saved to or loaded from.
     func saveProject() {
@@ -148,20 +149,15 @@ extension ContentView {
     }
 
     func showNativeSaveDialog() {
-        let panel = NSSavePanel()
-        panel.title              = "Save CineSched Project"
-        panel.prompt             = "Save"
-        panel.nameFieldLabel     = "Project Name:"
-        panel.nameFieldStringValue = sanitizeFilename(projectTitle.isEmpty ? "MovieSchedule" : projectTitle)
-        panel.allowedContentTypes = [.json]
-        panel.canCreateDirectories = true
-        panel.isExtensionHidden  = false
-        if let dir = defaultPanelDirectory { panel.directoryURL = dir }
-        panel.begin { [self] response in
-            DispatchQueue.main.async {
-                guard response == .OK, let url = panel.url else { return }
-                self.saveProjectDirectly(to: url)
-            }
+        FilePanels.chooseSaveLocation(
+            title: "Save CineSched Project",
+            prompt: "Save",
+            nameFieldLabel: "Project Name:",
+            defaultName: sanitizeFilename(projectTitle.isEmpty ? "MovieSchedule" : projectTitle),
+            allowedTypes: [.json],
+            directory: defaultPanelDirectory
+        ) { url in
+            saveProjectDirectly(to: url)
         }
     }
 
@@ -268,18 +264,13 @@ extension ContentView {
     // MARK: - File open panels
 
     func showJSONOpenPanel() {
-        let panel = NSOpenPanel()
-        panel.title                = "Load CineSched Project"
-        panel.prompt               = "Load"
-        panel.allowedContentTypes  = [.json]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        if let dir = defaultPanelDirectory { panel.directoryURL = dir }
-        panel.begin { [self] response in
-            DispatchQueue.main.async {
-                guard response == .OK, let url = panel.url else { return }
-                self.loadProject(from: url)
-            }
+        FilePanels.chooseFile(
+            title: "Load CineSched Project",
+            prompt: "Load",
+            allowedTypes: [.json],
+            directory: defaultPanelDirectory
+        ) { url in
+            loadProject(from: url)
         }
     }
 
@@ -287,28 +278,23 @@ extension ContentView {
     /// dispatches by extension to the Final Draft (.fdx/.xml) or Fountain
     /// (.fountain/.md/.spmd) importer once a file is chosen.
     func showScriptImportPanel() {
-        let panel = NSOpenPanel()
-        panel.title                = "Import Script"
-        panel.prompt               = "Import"
         var allowedTypes: [UTType] = []
         if let fdxType = UTType(filenameExtension: "fdx") { allowedTypes.append(fdxType) }
         allowedTypes.append(.xml)
         for ext in FountainImporter.supportedExtensions {
             if let type = UTType(filenameExtension: ext) { allowedTypes.append(type) }
         }
-        panel.allowedContentTypes  = allowedTypes
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        if let dir = defaultPanelDirectory { panel.directoryURL = dir }
-        panel.begin { [self] response in
-            DispatchQueue.main.async {
-                guard response == .OK, let url = panel.url else { return }
-                let ext = url.pathExtension.lowercased()
-                if FountainImporter.supportedExtensions.contains(ext) {
-                    self.beginFountainImport(from: url)
-                } else {
-                    self.importFDXScript(from: url)
-                }
+        FilePanels.chooseFile(
+            title: "Import Script",
+            prompt: "Import",
+            allowedTypes: allowedTypes,
+            directory: defaultPanelDirectory
+        ) { url in
+            let ext = url.pathExtension.lowercased()
+            if FountainImporter.supportedExtensions.contains(ext) {
+                beginFountainImport(from: url)
+            } else {
+                importFDXScript(from: url)
             }
         }
     }
@@ -409,117 +395,5 @@ extension ContentView {
         markDirty()
         completedFountainImport = result
         showingImportSummary = true
-    }
-
-    // MARK: - PDF exports (NSSavePanel)
-
-    func showSchedulePDFSavePanel() {
-        guard let pdfData = PDFExporter.generatePDF(
-            shootDays: shootDays,
-            projectTitle: projectTitle,
-            allScenes: allScenes,
-            startDate: startDate,
-            endDate: endDate
-        ) else {
-            alertMessage = "Failed to generate schedule PDF."
-            showingAlert = true
-            return
-        }
-        showPDFSavePanel(
-            data: pdfData,
-            defaultName: sanitizeFilename("\(projectTitle.isEmpty ? "MovieSchedule" : projectTitle)_Calendar")
-        )
-    }
-
-    func showStripboardPDFSavePanel() {
-        guard let pdfData = StripboardPDFExporter.generatePDF(
-            shootDays: shootDays,
-            projectTitle: projectTitle,
-            productionInfo: productionInfo
-        ) else {
-            alertMessage = "Couldn't generate a strip schedule PDF — schedule at least one scene first."
-            showingAlert = true
-            return
-        }
-        showPDFSavePanel(
-            data: pdfData,
-            defaultName: sanitizeFilename("\(projectTitle.isEmpty ? "MovieSchedule" : projectTitle)_StripSchedule")
-        )
-    }
-
-    func showDaysOutOfDaysPDFSavePanel() {
-        guard let pdfData = DaysOutOfDaysExporter.generatePDF(
-            shootDays: shootDays,
-            projectTitle: projectTitle,
-            productionInfo: productionInfo,
-            includeHold: includeHoldInDOOD
-        ) else {
-            alertMessage = "Couldn't generate a Days Out of Days report — add cast to your scenes and Production Setup first."
-            showingAlert = true
-            return
-        }
-        showPDFSavePanel(
-            data: pdfData,
-            defaultName: sanitizeFilename("\(projectTitle.isEmpty ? "MovieSchedule" : projectTitle)_DOoD")
-        )
-    }
-
-    func showBreakdownPDFSavePanel() {
-        guard let pdfData = BreakdownExporter.generatePDF(
-            shootDays: shootDays,
-            allScenes: allScenes,
-            projectTitle: projectTitle
-        ) else {
-            alertMessage = "Couldn't generate scene breakdowns — add some scenes first."
-            showingAlert = true
-            return
-        }
-        showPDFSavePanel(
-            data: pdfData,
-            defaultName: sanitizeFilename("\(projectTitle.isEmpty ? "MovieSchedule" : projectTitle)_Breakdowns")
-        )
-    }
-
-    func showCallSheetPDFSavePanel(for day: ShootDay) {
-        let dayNumbers = productionDayNumbers(for: shootDays)
-        guard let pdfData = CallSheetExporter.generatePDF(
-            shootDay: day,
-            productionInfo: productionInfo,
-            projectTitle: projectTitle,
-            dayNumber: dayNumbers[day.id],
-            totalProductionDays: dayNumbers.values.max() ?? 0
-        ) else {
-            alertMessage = "Failed to generate call sheet PDF."
-            showingAlert = true
-            return
-        }
-        showPDFSavePanel(
-            data: pdfData,
-            defaultName: sanitizeFilename("CallSheet_\(formattedDate(day.date))")
-        )
-    }
-
-    private func showPDFSavePanel(data: Data, defaultName: String) {
-        let panel = NSSavePanel()
-        panel.title              = "Export PDF"
-        panel.prompt             = "Export"
-        panel.nameFieldStringValue = defaultName
-        panel.allowedContentTypes  = [.pdf]
-        panel.canCreateDirectories = true
-        panel.isExtensionHidden    = false
-        if let dir = defaultPanelDirectory { panel.directoryURL = dir }
-        panel.begin { [self] response in
-            DispatchQueue.main.async {
-                guard response == .OK, let url = panel.url else { return }
-                do {
-                    try data.write(to: url)
-                    self.alertMessage = "PDF exported to: \(url.lastPathComponent)"
-                    self.showingAlert = true
-                } catch {
-                    self.alertMessage = "Failed to export PDF: \(error.localizedDescription)"
-                    self.showingAlert = true
-                }
-            }
-        }
     }
 }

@@ -10,7 +10,6 @@
 
 import SwiftUI
 import UniformTypeIdentifiers
-import AppKit
 
 struct StripboardView: View {
     @Environment(\.colorScheme) private var colorScheme
@@ -901,7 +900,7 @@ struct StripboardView: View {
     // MARK: - Selection
 
     private func selectScene(_ scene: Scene, dayId: UUID) {
-        let flags = NSEvent.modifierFlags
+        let flags = ModifierKeys.current
         if flags.contains(.command) {
             if selectedSceneIDs.contains(scene.id) { selectedSceneIDs.remove(scene.id) } else { selectedSceneIDs.insert(scene.id) }
             lastSelectedSceneID = scene.id
@@ -1296,7 +1295,7 @@ struct QuickTimeEditSheet: View {
                     Text(L("Automatic Cascade (by order)")).tag(false)
                     Text(L("Fixed Time (e.g. 11:00 AM)")).tag(true)
                 }
-                .pickerStyle(.radioGroup)
+                .radioGroupPickerStyle()
 
                 if isCustomTime {
                     HStack {

@@ -5,13 +5,6 @@
 
 import SwiftUI
 import UniformTypeIdentifiers
-import AppKit
-
-// MARK: - Custom UTType for FDX files
-
-extension UTType {
-    static var fdx: UTType { UTType(importedAs: "com.finaldraft.fdx") }
-}
 
 // MARK: - Schedule View Mode
 
@@ -528,7 +521,7 @@ struct ContentView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                     }
-                    .menuStyle(.borderlessButton)
+                    .borderlessButtonMenuStyle()
                 }
             }
 
@@ -865,7 +858,7 @@ struct ContentView: View {
     // MARK: - Boneyard selection helpers
 
     private func selectScene(_ id: UUID) {
-        let flags = NSEvent.modifierFlags
+        let flags = ModifierKeys.current
         if flags.contains(.command) {
             if selectedSceneIDs.contains(id) { selectedSceneIDs.remove(id) } else { selectedSceneIDs.insert(id) }
             lastSelectedSceneID = id
@@ -924,6 +917,9 @@ struct ContentView: View {
                     onSceneChanged: { markDirty(); pruneSelection(); recomputeConflicts(); recomputeScheduleLockChanges() },
                     onCallSheetExport: { day in
                         showCallSheetPDFSavePanel(for: day)
+                    },
+                    onExportMonthPDF: { month, options in
+                        exportMonthPDF(month: month, options: options)
                     }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1030,7 +1026,7 @@ struct ContentView: View {
                 // Off by default: a shoot with blocks months apart would otherwise be mostly
                 // empty day sections. The calendar always shows every date regardless.
                 Toggle(L("All days"), isOn: $stripboardShowAllDays)
-                    .toggleStyle(.checkbox)
+                    .checkboxToggleStyle()
                     .font(.caption).fontWeight(.semibold)
                     .controlSize(.small)
                     .help(L("Show every date in the range instead of folding empty days into gap rows"))
@@ -1044,30 +1040,6 @@ struct ContentView: View {
                 .fill(currentTheme.panelBackground(isDarkMode: isDarkMode))
         )
         .padding(.bottom, 6)
-    }
-
-    private func showShootingSchedulePDFSavePanel(for targetDays: [ShootDay]? = nil) {
-        let daysToExport = targetDays ?? shootDays
-        let pdfData = ShootingSchedulePDFExporter.generatePDF(
-            shootDays: daysToExport,
-            projectTitle: projectTitle,
-            productionInfo: productionInfo
-        )
-        let panel = NSSavePanel()
-        panel.title = L("Export Plan de Rodaje (PDF)")
-        let sanitizeName = projectTitle.isEmpty ? "Shooting_Schedule" : projectTitle.replacingOccurrences(of: " ", with: "_")
-        panel.nameFieldStringValue = "\(sanitizeName)_Shooting_Schedule.pdf"
-        panel.allowedContentTypes = [.pdf]
-        panel.begin { response in
-            if response == .OK, let url = panel.url {
-                do {
-                    try pdfData.write(to: url)
-                } catch {
-                    alertMessage = "Error saving Shooting Schedule PDF: \(error.localizedDescription)"
-                    showingAlert = true
-                }
-            }
-        }
     }
 
     // MARK: - Schedule search
@@ -1459,29 +1431,5 @@ fileprivate struct ScheduleSearchResultRow: View {
     private var subtitle: String {
         guard let date = result.dayDate else { return "Boneyard (unscheduled)" }
         return formattedDate(date)
-    }
-}
-
-fileprivate struct WindowAccessor: NSViewRepresentable {
-    let backgroundColor: Color
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async {
-            if let window = view.window {
-                window.titlebarAppearsTransparent = true
-                window.backgroundColor = NSColor(backgroundColor)
-            }
-        }
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            if let window = nsView.window {
-                window.titlebarAppearsTransparent = true
-                window.backgroundColor = NSColor(backgroundColor)
-            }
-        }
     }
 }

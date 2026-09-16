@@ -2,7 +2,6 @@
 // Core data models for CineSched
 
 import SwiftUI
-import AppKit
 
 // MARK: - Color blending
 
@@ -10,15 +9,20 @@ extension Color {
     /// Blends this color toward white by `amount` (0...1) — e.g. 0.1 mixes in
     /// 10% white, keeping 90% of the original. Computed from this color's
     /// actual RGB components rather than a guessed replacement value, so it
-    /// tracks whatever the base color really is.
+    /// tracks whatever the base color really is. Resolved through SwiftUI's own
+    /// `Color.Resolved` (sRGB) rather than NSColor/UIColor so the same code
+    /// runs on every platform; see ColorHelperTests. Resolving in a default
+    /// `EnvironmentValues()` is fine because every caller passes a static hex or
+    /// picker color, never a dynamic system color that depends on appearance.
     func lightened(by amount: Double) -> Color {
-        let ns = NSColor(self).usingColorSpace(.deviceRGB) ?? NSColor(self)
-        let r = ns.redComponent, g = ns.greenComponent, b = ns.blueComponent, a = ns.alphaComponent
+        let c = resolve(in: EnvironmentValues())
+        let r = Double(c.red), g = Double(c.green), b = Double(c.blue)
         return Color(
+            .sRGB,
             red:   r + (1 - r) * amount,
             green: g + (1 - g) * amount,
             blue:  b + (1 - b) * amount,
-            opacity: a
+            opacity: Double(c.opacity)
         )
     }
 }

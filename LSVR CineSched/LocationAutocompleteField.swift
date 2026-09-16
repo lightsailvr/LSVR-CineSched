@@ -53,7 +53,7 @@ struct LocationAutocompleteField: View {
                         }
                     }
                     .padding(4)
-                    .background(Color(NSColor.windowBackgroundColor))
+                    .background(Color.windowBackground)
                     .cornerRadius(6)
                     .shadow(color: Color.black.opacity(0.2), radius: 3, x: 0, y: 2)
                     .padding(.top, 2)

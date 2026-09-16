@@ -230,7 +230,7 @@ struct ProductionSetupSheet: View {
                                     get: { crew[index].isDailyDefault },
                                     set: { crew[index].isDailyDefault = $0 }
                                 ))
-                                .toggleStyle(.checkbox)
+                                .checkboxToggleStyle()
                                 .frame(width: 44, alignment: .center)
 
                                 Button { crew.remove(at: index) } label: {
@@ -258,7 +258,7 @@ struct ProductionSetupSheet: View {
                             .textFieldStyle(RoundedBorderTextFieldStyle())
                             .frame(maxWidth: 110)
                         Toggle(L("Daily"), isOn: $newCrewIsDailyDefault)
-                            .toggleStyle(.checkbox)
+                            .checkboxToggleStyle()
                         Button {
                             let name = newCrewName.trimmingCharacters(in: .whitespaces)
                             guard !name.isEmpty else { return }
