@@ -3,6 +3,8 @@
 All notable changes to CineSched are documented here.
 
 ## [Unreleased]
+### Changed
+- **Requires macOS 27.** The deployment floor moves from 26.5 to 27.0 (on every platform in the project) as the baseline for the upcoming iPad, iPhone and Vision Pro work. Nothing about the Mac app's behavior changes.
 
 ## [4.6.0] - 2026-09-09
 ### Added

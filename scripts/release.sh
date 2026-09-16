@@ -17,8 +17,8 @@ cd "$REPO_ROOT"
 APP_NAME="LSVR CineSched"
 PBXPROJ="$APP_NAME.xcodeproj/project.pbxproj"
 CHANGELOG="$APP_NAME/CHANGELOG.md"
-# This project is developed against the Xcode beta; never touch xcode-select.
-export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode-beta.app/Contents/Developer}"
+# xcode-select on the dev machine points at the Command Line Tools; never touch it.
+export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 
 [[ -z "$(git status --porcelain)" ]] || { echo "error: working tree not clean — commit or stash first" >&2; exit 1; }
 git rev-parse "v${VERSION}" >/dev/null 2>&1 && { echo "error: tag v${VERSION} already exists" >&2; exit 1; }

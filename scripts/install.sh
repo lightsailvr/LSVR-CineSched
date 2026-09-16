@@ -8,7 +8,8 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 APP_NAME="LSVR CineSched"
-export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode-beta.app/Contents/Developer}"
+# xcode-select on the dev machine points at the Command Line Tools; never touch it.
+export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 
 DD="$(mktemp -d)"
 trap 'rm -rf "$DD"' EXIT

@@ -5,17 +5,21 @@ and system map before touching the code, and `learnings.md` for things that have
 
 ## Build and run
 
-Use the **Xcode beta** on this machine (`/Applications/Xcode-beta.app`); `xcode-select` points at
-the release Xcode and that is not what this project is developed against. Never change the
-system-wide `xcode-select`; set `DEVELOPER_DIR` per command.
+Build with the release **Xcode 27** (`/Applications/Xcode.app`, 27.0 build 27A266a); the 27 beta
+is no longer installed or needed. `xcode-select` on this machine points at the Command Line
+Tools, so a bare `xcodebuild` fails. Never change the system-wide `xcode-select`; set
+`DEVELOPER_DIR` per command.
 
 ```bash
-DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer xcodebuild -scheme "LSVR CineSched" -destination 'platform=macOS' build
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -scheme "LSVR CineSched" -destination 'platform=macOS' build
 ```
 
 ```bash
-DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer xcodebuild -scheme "LSVR CineSched" -destination 'platform=macOS' test
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -scheme "LSVR CineSched" -destination 'platform=macOS' -derivedDataPath "$(mktemp -d)" test
 ```
+
+(`test` needs the fresh `-derivedDataPath`; see `learnings.md` for the App Management EPERM it
+avoids.)
 
 Add `CODE_SIGNING_ALLOWED=NO` for a headless build that should not touch signing.
 
@@ -25,12 +29,15 @@ to `/Applications`, commits, tags `v<version>`, pushes, and publishes a GitHub R
 the zipped app. `scripts/install.sh` just builds and refreshes `/Applications` (no version,
 no tag). Version and build number live only in build settings; keep the changelog's newest
 section in sync with `MARKETING_VERSION`. A clean build
-on 2026-09-02 succeeds with ~20 warnings (deprecated one-argument `onChange`, and main-actor-isolated
-`Codable` conformances in `ProjectStore.swift`); do not add new ones.
+on 2026-09-16 with Xcode 27.0 (27A266a) at the 27.0 floor succeeds with exactly 11 warnings in the
+app target (7 deprecated one-argument `onChange`, 4 main-actor-isolated `Codable` conformances in
+`ProjectStore.swift`); do not add new ones. The test targets add 5 more of the same kinds.
 
 Project facts: single scheme `LSVR CineSched`; Swift 5 language mode with
 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` and approachable concurrency on; deployment target
-macOS 26.5; sandboxed with user-selected file read/write; no SPM packages or other dependencies.
+27.0 on macOS, iOS and visionOS (the target lists all three platforms, but only the macOS
+destination is built and shipped today); sandboxed with user-selected file read/write; no SPM
+packages or other dependencies.
 
 The Xcode target is a **synchronized folder group**. Any file placed in `LSVR CineSched/` is
 automatically compiled (`.swift`) or bundled as a resource (everything else). No pbxproj edits are

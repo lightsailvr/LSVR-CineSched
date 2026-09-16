@@ -9,6 +9,31 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-16 — Moving to the release Xcode 27 SDK at a 27.0 floor was a one-warning affair (#2)
+
+The spec for the 27 baseline (#2) expected source fixes for "the state property wrapper
+became a macro; the view builders were unified". Neither surfaced: the whole app compiles
+unchanged against the 27.0 SDKs (Xcode 27.0, 27A266a). The *only* thing the raised floor
+exposed was `NSItemProvider.loadItem(forTypeIdentifier:options:completionHandler:)`, deprecated
+in macOS 27.0, at the two `DropDelegate.performDrop` sites in `CalendarView.swift`. Fixed by
+loading with `loadObject(ofClass: NSString.self)`, which `ContentView`'s Boneyard drop already
+used; every drag payload in the app is built with `NSItemProvider(object: … as NSString)`, so
+the string round-trips the same way. Warning count: the release Xcode 27 gives 11 app-target
+warnings at the old 26.5 floor (the "~20" `CLAUDE.md` used to record was the beta compiler's
+count), and still 11 at 27.0 once those two drop sites were fixed.
+Rule of thumb: when raising the deployment floor, diff the sorted `: warning:` lines of a clean
+build before and after — deprecations gated on the *new* floor are the only class of warning a
+floor bump can add, and they hide inside an otherwise green build.
+
+## 2026-09-16 — The 27 beta is gone; build with the release `/Applications/Xcode.app`
+
+Supersedes the 2026-09-02 entry below. `/Applications/Xcode-beta.app` no longer exists on the
+dev machine; the shipped Xcode 27.0 lives at `/Applications/Xcode.app`. `xcode-select -p` now
+points at `/Library/Developer/CommandLineTools`, so a bare `xcodebuild` errors with
+"requires Xcode, but active developer directory … is a command line tools instance". Keep
+passing `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` per command (the scripts in
+`scripts/` default to it). Do not change `xcode-select`.
+
 ## 2026-09-09 — `xcodebuild test` fails with ld EPERM in the default DerivedData; use a fresh `-derivedDataPath`
 
 Running the test suite from an agent shell died linking `LSVR CineSchedUITests-Runner.app`:
@@ -84,16 +109,13 @@ launched from Xcode (`-NSDocumentRevisionsDebugMode YES` in its argv) keeps runn
 `open` the DerivedData build, so check `pgrep -fl "LSVR CineSched"` before assuming a fresh
 launch picked up your changes.
 
-## 2026-09-02 — Build with the Xcode beta, not the release Xcode
+## 2026-09-02 — Build with the Xcode beta, not the release Xcode *(superseded 2026-09-16)*
 
-`xcode-select -p` on the dev machine points at the release Xcode (26.5), but this project must be
-built with `/Applications/Xcode-beta.app` (27.0 beta). From the command line:
-
-```bash
-DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer xcodebuild -scheme "LSVR CineSched" -destination 'platform=macOS' build
-```
-
-Don't change the system-wide `xcode-select` setting; use `DEVELOPER_DIR` per invocation.
+Historical: until Xcode 27 shipped, `xcode-select -p` pointed at the release Xcode (26.5) and
+this project had to be built with `/Applications/Xcode-beta.app` (27.0 beta) via
+`DEVELOPER_DIR`. The beta is gone; see the 2026-09-16 entry above for the current command.
+The durable part still holds: never change the system-wide `xcode-select`, pass
+`DEVELOPER_DIR` per invocation.
 
 ## 2026-09-02 — The Xcode target is a synchronized folder, so *everything* in `LSVR CineSched/` is in the target
 

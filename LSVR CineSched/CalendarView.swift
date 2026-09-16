@@ -69,8 +69,10 @@ struct CombinedDayDropDelegate: DropDelegate {
             return true
         }
         guard let item = info.itemProviders(for: [UTType.text.identifier]).first else { return false }
-        item.loadItem(forTypeIdentifier: UTType.text.identifier, options: nil) { data, _ in
-            if let data = data as? Data, let idStr = String(data: data, encoding: .utf8) {
+        // Drag payloads are built with NSItemProvider(object: … as NSString), so load them back
+        // as NSString; loadItem(forTypeIdentifier:) is deprecated as of the 27.0 SDKs.
+        item.loadObject(ofClass: NSString.self) { loaded, _ in
+            if let idStr = loaded as? String {
                 let firstIdStr = idStr.split(separator: ",").first.map(String.init) ?? idStr
                 if let uuid = UUID(uuidString: firstIdStr) {
                     DispatchQueue.main.async {
@@ -109,8 +111,10 @@ struct SceneDropDelegate: DropDelegate {
 
     func performDrop(info: DropInfo) -> Bool {
         guard let item = info.itemProviders(for: [UTType.text.identifier]).first else { return false }
-        item.loadItem(forTypeIdentifier: UTType.text.identifier, options: nil) { data, _ in
-            if let data = data as? Data, let idStr = String(data: data, encoding: .utf8) {
+        // Drag payloads are built with NSItemProvider(object: … as NSString), so load them back
+        // as NSString; loadItem(forTypeIdentifier:) is deprecated as of the 27.0 SDKs.
+        item.loadObject(ofClass: NSString.self) { loaded, _ in
+            if let idStr = loaded as? String {
                 let firstIdStr = idStr.split(separator: ",").first.map(String.init) ?? idStr
                 if let uuid = UUID(uuidString: firstIdStr) {
                     DispatchQueue.main.async {
