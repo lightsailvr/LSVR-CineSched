@@ -74,11 +74,11 @@ Everything lives flat in `LSVR CineSched/`. One responsibility per file; no thir
 CineSchedApp.swift        @main, WindowGroup, all menus. Menu items post NotificationCenter names.
 ContentView.swift         Root view AND the owner of all project state (@State). No view model.
   ProjectStore.swift      extension ContentView: load/save/autosave/import/export panels.
-  ProjectCodec.swift      The one project encoder/decoder (pretty JSON, ISO dates, legacy shapes).
-  ProjectDocument.swift   The project document (27 Document protocol), URL reader/writer, perform undo funnel,
-                          UTType.cineschedProject. Built in #7; the Mac window adopts it in the next ticket.
   RecentFilesStore.swift  Recent-file bookmarks + every Notification.Name the menus use.
 Models.swift              All value types (Scene, ShootDay, ProjectData, CallSheetData, ...). Hand-written Codable.
+ProjectCodec.swift        The one project encoder/decoder (pretty JSON, ISO dates, legacy shapes).
+ProjectDocument.swift     The project document (27 Document protocol), URL reader/writer, perform undo funnel,
+                          UTType.cineschedProject. Built in #7; the Mac window adopts it in the next ticket.
 CalendarView.swift        Month grid / full-schedule scroll, drag & drop, day cells.
 StripboardView.swift      Strip schedule with time cascade and auto-meal sync.
 *Sheet.swift              Modal editors (Scene, CallSheet, ProductionSetup, Banner, CalendarEvent, SendToDay, ...).

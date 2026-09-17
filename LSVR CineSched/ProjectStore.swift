@@ -17,17 +17,22 @@ extension ContentView {
         hasUnsavedChanges = true
     }
 
-    func saveDefaultProject() {
-        let projectData = ProjectData(
-            allScenes: allScenes,
-            shootDays: shootDays,
-            projectTitle: projectTitle,
+    /// The window's state as one snapshot: what both the working copy and a manual Save
+    /// write. (Once the window adopts `ProjectDocument`, this *is* the document's project.)
+    var currentProjectData: ProjectData {
+        ProjectData(
+            allScenes:          allScenes,
+            shootDays:          shootDays,
+            projectTitle:       projectTitle,
             isShiftModeEnabled: isShiftModeEnabled,
-            createdDate: projectCreatedDate,
-            productionInfo: productionInfo
+            createdDate:        projectCreatedDate,
+            productionInfo:     productionInfo
         )
+    }
+
+    func saveDefaultProject() {
         do {
-            let data = try ProjectCodec.encode(projectData)
+            let data = try ProjectCodec.encode(currentProjectData)
             UserDefaults.standard.set(data, forKey: "SavedProject")
             print("Auto-saved project to UserDefaults")
         } catch {
@@ -103,16 +108,8 @@ extension ContentView {
 
     func saveProjectDirectly(to url: URL) {
         _ = url.startAccessingSecurityScopedResource()
-        let projectData = ProjectData(
-            allScenes: allScenes,
-            shootDays: shootDays,
-            projectTitle: projectTitle,
-            isShiftModeEnabled: isShiftModeEnabled,
-            createdDate: projectCreatedDate,
-            productionInfo: productionInfo
-        )
         do {
-            let data = try ProjectCodec.encode(projectData)
+            let data = try ProjectCodec.encode(currentProjectData)
             try data.write(to: url)
             setCurrentFileURL(url)
             recentFiles.record(url)

@@ -79,18 +79,14 @@ struct ProjectDocumentTests {
             let current = dir.appendingPathComponent("current.json")
             try ProjectCodec.encode(project).write(to: current)
             let legacy = dir.appendingPathComponent("legacy.json")
-            try Data("""
-            { "allScenes" : [ { "id" : "5D9F6C88-0F84-4B7A-9A6C-4C2E0F1D2A11", "title" : "INT. KITCHEN - DAY",
-                                "duration" : 8, "estimatedTime" : 30, "dayNightType" : "DAY", "cast" : [] } ],
-              "shootDays" : [] }
-            """.utf8).write(to: legacy)
+            try Data(ProjectCodecTests.legacyJSON.utf8).write(to: legacy)
 
             let reader = ProjectDocumentReader()
             let fromCurrent = try await reader.read(from: current, progress: subprogress())
             #expect(fromCurrent == project)
             let fromLegacy = try await reader.read(from: legacy, progress: subprogress())
             #expect(fromLegacy.projectTitle == ProjectCodec.legacyProjectTitle)
-            #expect(fromLegacy.allScenes.map(\.title) == ["INT. KITCHEN - DAY"])
+            #expect(fromLegacy.allScenes.map(\.title) == ["2. EXT. PLAYA. DIA"])
         }
     }
 
@@ -202,11 +198,39 @@ struct ProjectDocumentTests {
         #expect(document.project == project)
     }
 
-    @Test func actionNameReachesTheUndoManager() throws {
+    @Test func actionNameLabelsUndoAndRedo() throws {
         let undoManager = makeUndoManager()
         let document    = ProjectDocument(project)
         document.perform("Rename Project", undoManager: undoManager) { $0.projectTitle = "New" }
         #expect(undoManager.undoActionName == "Rename Project")
+        undoManager.undo()
+        #expect(undoManager.redoActionName == "Rename Project")
+        undoManager.redo()
+        #expect(undoManager.undoActionName == "Rename Project")
+    }
+
+    /// A token only merges into a step registered with the same manager: a gesture that
+    /// continues under another manager (or none) must not ride on the old one's action.
+    @Test func anOpenGestureDoesNotMergeAcrossUndoManagers() throws {
+        let first    = makeUndoManager()
+        let second   = makeUndoManager()
+        let document = ProjectDocument(project)
+        let drag     = EditGesture()
+
+        document.perform(coalescing: drag, undoManager: first)  { $0.projectTitle = "A" }
+        document.perform(coalescing: drag, undoManager: second) { $0.projectTitle = "AB" }
+        #expect(second.canUndo)
+        second.undo()
+        #expect(document.project.projectTitle == "A")
+        first.undo()
+        #expect(document.project == project)
+
+        document.perform(coalescing: drag, undoManager: first) { $0.projectTitle = "C" }
+        document.perform(coalescing: drag, undoManager: nil)   { $0.projectTitle = "CD" }
+        // The nil-manager edit closed the gesture; the same token now opens a new step.
+        document.perform(coalescing: drag, undoManager: first) { $0.projectTitle = "CDE" }
+        first.undo()
+        #expect(document.project.projectTitle == "CD")
     }
 
     @Test func performWithoutAnUndoManagerStillEdits() throws {

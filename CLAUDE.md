@@ -68,7 +68,8 @@ needed to add a source file, and non-source files should not be put in that fold
 
 ## Where things are
 
-All sources are flat in `LSVR CineSched/`, one responsibility per file:
+All Swift sources are flat in `LSVR CineSched/`, one responsibility per file (the partial
+`Config/Info.plist` is the one build input outside it, see Working agreements):
 
 - `CineSchedApp.swift`: `@main`, menus. Menu items post `Notification.Name`s.
 - `ContentView.swift`: root view that also owns all project state as `@State`. There is no view model.

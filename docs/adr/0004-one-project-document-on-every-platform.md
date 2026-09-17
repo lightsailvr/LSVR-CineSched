@@ -44,10 +44,12 @@ Every platform reads, writes and edits the same **project document**, `ProjectDo
   snapshot in place, registers an undo action with the supplied `UndoManager` that
   restores the whole previous `ProjectData` (undo re-registers the reverse, which is
   redo), and opens an explicit undo group per edit. Edits that share an `EditGesture`
-  token (a drag, a typing burst) fold into the first edit's step. Every mutation path in
-  the app will route through it, because the document infrastructure autosaves only from
-  registered undo actions; a mutation that bypasses `perform` is a mutation that never
-  saves and cannot be undone.
+  token (a drag, a typing burst) fold into the first edit's step, provided they arrive
+  with the same undo manager. The environment's manager also groups by run-loop event, so
+  untokened edits made in one event undo together in the app anyway; the token exists
+  for gestures that span events. Every mutation path in the app will route through it,
+  because the document infrastructure autosaves only from registered undo actions; a
+  mutation that bypasses `perform` is a mutation that never saves and cannot be undone.
 
 This ticket builds the document and its tests; the Mac keeps its `@State` ownership until
 the next ticket wires `DocumentGroup`, focused-value menus and the migration from the

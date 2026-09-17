@@ -47,16 +47,17 @@ final class ProjectDocument: Document {
     /// and production info. Read freely; change it only through `perform`.
     private(set) var project: ProjectData
 
-    /// The gesture whose undo action is currently open, so a further edit with the same
-    /// token merges into it instead of registering another. Closed by an edit with a
-    /// different (or no) token, by undo or redo, and by a snapshot arriving from disk.
-    private var openGesture: EditGesture?
+    /// The gesture whose undo action is currently open, and the manager it was registered
+    /// with, so a further edit with the same token and manager merges into it instead of
+    /// registering another. Closed by an edit with a different (or no) token or manager,
+    /// by undo or redo, and by a snapshot arriving from disk.
+    private var openGesture: (token: EditGesture, undoManager: UndoManager)?
 
     init(_ project: ProjectData = ProjectData(allScenes: [], shootDays: [])) {
         self.project = project
     }
 
-    // MARK: Reading
+    // MARK: - Reading
 
     nonisolated static var readableContentTypes: [UTType] { [.cineschedProject, .json] }
 
@@ -70,7 +71,7 @@ final class ProjectDocument: Document {
         project     = snapshot
     }
 
-    // MARK: Writing
+    // MARK: - Writing
 
     nonisolated static var writableContentTypes: [UTType] { [.cineschedProject] }
 
@@ -82,20 +83,24 @@ final class ProjectDocument: Document {
         project
     }
 
-    // MARK: Edit funnel
+    // MARK: - Edit funnel
 
     /// Applies `edit` to the project and registers an undo action that restores the
     /// snapshot from before it (redo re-registers the same way). Passing the same
-    /// `gesture` token as the previous call folds this edit into that call's undo step.
-    /// `actionName` labels the Undo menu item. With no undo manager the edit still
-    /// happens, just without a way back.
+    /// `gesture` token as the previous call, with the same undo manager, folds this edit
+    /// into that call's undo step. `actionName` labels the Undo and Redo menu items. With
+    /// no undo manager the edit still happens, just without a way back.
+    ///
+    /// The manager also groups by run-loop event in the app, so two untokened edits made
+    /// in one event (one drop handler, say) undo together there; the token is for edits
+    /// that span events, which is what a drag or a typing burst is.
     func perform(
         _ actionName: String? = nil,
         coalescing gesture: EditGesture? = nil,
         undoManager: UndoManager?,
         _ edit: (inout ProjectData) -> Void
     ) {
-        if let gesture, gesture == openGesture {
+        if let gesture, let open = openGesture, open.token == gesture, open.undoManager === undoManager {
             edit(&project)
             return
         }
@@ -106,23 +111,24 @@ final class ProjectDocument: Document {
             return
         }
         // One explicit group per edit, so a step is a step whether or not the manager
-        // groups by run-loop event (it does in the app; the tests turn that off).
+        // groups by run-loop event (the tests turn that off).
         undoManager.beginUndoGrouping()
-        registerUndo(restoring: before, with: undoManager)
-        if let actionName { undoManager.setActionName(actionName) }
+        registerUndo(restoring: before, named: actionName, with: undoManager)
         undoManager.endUndoGrouping()
-        openGesture = gesture
+        openGesture = gesture.map { ($0, undoManager) }
     }
 
     /// Undo swaps the whole snapshot back and registers the reverse, which is the redo;
-    /// registering while the manager is undoing lands on the redo stack by itself.
-    private func registerUndo(restoring snapshot: ProjectData, with undoManager: UndoManager) {
+    /// registering while the manager is undoing lands on the redo stack by itself. The
+    /// action name rides along so Undo and Redo keep their labels across the swap.
+    private func registerUndo(restoring snapshot: ProjectData, named actionName: String?, with undoManager: UndoManager) {
         undoManager.registerUndo(withTarget: self) { document in
             let current = document.project
             document.openGesture = nil
             document.project     = snapshot
-            document.registerUndo(restoring: current, with: undoManager)
+            document.registerUndo(restoring: current, named: actionName, with: undoManager)
         }
+        if let actionName { undoManager.setActionName(actionName) }
     }
 }
 

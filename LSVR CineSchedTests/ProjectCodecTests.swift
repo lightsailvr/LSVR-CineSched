@@ -33,6 +33,21 @@ struct ProjectCodecTests {
         )
     }
 
+    /// The oldest lineage's file: only `allScenes` and `shootDays`, a comma-joined cast
+    /// string, timestamp dates and the `isBlackout` flag. Shared with the document tests.
+    static let legacyJSON = """
+    {
+      "allScenes" : [
+        { "id" : "5D9F6C88-0F84-4B7A-9A6C-4C2E0F1D2A11", "title" : "2. EXT. PLAYA. DIA",
+          "duration" : 8, "estimatedTime" : 30, "dayNightType" : "DAY", "cast" : "ANA, LUIS" }
+      ],
+      "shootDays" : [
+        { "id" : "2A2B6F4E-9E5B-4C1F-A3E4-1B2C3D4E5F60", "date" : 700000000,
+          "scenes" : [], "callSheet" : {}, "isBlackout" : true }
+      ]
+    }
+    """
+
     // MARK: - Current shape
 
     @Test func encodeThenDecodeIsIdentity() throws {
@@ -101,19 +116,7 @@ struct ProjectCodecTests {
     /// The oldest lineage wrote only `allScenes` and `shootDays`: no title, no created
     /// date, no production info. It still opens, with the title ProjectStore always gave it.
     @Test func legacyShapeFixtureDecodes() throws {
-        let json = """
-        {
-          "allScenes" : [
-            { "id" : "5D9F6C88-0F84-4B7A-9A6C-4C2E0F1D2A11", "title" : "2. EXT. PLAYA. DIA",
-              "duration" : 8, "estimatedTime" : 30, "dayNightType" : "DAY", "cast" : "ANA, LUIS" }
-          ],
-          "shootDays" : [
-            { "id" : "2A2B6F4E-9E5B-4C1F-A3E4-1B2C3D4E5F60", "date" : 700000000,
-              "scenes" : [], "callSheet" : {}, "isBlackout" : true }
-          ]
-        }
-        """
-        let decoded = try ProjectCodec.decode(Data(json.utf8))
+        let decoded = try ProjectCodec.decode(Data(Self.legacyJSON.utf8))
         #expect(decoded.projectTitle == "Loaded Project")
         #expect(decoded.isShiftModeEnabled == false)
         #expect(decoded.productionInfo == nil)
