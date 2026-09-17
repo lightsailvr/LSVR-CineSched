@@ -25,8 +25,8 @@ CineSched/
 ├── Formatting.swift           # Shared formatting helpers
 ├── FinalDraftParser.swift     # .fdx script file parsing
 ├── PDFExporter.swift          # PDF generation
-├── ProjectStore.swift         # Save, load, and auto-save logic
-├── ContentView.swift          # Root view and app state
+├── ProjectDocument.swift      # The project document: reader, writer, undo funnel
+├── ContentView.swift          # The Mac editor for one document
 ├── CalendarView.swift         # Calendar grid and drag-and-drop
 ├── SceneEditSheet.swift       # Scene editing modal
 └── NewSceneInputView.swift    # Add scene form

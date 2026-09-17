@@ -57,6 +57,25 @@ struct ProjectDocumentTests {
         #expect(ProjectDocument.writableContentTypes == [.cineschedProject])
     }
 
+    // MARK: - New document
+
+    @Test func aNewProjectIsUntitledAndSpansAMonthAroundToday() throws {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        let today = try #require(utc.date(from: DateComponents(year: 2026, month: 9, day: 16, hour: 15)))
+
+        let fresh = ProjectData.newProject(around: today, calendar: utc)
+        #expect(fresh.projectTitle == "Untitled Movie")
+        #expect(fresh.allScenes.isEmpty)
+        #expect(fresh.isShiftModeEnabled == false)
+        #expect(fresh.productionInfo == nil)
+        #expect(fresh.shootDays.count == 34)
+        #expect(fresh.shootDays.first?.date == utc.date(from: DateComponents(year: 2026, month: 9, day: 13)))
+        #expect(fresh.shootDays.last?.date  == utc.date(from: DateComponents(year: 2026, month: 10, day: 16)))
+        #expect(fresh.shootDays.allSatisfy { $0.scenes.isEmpty && !$0.hasCallSheetData && $0.dayType == .shoot })
+        #expect(utc.isDate(fresh.createdDate, inSameDayAs: today))
+    }
+
     // MARK: - Reader and writer
 
     @Test func writingThenReadingANativeFileYieldsAnEqualProject() async throws {
@@ -231,6 +250,44 @@ struct ProjectDocumentTests {
         document.perform(coalescing: drag, undoManager: first) { $0.projectTitle = "CDE" }
         first.undo()
         #expect(document.project.projectTitle == "CD")
+    }
+
+    /// Views that keep drag state keyed to the model watch this counter: an undo, a redo or
+    /// a snapshot from disk replaces the project under them, an ordinary edit does not.
+    @Test func restoreCountTicksOnUndoRedoAndApplyButNotOnPerform() async throws {
+        let undoManager = makeUndoManager()
+        let document    = ProjectDocument(project)
+        #expect(document.restoreCount == 0)
+
+        document.perform(undoManager: undoManager) { $0.projectTitle = "Edited" }
+        #expect(document.restoreCount == 0)
+
+        undoManager.undo()
+        #expect(document.restoreCount == 1)
+        undoManager.redo()
+        #expect(document.restoreCount == 2)
+
+        try await document.apply(snapshot: project, previous: nil)
+        #expect(document.restoreCount == 3)
+    }
+
+    /// An editor's Save writes its whole value back whether or not anything changed; a
+    /// write that leaves the project equal must not dirty the document or add an undo step.
+    @Test func anEditThatChangesNothingRegistersNoUndoStep() throws {
+        let undoManager = makeUndoManager()
+        let document    = ProjectDocument(project)
+        let drag        = EditGesture()
+
+        document.perform(undoManager: undoManager) { $0.projectTitle = $0.projectTitle }
+        #expect(!undoManager.canUndo)
+
+        // A no-op first edit opens no gesture, so the next edit with the token is a real step.
+        document.perform(coalescing: drag, undoManager: undoManager) { _ in }
+        document.perform(coalescing: drag, undoManager: undoManager) { $0.projectTitle = "Changed" }
+        #expect(undoManager.canUndo)
+        undoManager.undo()
+        #expect(document.project == project)
+        #expect(!undoManager.canUndo)
     }
 
     @Test func performWithoutAnUndoManagerStillEdits() throws {

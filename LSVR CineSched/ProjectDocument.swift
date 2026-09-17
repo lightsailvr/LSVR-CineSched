@@ -2,8 +2,8 @@
 // The one project document every platform reads, writes and edits (#7, ADR 0004). An
 // observable reference type on the 27 `Document` protocol whose snapshot is `ProjectData`
 // itself, so reading, writing, undo and (later) conflict decisions all speak one value
-// type. Nothing in the UI uses it yet: the Mac keeps its `@State` ownership in
-// ContentView until the next ticket wires the document lifecycle.
+// type. On the Mac, `DocumentGroup` in CineSchedApp makes one per window (#8) and
+// `ContentView` edits it; the other platforms adopt it with their own scenes (#12).
 //
 // Three seams, each testable on its own:
 //   - `ProjectDocumentReader` / `ProjectDocumentWriter`: URL in, `ProjectData` out (and
@@ -38,6 +38,19 @@ struct EditGesture: Hashable {
     init() {}
 }
 
+// MARK: - New project
+
+extension ProjectData {
+    /// What File ▸ New opens: no scenes, the default title, and an empty run of shoot days
+    /// from three days before `date` to thirty after it, the span the Mac window has always
+    /// started with. The range picker in the sidebar reads its dates from these days.
+    static func newProject(around date: Date = Date(), calendar: Calendar = .current) -> ProjectData {
+        let start = calendar.date(byAdding: .day, value: -3, to: date) ?? date
+        let end   = calendar.date(byAdding: .day, value: 30, to: date) ?? date
+        return ProjectData(allScenes: [], shootDays: generateDays(from: start, to: end, calendar: calendar), createdDate: date)
+    }
+}
+
 // MARK: - Document
 
 @Observable
@@ -47,14 +60,29 @@ final class ProjectDocument: Document {
     /// and production info. Read freely; change it only through `perform`.
     private(set) var project: ProjectData
 
+    /// Bumped every time the project is replaced wholesale — an undo, a redo, or a
+    /// snapshot arriving from disk — as opposed to edited through `perform`. Views that
+    /// keep drag state keyed to the old model (a highlighted drop target, say) watch it,
+    /// because nothing else tells them the strips under the pointer just changed.
+    private(set) var restoreCount = 0
+
+    /// Where the document lives, when the system opened or saved it somewhere; nil for an
+    /// untitled window. Only read for conveniences such as where a PDF export panel opens.
+    var fileURL: URL? { configuration?.fileURL }
+
+    /// The file URL and coordinator the document infrastructure hands `DocumentGroup`'s
+    /// `makeDocument`; nil for a document built in a test or in memory.
+    private let configuration: URLDocumentConfiguration?
+
     /// The gesture whose undo action is currently open, and the manager it was registered
     /// with, so a further edit with the same token and manager merges into it instead of
     /// registering another. Closed by an edit with a different (or no) token or manager,
     /// by undo or redo, and by a snapshot arriving from disk.
     private var openGesture: (token: EditGesture, undoManager: UndoManager)?
 
-    init(_ project: ProjectData = ProjectData(allScenes: [], shootDays: [])) {
-        self.project = project
+    init(_ project: ProjectData = ProjectData(allScenes: [], shootDays: []), configuration: URLDocumentConfiguration? = nil) {
+        self.project       = project
+        self.configuration = configuration
     }
 
     // MARK: - Reading
@@ -67,8 +95,9 @@ final class ProjectDocument: Document {
 
     /// Replaces the model wholesale: correctness first, incrementality later (#1).
     func apply(snapshot: ProjectData, previous: ProjectData?) async throws {
-        openGesture = nil
-        project     = snapshot
+        openGesture   = nil
+        project       = snapshot
+        restoreCount += 1
     }
 
     // MARK: - Writing
@@ -89,7 +118,9 @@ final class ProjectDocument: Document {
     /// snapshot from before it (redo re-registers the same way). Passing the same
     /// `gesture` token as the previous call, with the same undo manager, folds this edit
     /// into that call's undo step. `actionName` labels the Undo and Redo menu items. With
-    /// no undo manager the edit still happens, just without a way back.
+    /// no undo manager the edit still happens, just without a way back. An edit that
+    /// leaves the project equal registers nothing: editors write their whole value back on
+    /// Save whether or not the user changed it, and that must not dirty the document.
     ///
     /// The manager also groups by run-loop event in the app, so two untokened edits made
     /// in one event (one drop handler, say) undo together there; the token is for edits
@@ -106,6 +137,12 @@ final class ProjectDocument: Document {
         }
         let before = project
         edit(&project)
+        guard project != before else {
+            // Nothing to register; this edit still closes the open gesture, as any edit
+            // that reaches this point (another token, or none) would have.
+            openGesture = nil
+            return
+        }
         guard let undoManager else {
             openGesture = nil
             return
@@ -124,8 +161,9 @@ final class ProjectDocument: Document {
     private func registerUndo(restoring snapshot: ProjectData, named actionName: String?, with undoManager: UndoManager) {
         undoManager.registerUndo(withTarget: self) { document in
             let current = document.project
-            document.openGesture = nil
-            document.project     = snapshot
+            document.openGesture   = nil
+            document.project       = snapshot
+            document.restoreCount += 1
             document.registerUndo(restoring: current, named: actionName, with: undoManager)
         }
         if let actionName { undoManager.setActionName(actionName) }

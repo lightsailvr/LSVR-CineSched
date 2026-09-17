@@ -5,12 +5,35 @@
   The app target generates its Info.plist from build settings (GENERATE_INFOPLIST_FILE);
   Xcode merges this partial plist into it (INFOPLIST_FILE). Only keys that cannot be
   expressed as an INFOPLIST_KEY_ build setting belong here, which today is the exported
-  document type. Version, bundle identifier and the iOS scene/launch keys stay in build
-  settings. This file lives outside "LSVR CineSched/" on purpose: that folder is a
-  synchronized group and anything in it is copied into the bundle as a resource, which
-  collides with the generated plist in the flat iOS bundle (see CLAUDE.md).
+  type and the document type built on it. Version, bundle identifier and the iOS
+  scene/launch keys stay in build settings. This file lives outside "LSVR CineSched/" on
+  purpose: that folder is a synchronized group and anything in it is copied into the
+  bundle as a resource, which collides with the generated plist in the flat iOS bundle
+  (see CLAUDE.md).
+
+  Only the native type is a document type (ADR 0005): it is what Finder and the Files app
+  associate with the app. Legacy .json opens on the Mac through the project document's
+  readable types (a viewer role: the first Save asks for a .cinesched destination); it is
+  deliberately not declared here, so that no platform claims every JSON file.
 -->
 <dict>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>CineSched Project</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.lsvr.cinesched.project</string>
+			</array>
+			<key>CFBundleTypeIconSystemGenerated</key>
+			<integer>1</integer>
+		</dict>
+	</array>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>

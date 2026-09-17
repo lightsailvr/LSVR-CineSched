@@ -4,6 +4,11 @@
 //
 //  Created by Christopher Tempel on 7/15/25.
 //
+//  On the Mac the app is document-based (#8, ADR 0004): `DocumentGroup` opens one window
+//  per `ProjectDocument`, and the system supplies New, Open, Open Recent, Save, Duplicate,
+//  Rename, Move To, Revert To, Close, the edited indicator, autosave in place, and the
+//  Edit menu's Undo and Redo. The menus below add only what is CineSched's own, and each
+//  item reaches the frontmost window through `ProjectCommands` (a focused scene value).
 
 import SwiftUI
 #if os(macOS)
@@ -12,7 +17,6 @@ import AppKit
 
 @main
 struct CineSchedApp: App {
-    @StateObject private var recentFiles = RecentFilesStore()
     @AppStorage("CineSchedDarkMode") private var isDarkMode: Bool = false
     @AppStorage("CineSchedIncludeHoldInDOOD") private var includeHoldInDOOD: Bool = true
     @AppStorage("CineSchedShowCastRow") private var showCastOnCards: Bool = false
@@ -20,6 +24,10 @@ struct CineSchedApp: App {
     @AppStorage("CineSchedStripboardShowAllDays") private var stripboardShowAllDays: Bool = false
     @AppStorage("cinesched_app_language") private var appLanguage: AppLanguage = .english
     @AppStorage("CineSchedTheme") private var currentTheme: AppTheme = .blue
+
+    /// The key window's command slots; nil while no project window is key, which disables
+    /// every item that needs one.
+    @FocusedValue(\.projectCommands) private var commands
 
     init() {
         // Platform seam: window tabbing is a Mac-only concept (the "+" tab bar the system
@@ -30,167 +38,136 @@ struct CineSchedApp: App {
     }
 
     var body: some SwiftUI.Scene {
-        WindowGroup {
-            // Platform seam: the Mac keeps its full editor as the root; the other platforms
-            // show the in-progress placeholder until their own layouts land (#1, M3/M4).
-            #if os(macOS)
-            ContentView()
-                .environmentObject(recentFiles)
+        // Platform seam: the Mac runs the document lifecycle with its full editor as the
+        // window content; the other platforms show the in-progress placeholder until their
+        // own document scenes land (#1, M2 #12 and M3/M4).
+        #if os(macOS)
+        DocumentGroup(editor: { document in
+            ContentView(document: document)
                 .accentColor(currentTheme.primaryAccent(isDarkMode: isDarkMode))
-            #else
+        }, makeDocument: { configuration, _ in
+            // Called for New and for Open alike; an opened file's contents arrive through
+            // the reader and `apply` straight after, replacing the blank month.
+            ProjectDocument(.newProject(), configuration: configuration)
+        })
+        .commands { menus }
+        #else
+        WindowGroup {
             PlatformPlaceholderView()
-            #endif
         }
-        .commands {
-            // File menu — New / Open / Open Recent / Import
-            CommandGroup(replacing: .newItem) {
-                Button(L("New Project", lang: appLanguage)) {
-                    NotificationCenter.default.post(name: .csNewProject, object: nil)
-                }
-                .keyboardShortcut("n", modifiers: .command)
+        #endif
+    }
 
-                Divider()
+    @CommandsBuilder
+    private var menus: some Commands {
+        // File menu — the import and export items, between the system's Save group and Print
+        CommandGroup(replacing: .importExport) {
+            Button(L("Import Script…", lang: appLanguage)) {
+                commands?.importScript()
+            }
+            .disabled(commands == nil)
 
-                Button(L("Open…", lang: appLanguage)) {
-                    NotificationCenter.default.post(name: .csOpenProject, object: nil)
-                }
-                .keyboardShortcut("o", modifiers: .command)
+            Divider()
 
-                Menu(L("Open Recent", lang: appLanguage)) {
-                    if recentFiles.urls.isEmpty {
-                        Text(L("No Recent Projects", lang: appLanguage))
-                    } else {
-                        ForEach(recentFiles.urls, id: \.self) { url in
-                            Button(url.deletingPathExtension().lastPathComponent) {
-                                NotificationCenter.default.post(name: .csOpenRecentProject, object: url)
-                            }
-                        }
-                        Divider()
-                        Button(L("Clear Menu", lang: appLanguage)) { recentFiles.clear() }
+            Button(L("Export Schedule to PDF…", lang: appLanguage)) {
+                commands?.exportSchedulePDF()
+            }
+            .keyboardShortcut("e", modifiers: .command)
+            .disabled(commands == nil)
+
+            Button(L("Export Strip Schedule to PDF…", lang: appLanguage)) {
+                commands?.exportStripboardPDF()
+            }
+            .disabled(commands == nil)
+
+            Button(L("Export Days Out of Days…", lang: appLanguage)) {
+                commands?.exportDaysOutOfDays()
+            }
+            .keyboardShortcut("e", modifiers: [.command, .shift])
+            .disabled(commands == nil)
+
+            Button(L("Export Scene Breakdowns…", lang: appLanguage)) {
+                commands?.exportBreakdowns()
+            }
+            .keyboardShortcut("e", modifiers: [.command, .option])
+            .disabled(commands == nil)
+        }
+
+        // A home for the actions that don't fit File/Edit/View
+        CommandMenu("Production") {
+            Button(L("Production Setup…", lang: appLanguage)) {
+                commands?.openProductionSetup()
+            }
+            .keyboardShortcut("p", modifiers: [.command, .shift])
+            .disabled(commands == nil)
+
+            Button(L("Scan for Conflicts…", lang: appLanguage)) {
+                commands?.scanForConflicts()
+            }
+            .keyboardShortcut("k", modifiers: [.command, .shift])
+            .disabled(commands == nil)
+
+            Divider()
+
+            Button(L("Breakdown Browser…", lang: appLanguage)) {
+                commands?.openBreakdownBrowser()
+            }
+            .keyboardShortcut("b", modifiers: [.command, .shift])
+            .disabled(commands == nil)
+
+            Divider()
+
+            Toggle(L("Include Hold Days in DOoD Report", lang: appLanguage), isOn: $includeHoldInDOOD)
+
+            Divider()
+
+            Button(L("Lock Schedule", lang: appLanguage)) {
+                commands?.lockSchedule()
+            }
+            .disabled(commands == nil)
+            Button(L("Unlock Schedule", lang: appLanguage)) {
+                commands?.unlockSchedule()
+            }
+            .disabled(commands == nil)
+            Button(L("Schedule Lock Report…", lang: appLanguage)) {
+                commands?.showScheduleLockReport()
+            }
+            .disabled(commands == nil)
+        }
+
+        // View menu — Dark Mode, Theme, Color Legend & Language
+        CommandGroup(after: .toolbar) {
+            Divider()
+            Toggle(L("Dark Mode", lang: appLanguage), isOn: $isDarkMode)
+                .keyboardShortcut("d", modifiers: [.command, .shift])
+
+            Toggle(L("Show Cast in Calendar", lang: appLanguage), isOn: $showCastOnCards)
+            Toggle(L("Show Estimated Time Instead of Page Count", lang: appLanguage), isOn: $showEstTimeOnCards)
+
+            Menu(L("Theme", lang: appLanguage)) {
+                ForEach(AppTheme.allCases, id: \.self) { theme in
+                    Button(currentTheme == theme ? "✓ \(theme.localizedName)" : theme.localizedName) {
+                        currentTheme = theme
                     }
                 }
-
-                Divider()
-
-                Button(L("Import Script…", lang: appLanguage)) {
-                    NotificationCenter.default.post(name: .csImportScript, object: nil)
-                }
             }
 
-            // Edit menu — Undo/Redo for structural schedule changes
-            CommandGroup(replacing: .undoRedo) {
-                Button(L("Undo", lang: appLanguage)) {
-                    NotificationCenter.default.post(name: .csUndo, object: nil)
-                }
-                .keyboardShortcut("z", modifiers: .command)
-
-                Button(L("Redo", lang: appLanguage)) {
-                    NotificationCenter.default.post(name: .csRedo, object: nil)
-                }
-                .keyboardShortcut("z", modifiers: [.command, .shift])
+            Button(L("Color Legend…", lang: appLanguage)) {
+                commands?.showColorLegend()
             }
+            .keyboardShortcut("l", modifiers: [.command, .shift])
+            .disabled(commands == nil)
 
-            // File menu — Save / Save As / Export
-            CommandGroup(replacing: .saveItem) {
-                Button(L("Save", lang: appLanguage)) {
-                    NotificationCenter.default.post(name: .csSaveProject, object: nil)
-                }
-                .keyboardShortcut("s", modifiers: .command)
-
-                Button(L("Save As…", lang: appLanguage)) {
-                    NotificationCenter.default.post(name: .csSaveProjectAs, object: nil)
-                }
-                .keyboardShortcut("s", modifiers: [.command, .shift])
-
-                Divider()
-
-                Button(L("Export Schedule to PDF…", lang: appLanguage)) {
-                    NotificationCenter.default.post(name: .csExportSchedulePDF, object: nil)
-                }
-                .keyboardShortcut("e", modifiers: .command)
-
-                Button(L("Export Strip Schedule to PDF…", lang: appLanguage)) {
-                    NotificationCenter.default.post(name: .csExportStripboardPDF, object: nil)
-                }
-
-                Button(L("Export Days Out of Days…", lang: appLanguage)) {
-                    NotificationCenter.default.post(name: .csExportDaysOutOfDays, object: nil)
-                }
-                .keyboardShortcut("e", modifiers: [.command, .shift])
-
-                Button(L("Export Scene Breakdowns…", lang: appLanguage)) {
-                    NotificationCenter.default.post(name: .csExportBreakdowns, object: nil)
-                }
-                .keyboardShortcut("e", modifiers: [.command, .option])
+            Button(L("Customize Scene Colors…", lang: appLanguage)) {
+                commands?.showSceneColorSettings()
             }
+            .disabled(commands == nil)
 
-            // A home for the one action that doesn't fit File/Edit/View
-            CommandMenu("Production") {
-                Button(L("Production Setup…", lang: appLanguage)) {
-                    NotificationCenter.default.post(name: .csOpenProductionSetup, object: nil)
-                }
-                .keyboardShortcut("p", modifiers: [.command, .shift])
-
-                Button(L("Scan for Conflicts…", lang: appLanguage)) {
-                    NotificationCenter.default.post(name: .csScanForConflicts, object: nil)
-                }
-                .keyboardShortcut("k", modifiers: [.command, .shift])
-
-                Divider()
-
-                Button(L("Breakdown Browser…", lang: appLanguage)) {
-                    NotificationCenter.default.post(name: .csOpenBreakdownBrowser, object: nil)
-                }
-                .keyboardShortcut("b", modifiers: [.command, .shift])
-
-                Divider()
-
-                Toggle(L("Include Hold Days in DOoD Report", lang: appLanguage), isOn: $includeHoldInDOOD)
-
-                Divider()
-
-                Button(L("Lock Schedule", lang: appLanguage)) {
-                    NotificationCenter.default.post(name: .csLockSchedule, object: nil)
-                }
-                Button(L("Unlock Schedule", lang: appLanguage)) {
-                    NotificationCenter.default.post(name: .csUnlockSchedule, object: nil)
-                }
-                Button(L("Schedule Lock Report…", lang: appLanguage)) {
-                    NotificationCenter.default.post(name: .csShowScheduleLockReport, object: nil)
-                }
+            Button(L("Stripboard Fields…", lang: appLanguage)) {
+                commands?.showStripboardFields()
             }
-
-            // View menu — Dark Mode, Theme, Color Legend & Language
-            CommandGroup(after: .toolbar) {
-                Divider()
-                Toggle(L("Dark Mode", lang: appLanguage), isOn: $isDarkMode)
-                    .keyboardShortcut("d", modifiers: [.command, .shift])
-
-                Toggle(L("Show Cast in Calendar", lang: appLanguage), isOn: $showCastOnCards)
-                Toggle(L("Show Estimated Time Instead of Page Count", lang: appLanguage), isOn: $showEstTimeOnCards)
-
-                Menu(L("Theme", lang: appLanguage)) {
-                    ForEach(AppTheme.allCases, id: \.self) { theme in
-                        Button(currentTheme == theme ? "✓ \(theme.localizedName)" : theme.localizedName) {
-                            currentTheme = theme
-                        }
-                    }
-                }
-
-                Button(L("Color Legend…", lang: appLanguage)) {
-                    NotificationCenter.default.post(name: .csShowColorLegend, object: nil)
-                }
-                .keyboardShortcut("l", modifiers: [.command, .shift])
-
-                Button(L("Customize Scene Colors…", lang: appLanguage)) {
-                    NotificationCenter.default.post(name: .csShowSceneColorSettings, object: nil)
-                }
-
-                Button(L("Stripboard Fields…", lang: appLanguage)) {
-                    NotificationCenter.default.post(name: .csShowStripboardFields, object: nil)
-                }
-                Toggle(L("Show All Days on Stripboard", lang: appLanguage), isOn: $stripboardShowAllDays)
-            }
+            .disabled(commands == nil)
+            Toggle(L("Show All Days on Stripboard", lang: appLanguage), isOn: $stripboardShowAllDays)
         }
     }
 }

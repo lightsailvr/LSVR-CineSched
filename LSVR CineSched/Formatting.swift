@@ -76,11 +76,18 @@ func productionDayNumbers(for shootDays: [ShootDay]) -> [UUID: Int] {
     return result
 }
 
-/// Generates an array of ShootDays between two dates (inclusive).
-func generateDays(from startDate: Date, to endDate: Date) -> [ShootDay] {
-    var calendar = Calendar(identifier: .gregorian)
-    calendar.firstWeekday = 1 // Sunday
+extension Calendar {
+    /// The Gregorian calendar with Sunday-first weeks the day generator has always used
+    /// (in the machine's zone); a caller that needs a fixed zone passes its own.
+    nonisolated static var gregorianSundayFirst: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.firstWeekday = 1 // Sunday
+        return calendar
+    }
+}
 
+/// Generates an array of ShootDays between two dates (inclusive), one per `calendar` day.
+func generateDays(from startDate: Date, to endDate: Date, calendar: Calendar = .gregorianSundayFirst) -> [ShootDay] {
     var days: [ShootDay] = []
     var current = calendar.startOfDay(for: startDate)
     let end     = calendar.startOfDay(for: endDate)

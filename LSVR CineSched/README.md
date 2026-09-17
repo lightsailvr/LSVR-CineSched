@@ -91,11 +91,13 @@ If you're comparing notes with either of their versions: the project-file format
 - Renaming an actor or crew member in Production Setup ripples through every call sheet automatically
 - Reusable location roster with autocomplete
 
-### 🗂️ Native macOS Menus, Undo & Theming
+### 🗂️ A Document-Based Mac App, Undo & Theming
 
-- Full File/Edit/Production/View menu set, Undo/Redo for structural schedule changes
+- One window per project with the system File menu: Open Recent, Duplicate, Rename, Move To, Revert To with Versions, and the edited indicator
+- Projects autosave in place as `.cinesched` files; quit and relaunch and your last edit is there
+- Undo/Redo in the Edit menu for scene and day edits (and, through the same funnel, the title, production setup and call sheets)
 - Multiple app color themes, plus the scene-color customization above
-- Auto-save, Open Recent, and manual Save/Save As as portable `.json` project files
+- Legacy `.json` projects open as they always did; the first Save asks for a `.cinesched` destination and leaves the `.json` untouched
 
 ## A note on language
 
@@ -156,9 +158,12 @@ The app icon is generated from a single 1024×1024 PNG. To update it:
 
 ## File Formats
 
-### Project Files (`.json`)
+### Project Files (`.cinesched`, and legacy `.json`)
 
-All scenes, calendar days, call sheets, production info, and any active schedule lock. Portable and human-readable.
+All scenes, calendar days, call sheets, production info, and any active schedule lock, as
+portable, human-readable JSON. New projects save as `.cinesched` (kind "CineSched Project");
+the contents are the same JSON as before, so an older build opens a `.cinesched` after
+renaming it to `.json`, and this build opens any `.json` from any CineSched lineage.
 
 ### Script Imports
 

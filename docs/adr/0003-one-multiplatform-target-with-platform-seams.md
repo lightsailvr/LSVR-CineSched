@@ -27,7 +27,7 @@ starts with a header comment saying why the seam exists and what the non-Mac sid
 | Window tabbing and root view | `CineSchedApp.swift` | `allowsAutomaticWindowTabbing = false`, `ContentView` | `PlatformPlaceholderView` |
 | Placeholder root | `PlatformPlaceholderView.swift` | Not built | Names the platform as in progress |
 
-(Until #6 the two AppKit-drawn exporters and `ProjectStore+PDFExports.swift` were a temporary
+(Until #6 the two AppKit-drawn exporters and `ContentView+PDFExports.swift` (then `ProjectStore+PDFExports.swift`) were a temporary
 seam, gated out of the non-Mac builds; that row is gone.)
 
 Issue #3 also named "the hover modifier" as a seam. None was needed: `.onHover`, `.help`,
@@ -43,7 +43,7 @@ Rules that follow from this:
   `Color.controlBackground`, `FilePanels.chooseFile`) rather than the platform API, so the
   views themselves carry no conditionals.
 - Color arithmetic goes through SwiftUI's `Color.Resolved`, not `NSColor` / `UIColor`.
-- Every exporter call site lives in `ProjectStore+PDFExports.swift`, so lifting the exporter
+- Every exporter call site lives in `ContentView+PDFExports.swift`, so lifting the exporter
   gate later is a change to the exporters and that one file.
 
 ## Consequences
@@ -57,7 +57,7 @@ Rules that follow from this:
   text out the way TextKit did so migrated output stays where it was. `StripboardPDFExporter`
   and `ShootingSchedulePDFExporter` (#4), `PDFExporter` and `CallSheetExporter` (#5), and
   `BreakdownExporter` and `DaysOutOfDaysExporter` (#6) are on it, every exporter is verified
-  pixel-identical to its AppKit output on the Mac, and `ProjectStore+PDFExports.swift` builds
+  pixel-identical to its AppKit output on the Mac, and `ContentView+PDFExports.swift` builds
   everywhere (its save panel is the `FilePanels` seam). An exporter must not grow an
   `#if os`; it draws through the helper or the helper grows.
 - `FilePanels` is inert off the Mac by design; the document infrastructure of milestone 2

@@ -1,14 +1,13 @@
 // FilePanels.swift
-// Platform seam: how the app reaches files the user chooses. On the Mac that is
-// NSOpenPanel / NSSavePanel plus the security-scoped bookmarks that let a sandboxed app
-// reopen a chosen file in a later launch. iOS and visionOS have neither the panels nor
-// `.withSecurityScope` (their bookmarks are implicitly scoped), so this file is the one
-// place that knows; callers (ProjectStore, RecentFilesStore, the PDF export actions)
-// stay free of platform conditionals.
+// Platform seam: how the app reaches files the user chooses for something other than the
+// project itself — a script to import, a place to write a PDF. On the Mac that is
+// NSOpenPanel / NSSavePanel; iOS and visionOS have no panels, so this file is the one
+// place that knows and the callers (the script import and the PDF export actions) stay
+// free of platform conditionals. The project's own open and save are the document
+// infrastructure's (#8), which also handles the sandbox's security scope for them.
 //
-// On iOS and visionOS the panels are deliberately inert: the system document browser
-// replaces them when the project document lands (milestone 2 of #1), and until then
-// nothing on those platforms offers a way to open or save a file.
+// On iOS and visionOS the panels are deliberately inert: the share sheet replaces the
+// save panel in milestone 3 (#23), and the script chooser is the launch scene's (#13).
 
 import Foundation
 import UniformTypeIdentifiers
@@ -17,26 +16,6 @@ import AppKit
 #endif
 
 enum FilePanels {
-
-    // MARK: - Bookmarks
-
-    /// Options for `URL.bookmarkData(options:…)` when remembering a user-chosen file.
-    static var bookmarkCreationOptions: URL.BookmarkCreationOptions {
-        #if os(macOS)
-        .withSecurityScope
-        #else
-        []
-        #endif
-    }
-
-    /// Options for `URL(resolvingBookmarkData:options:…)` on a bookmark made above.
-    static var bookmarkResolutionOptions: URL.BookmarkResolutionOptions {
-        #if os(macOS)
-        .withSecurityScope
-        #else
-        []
-        #endif
-    }
 
     // MARK: - Panels
 

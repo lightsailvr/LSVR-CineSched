@@ -71,19 +71,25 @@ needed to add a source file, and non-source files should not be put in that fold
 All Swift sources are flat in `LSVR CineSched/`, one responsibility per file (the partial
 `Config/Info.plist` is the one build input outside it, see Working agreements):
 
-- `CineSchedApp.swift`: `@main`, menus. Menu items post `Notification.Name`s.
-- `ContentView.swift`: root view that also owns all project state as `@State`. There is no view model.
-- `ProjectStore.swift`: an `extension ContentView` with load/save/autosave/import and the PDF save panels.
+- `CineSchedApp.swift`: `@main`; on the Mac a `DocumentGroup` (one window per `ProjectDocument`)
+  and the menus, which act on the key window through `@FocusedValue(\.projectCommands)`.
+- `ProjectCommands.swift`: the closure slots a `ContentView` publishes for those menus.
+- `ContentView.swift`: the Mac editor for one document (`ContentView(document:)`). It reads
+  `document.project` and writes only through `edit(_:_:)` or the bindings built on it. There is
+  no view model; UI-only state (range-picker dates, selection, sheets) stays `@State`.
+- `ContentView+ScriptImport.swift`: File ▸ Import Script… into the Boneyard.
+  `ContentView+PDFExports.swift`: every PDF export call site and its save panel.
 - `ProjectCodec.swift`: the one encoder/decoder for project files (pretty JSON, ISO dates, legacy
   shapes). Every save and load path uses it; nothing else constructs a `JSONEncoder` for a project.
 - `ProjectDocument.swift`: the project document (ADR 0004) on the 27 `Document` protocol, its URL
-  reader/writer, the `perform` undo funnel, and `UTType.cineschedProject` (ADR 0005). Not yet
-  wired to the Mac window.
-- `RecentFilesStore.swift`: recent-file bookmarks and every `Notification.Name` used by menus.
+  reader/writer, the `perform` undo funnel, `ProjectData.newProject` (the File ▸ New template) and
+  `UTType.cineschedProject` (ADR 0005). Project open, save, autosave, Open Recent, Duplicate,
+  Rename, Move To and Revert To are the document infrastructure's; nothing in the app implements
+  them.
 - `Models.swift`: all value types. `Scene` doubles as banner, auto-meal, and calendar event via flags.
 - `CalendarView.swift`, `StripboardView.swift`: the two schedule views.
 - `*Sheet.swift`: modal editors. `*Exporter.swift`: PDF generators; every call site is in
-  `ProjectStore+PDFExports.swift`. `PDFCanvas.swift` is the shared drawing helper (CoreGraphics +
+  `ContentView+PDFExports.swift`. `PDFCanvas.swift` is the shared drawing helper (CoreGraphics +
   CoreText, no AppKit); all six exporters (`StripboardPDFExporter`, `ShootingSchedulePDFExporter`,
   `PDFExporter` (the month calendar), `CallSheetExporter`, `BreakdownExporter`,
   `DaysOutOfDaysExporter`) draw on it and build everywhere (its header comment is the recipe
@@ -94,15 +100,18 @@ All Swift sources are flat in `LSVR CineSched/`, one responsibility per file (th
 
 ## Conventions
 
-- **Adding a menu command touches three files**: the `Notification.Name` in `RecentFilesStore.swift`,
-  the `Button` in `CineSchedApp.swift`, and an `.onReceive` in one of the `applyNotificationHandlers*`
-  functions in `ContentView.swift`.
+- **Adding a menu command touches three places**: a closure slot in `ProjectCommands`, the `Button`
+  in `CineSchedApp.swift` (calling `commands?.slot()` and `.disabled(commands == nil)`), and the
+  slot's assignment in `ContentView.projectCommands`. Do not add `Notification.Name`s for menus:
+  a notification reaches every open window.
 - **Adding a sheet**: add a case to `ContentView.ActiveSheet` and to the `switch` in `applySheets`.
   Sheets take `@Binding var isPresented` and an `onSave` closure; editors copy the model into local
   `@State` on appear and write back in an explicit save function.
-- **Mutating schedule state from a child view**: call `onBeforeSceneChange()` first (undo snapshot),
-  mutate through the binding, then `onSceneChanged()` (dirty flag + recompute). Skipping the first
-  makes the edit non-undoable.
+- **Mutating schedule state from a child view**: call `onBeforeSceneChange()` first (opens the edit
+  gesture), mutate through the binding, then `onSceneChanged()` (closes it). The binding's setter is
+  what runs `perform`; the gesture only decides that several writes are one undo step. Inside
+  `ContentView` itself, mutate with `edit("Action Name") { data in … }`, never by assigning to
+  `document.project` (it is read-only from outside the document anyway).
 - **Model changes**: every new `Codable` field gets a `CodingKeys` entry and a
   `decodeIfPresent(...) ?? default` line in the hand-written `init(from:)`. Old project files must
   still open. There is no schema version. Model `Codable` conformances are `nonisolated` (and so
@@ -110,7 +119,11 @@ All Swift sources are flat in `LSVR CineSched/`, one responsibility per file (th
   actor; a new model type follows suit, and a decoder must not touch main-actor state.
 - **Mutating the project document**: only through `ProjectDocument.perform`, which registers the
   undo action the document infrastructure autosaves from. Pass one `EditGesture` token for every
-  edit of a drag or typing burst so it undoes as one step.
+  edit of a drag or typing burst so it undoes as one step. A `perform` whose edit changes nothing
+  registers nothing, so an editor's Save may write its whole value back unconditionally.
+- **Platform ownership of the document**: `DocumentGroup` is macOS-only for now (CineSchedApp is a
+  seam file); the other platforms get their own document scenes in #12. `ContentView` compiles on
+  every platform and must stay free of `#if os`.
 - **Colors**: resolve scene colors only via `Scene.stripColor`. Exporters must not hardcode strip colors.
 - **PDF drawing**: new or migrated exporters draw through `PDFCanvas` (`PDFFont`, `CGColor`
   helpers, `draw(_:in:)` / `draw(_:at:)`), never through `NSFont` / `NSColor` /
@@ -140,7 +153,10 @@ real `UndoManager` with `groupsByEvent` off), and all six exporters (rendered fr
 fixture in `PDFTestSupport.swift` and read back through PDFKit in `SchedulePDFExporterTests`,
 `MonthPDFExporterTests`, `CallSheetPDFExporterTests`, `BreakdownPDFExporterTests` and
 `DaysOutOfDaysPDFExporterTests`; set `CINESCHED_PDF_DUMP_DIR` to keep the PDFs for a visual
-diff, see `PDFTestSupport`'s header). Prefer adding tests there over UI tests. Any change to
+diff, see `PDFTestSupport`'s header). Prefer adding tests there over UI tests. The document
+lifecycle itself (Open panel types, Finder association, autosave, the viewer role of `.json`)
+has no unit seam; check it by running the app (learnings.md, 2026-09-16 #8 has a recipe that
+works without screen access). Any change to
 `PDFCanvas` gets the pixel comparison: dump every fixture before and after, rasterize and
 diff (learnings.md, 2026-09-16 #6 has the recipe); expectations that depend on the Mac's SF
 metrics or wrapping are guarded by `PDFFixture.hasMacSystemFace`.

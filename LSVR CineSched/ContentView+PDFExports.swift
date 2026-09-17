@@ -1,11 +1,12 @@
-// ProjectStore+PDFExports.swift
+// ContentView+PDFExports.swift
 // The "generate a PDF, then ask where to save it" actions behind the File menu, the
 // calendar's Export Month button, and the call-sheet / shooting-schedule buttons on the
-// two schedule views. Every exporter call site in the app lives here.
+// two schedule views. Every exporter call site in the app lives here. These panels stay
+// on the Mac (#8): a PDF is an export, not the document.
 //
 // Every exporter draws through PDFCanvas, so this builds on every platform; the save
 // panel it hands the bytes to is the `FilePanels` seam, inert off the Mac until the
-// document infrastructure of milestone 2 (#1) replaces it.
+// share sheet of milestone 3 (#23) replaces it there.
 
 import SwiftUI
 import UniformTypeIdentifiers

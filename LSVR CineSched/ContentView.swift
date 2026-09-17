@@ -1,7 +1,13 @@
 // ContentView.swift
-// Root view: holds app state, sidebar, toolbar, calendar and stripboard views.
-// Business logic lives in ProjectStore.swift (persistence),
-// CalendarView.swift (calendar/drag-drop), StripboardView.swift, and the other focused files.
+// The Mac editor for one project document: sidebar, toolbar, calendar and stripboard
+// views. The project itself lives in the `ProjectDocument` the window was opened with
+// (#8, ADR 0004); this view reads it freely and writes it only through `edit(_:_:)` and
+// the bindings built on it, all of which go through the document's `perform` funnel so
+// that every change is undoable and autosaved. UI state that is not the project (the
+// pending range-picker dates, selection, sheets) stays `@State` here.
+// Script import lives in ContentView+ScriptImport.swift, the PDF export actions in
+// ContentView+PDFExports.swift, and the drag/drop and editing flows in CalendarView.swift
+// and StripboardView.swift.
 
 import SwiftUI
 import UniformTypeIdentifiers
@@ -25,22 +31,31 @@ struct ContentView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     // MARK: Project state
-    @State var allScenes:   [Scene]    = []
-    @State var shootDays:   [ShootDay] = generateDays(
-        from: Calendar.current.date(byAdding: .day, value: -3, to: Date())!,
-        to:   Calendar.current.date(byAdding: .day, value: 30,  to: Date())!
-    )
-    @State var startDate:   Date = Calendar.current.date(
-        from: Calendar.current.dateComponents([.year, .month], from: Date()))!
-    @State var endDate:     Date = Calendar.current.date(
-        byAdding: .day, value: 30, to: Date())!
-    @State var projectTitle: String = "Untitled Movie"
-    @State var isShiftModeEnabled: Bool = false
-    @State var projectCreatedDate: Date = Date()
-    @State var productionInfo: ProductionInfo = ProductionInfo()
 
-    // Auto-save
-    @State var hasUnsavedChanges: Bool = false
+    /// The window's project. Read through the accessors below; write only through `edit`.
+    let document: ProjectDocument
+    /// The window's undo manager, supplied by the document infrastructure. Every `perform`
+    /// registers with it, which is also what marks the document edited and autosaves it.
+    @Environment(\.undoManager) private var undoManager
+
+    var allScenes:          [Scene]        { document.project.allScenes }
+    var shootDays:          [ShootDay]     { document.project.shootDays }
+    var projectTitle:       String         { document.project.projectTitle }
+    var productionInfo:     ProductionInfo { document.project.productionInfo ?? ProductionInfo() }
+    var isShiftModeEnabled: Bool           { document.project.isShiftModeEnabled ?? false }
+
+    /// The range picker's pending dates: what the user is choosing before pressing Update
+    /// Calendar, so UI state rather than project state. Seeded from the shoot days and
+    /// re-seeded whenever the project is replaced under the view (undo, redo, reload).
+    @State var startDate: Date
+    @State var endDate:   Date
+
+    init(document: ProjectDocument) {
+        self.document = document
+        let days = document.project.shootDays
+        _startDate = State(initialValue: days.first?.date ?? Date())
+        _endDate   = State(initialValue: days.last?.date  ?? Date())
+    }
 
     // MARK: UI / sheet state
     @State private var newSceneNumber:   String       = ""
@@ -51,7 +66,6 @@ struct ContentView: View {
 
     @State var showingAlert                   = false
     @State var showingImportAlert             = false
-    @State private var showingClearAllConfirmation = false
 
     @State var alertMessage:   String = ""
     @State var importMessage:  String = ""
@@ -78,8 +92,6 @@ struct ContentView: View {
     @AppStorage("CineSchedViewMode") private var viewMode: ScheduleViewMode = .calendar
     /// Stripboard only: draw every date, or fold runs of empty days into one gap row each.
     @AppStorage("CineSchedStripboardShowAllDays") private var stripboardShowAllDays: Bool = false
-    @EnvironmentObject var recentFiles: RecentFilesStore
-    @State var currentFileURL: URL? = nil
 
     // Production Setup & Conflict states
     @State private var conflictReportResults: [ScheduleConflict] = []
@@ -93,20 +105,18 @@ struct ContentView: View {
     @State private var breakdownBrowserScenes: [Scene] = []
     @State private var breakdownBrowserIndex: Int = 0
 
-    // MARK: - Undo/Redo
-    private struct SceneUndoSnapshot {
-        let allScenes: [Scene]
-        let shootDays: [ShootDay]
-    }
-    @State private var undoStack: [SceneUndoSnapshot] = []
-    @State private var redoStack: [SceneUndoSnapshot] = []
-    private let maxUndoDepth = 30
-    /// Bumped on every undo/redo so CompactMonthCalendarView and StripboardView know to
-    /// clear their own local drag-target state (dropTargetDayId, dayDropTargetId, etc.).
-    /// That state lives inside those views, not here, so undo/redo restoring allScenes and
-    /// shootDays alone doesn't touch it — without this, a day cell's drop-target border
-    /// could stay highlighted indefinitely after an undo, with nothing left to clear it.
-    @State private var dragStateResetToken: Int = 0
+    // MARK: - Edit funnel
+
+    /// The gesture opened by a child view's `onBeforeSceneChange`, so the several binding
+    /// writes one calendar or Stripboard action makes fold into one undo step. Closed by
+    /// `onSceneChanged` and, regardless, at the end of the run-loop turn (see
+    /// `beginEditGesture`).
+    @State private var activeGesture: EditGesture?
+    /// Typing in the title field is one gesture per focus session: every keystroke writes
+    /// the binding, and without a token each would be its own undo step.
+    @State private var titleGesture = EditGesture()
+    @FocusState private var titleFieldFocused: Bool
+
     @State private var scheduleLockChanges: [ScheduleLockChange] = []
     @State private var scheduleLockChangedDates: Set<Date> = []
 
@@ -170,10 +180,7 @@ struct ContentView: View {
 
         let withAlerts = applyAlerts(base)
         let withSheets = applySheets(withAlerts)
-        let withLifecycle = applyLifecycle(withSheets)
-        let withNotificationsA = applyNotificationHandlersA(withLifecycle)
-        let withNotificationsB = applyNotificationHandlersB(withNotificationsA)
-        return applyNotificationHandlersC(withNotificationsB)
+        return applyLifecycle(withSheets)
     }
 
     // MARK: - Modifiers
@@ -198,16 +205,6 @@ struct ContentView: View {
                     Text("'\(projectTitle)' already has scenes or a schedule. This will add \(result.scenes.count) new scene\(result.scenes.count == 1 ? "" : "s") to the Boneyard — nothing existing will be changed or removed.")
                 }
             }
-            .confirmationDialog(
-                "Clear All Scenes and Schedule?",
-                isPresented: $showingClearAllConfirmation,
-                titleVisibility: .visible
-            ) {
-                Button("Clear Project", role: .destructive) { clearAllScenes() }
-                Button("Cancel",        role: .cancel)      {}
-            } message: {
-                Text("This will clear all scenes, call sheets, and the project title. This action cannot be undone.")
-            }
     }
 
     private func applySheets<Content: View>(_ content: Content) -> some View {
@@ -226,10 +223,10 @@ struct ContentView: View {
                     unscheduledEditSheet
                 case .productionSetup:
                     ProductionSetupSheet(
-                        productionInfo: $productionInfo,
+                        productionInfo: productionInfoBinding,
                         scenes: allScenes + shootDays.flatMap { $0.scenes },
                         isPresented: isPresentedProductionSetup,
-                        onSave: { markDirty(); recomputeConflicts(); recomputeScheduleLockChanges() },
+                        onSave: {},
                         onCharacterRenamed: renameCastCharacter
                     )
                 case .conflictReport:
@@ -273,7 +270,7 @@ struct ContentView: View {
                 SceneEditSheet(
                     scene: $breakdownBrowserScenes[breakdownBrowserIndex],
                     isPresented: isPresentedBreakdownBrowser,
-                    onSave: { markDirty(); writeBackCurrentBreakdownScene() },
+                    onSave: { writeBackCurrentBreakdownScene() },
                     onDelete: { deleteCurrentBreakdownScene() },
                     canGoPrevious: breakdownBrowserIndex > 0,
                     canGoNext: breakdownBrowserIndex < breakdownBrowserScenes.count - 1,
@@ -300,132 +297,129 @@ struct ContentView: View {
 
     private func applyLifecycle<Content: View>(_ content: Content) -> some View {
         content
+            .focusedSceneValue(\.projectCommands, projectCommands)
             .onAppear {
-                loadDefaultProject()
-                restoreCurrentFileURL()
-                recomputeSortedScenes()
-                recomputeConflicts()
-                recomputeScheduleLockChanges()
+                recomputeDerivedState()
                 columnVisibility = sidebarCollapsedPreference ? .detailOnly : .all
             }
             .onChange(of: columnVisibility) { _, newValue in
                 sidebarCollapsedPreference = (newValue == .detailOnly)
             }
-            .onChange(of: shootDays.map(\.scenes)) { _, _ in
-                pruneSelection()
-                recomputeConflicts()
-                recomputeScheduleLockChanges()
+            // Every path into the project (an edit, an undo, a reload from disk) lands
+            // here, so the derived sets never go stale whichever way the model moved.
+            .onChange(of: document.project) { _, _ in
+                recomputeDerivedState()
             }
-            .onChange(of: allScenes) { _, _ in
-                recomputeSortedScenes()
-                pruneSelection()
-                recomputeConflicts()
-                recomputeScheduleLockChanges()
+            .onChange(of: document.restoreCount) { _, _ in
+                seedRangePickers()
             }
             .onChange(of: boneyardSort) { _, _ in
                 recomputeSortedScenes()
             }
-            // Debounced auto-save
-            .onChange(of: hasUnsavedChanges) { _, isDirty in
-                guard isDirty else { return }
-                Task {
-                    try? await Task.sleep(for: .seconds(2))
-                    saveDefaultProject()
-                    hasUnsavedChanges = false
-                }
+            .onChange(of: titleFieldFocused) { _, focused in
+                if !focused { titleGesture = EditGesture() }
             }
     }
 
-    private func applyNotificationHandlersA<Content: View>(_ content: Content) -> some View {
-        content
-            .onReceive(NotificationCenter.default.publisher(for: .csNewProject)) { _ in
-                showingClearAllConfirmation = true
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .csOpenProject)) { _ in
-                showJSONOpenPanel()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .csOpenRecentProject)) { note in
-                guard let url = note.object as? URL else { return }
-                loadProject(from: url)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .csImportScript)) { _ in
-                showScriptImportPanel()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .csSaveProject)) { _ in
-                saveProject()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .csSaveProjectAs)) { _ in
-                showNativeSaveDialog()
-            }
-    }
-
-    private func applyNotificationHandlersB<Content: View>(_ content: Content) -> some View {
-        content
-            .onReceive(NotificationCenter.default.publisher(for: .csExportSchedulePDF)) { _ in
-                showSchedulePDFSavePanel()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .csExportStripboardPDF)) { _ in
-                showStripboardPDFSavePanel()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .csExportDaysOutOfDays)) { _ in
-                showDaysOutOfDaysPDFSavePanel()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .csOpenProductionSetup)) { _ in
-                activeSheet = .productionSetup
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .csScanForConflicts)) { _ in
+    /// The menu commands this window answers (see ProjectCommands.swift).
+    private var projectCommands: ProjectCommands {
+        ProjectCommands(
+            importScript:           showScriptImportPanel,
+            exportSchedulePDF:      showSchedulePDFSavePanel,
+            exportStripboardPDF:    showStripboardPDFSavePanel,
+            exportDaysOutOfDays:    showDaysOutOfDaysPDFSavePanel,
+            exportBreakdowns:       showBreakdownPDFSavePanel,
+            openProductionSetup:    { activeSheet = .productionSetup },
+            scanForConflicts:       {
                 conflictReportResults = ConflictScanner.scan(shootDays: shootDays, productionInfo: productionInfo)
                 activeSheet = .conflictReport
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .csUndo)) { _ in
-                performUndo()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .csRedo)) { _ in
-                performRedo()
-            }
-    }
-
-    @State private var showingColorLegend = false
-
-    private func applyNotificationHandlersC<Content: View>(_ content: Content) -> some View {
-        content
-            .onReceive(NotificationCenter.default.publisher(for: .csOpenBreakdownBrowser)) { _ in
-                openBreakdownBrowser()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .csExportBreakdowns)) { _ in
-                showBreakdownPDFSavePanel()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .csLockSchedule)) { _ in
-                lockSchedule()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .csUnlockSchedule)) { _ in
-                unlockSchedule()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .csShowScheduleLockReport)) { _ in
-                activeSheet = .scheduleLockReport
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .csShowSceneColorSettings)) { _ in
-                activeSheet = .sceneColorSettings
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .csShowStripboardFields)) { _ in
+            },
+            openBreakdownBrowser:   openBreakdownBrowser,
+            lockSchedule:           lockSchedule,
+            unlockSchedule:         unlockSchedule,
+            showScheduleLockReport: { activeSheet = .scheduleLockReport },
+            showColorLegend:        { showingColorLegend = true },
+            showSceneColorSettings: { activeSheet = .sceneColorSettings },
+            showStripboardFields:   {
                 // The picker is only meaningful on the Stripboard, so the menu item also
                 // switches views rather than opening a sheet over a calendar it won't affect.
                 viewMode = .stripboard
                 activeSheet = .stripboardFields
             }
-            .onReceive(NotificationCenter.default.publisher(for: .csShowColorLegend)) { _ in
-                showingColorLegend = true
-            }
+        )
     }
+
+    // MARK: - Edit funnel
+
+    /// Applies one change to the project through the document's funnel, under the gesture
+    /// a child view may have opened. `actionName` labels Undo and Redo in the Edit menu.
+    func edit(_ actionName: String? = nil, _ change: (inout ProjectData) -> Void) {
+        document.perform(actionName, coalescing: activeGesture, undoManager: undoManager, change)
+    }
+
+    /// `onBeforeSceneChange` for the calendar and Stripboard: opens the gesture their
+    /// following binding writes fold into. Several calendar paths begin a gesture and finish
+    /// through `assign`/`removeScene` without ever calling `onSceneChanged`, and a token that
+    /// outlived its run-loop turn would fold the next unrelated edit into this step's undo,
+    /// so the end of the turn closes it regardless.
+    private func beginEditGesture() {
+        let gesture = EditGesture()
+        activeGesture = gesture
+        DispatchQueue.main.async {
+            if activeGesture == gesture { activeGesture = nil }
+        }
+    }
+
+    /// `onSceneChanged` for the calendar and Stripboard. The recomputation it used to do
+    /// happens in `onChange(of: document.project)`, which also covers undo and reload.
+    private func endEditGesture() {
+        activeGesture = nil
+    }
+
+    /// The child views and editors mutate the project the way they always have, through
+    /// bindings; these route every write through `edit`.
+    private var allScenesBinding: Binding<[Scene]> {
+        Binding(get: { allScenes }, set: { new in edit { $0.allScenes = new } })
+    }
+    private var shootDaysBinding: Binding<[ShootDay]> {
+        Binding(get: { shootDays }, set: { new in edit { $0.shootDays = new } })
+    }
+    private var productionInfoBinding: Binding<ProductionInfo> {
+        Binding(get: { productionInfo }, set: { new in edit(L("Edit Production Setup")) { $0.productionInfo = new } })
+    }
+    private var shiftModeBinding: Binding<Bool> {
+        Binding(get: { isShiftModeEnabled }, set: { new in edit(L("Shift Schedule")) { $0.isShiftModeEnabled = new } })
+    }
+    private var projectTitleBinding: Binding<String> {
+        Binding(get: { projectTitle }, set: { new in
+            document.perform(L("Rename Project"), coalescing: titleGesture, undoManager: undoManager) { $0.projectTitle = new }
+        })
+    }
+
+    private func seedRangePickers() {
+        if let first = shootDays.first?.date, let last = shootDays.last?.date {
+            startDate = first
+            endDate   = last
+        }
+    }
+
+    private func recomputeDerivedState() {
+        recomputeSortedScenes()
+        pruneSelection()
+        recomputeConflicts()
+        recomputeScheduleLockChanges()
+    }
+
+    @State private var showingColorLegend = false
 
     // MARK: - Sidebar
 
     private var sidebarView: some View {
         VStack(alignment: .leading, spacing: 6) {
-            TextField("Movie Title", text: $projectTitle)
+            TextField("Movie Title", text: projectTitleBinding)
                 .font(.title2)
                 .padding(.bottom, 2)
-                .onChange(of: projectTitle) { _, _ in markDirty() }
+                .focused($titleFieldFocused)
 
             Text("\(L("Shoot Days:")) \(shootDays.filter { !$0.scenes.isEmpty }.count)")
                 .font(.subheadline).foregroundColor(.gray)
@@ -441,11 +435,9 @@ struct ContentView: View {
             DisclosureGroup(isExpanded: $isDateRangeExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
                     DatePicker(L("Start Date"), selection: $startDate, displayedComponents: .date)
-                        .onChange(of: startDate) { _, _ in markDirty() }
                     DatePicker(L("End Date"), selection: $endDate, displayedComponents: .date)
-                        .onChange(of: endDate) { _, _ in markDirty() }
 
-                    Toggle(isOn: $isShiftModeEnabled) {
+                    Toggle(isOn: shiftModeBinding) {
                         HStack(spacing: 4) {
                             Text(L("Shift Schedule"))
                             Image(systemName: "info.circle")
@@ -459,7 +451,6 @@ struct ContentView: View {
                             ? "Desplazar Calendario\nCuando está activado, al cambiar la Fecha de Inicio se desplazan automáticamente todas las escenas ya programadas en el calendario, conservando la distribución del plan de rodaje."
                             : "Shift Schedule\nWhen enabled, changing the Start Date automatically shifts all scheduled scenes across the calendar, preserving your shoot day plan."
                     )
-                    .onChange(of: isShiftModeEnabled) { _, _ in markDirty() }
 
                     Button(L("Update Calendar")) { updateShootDays(from: startDate, to: endDate) }
                 }
@@ -478,7 +469,7 @@ struct ContentView: View {
                     newDuration:      $newDuration,
                     newEstimate:      $newEstimate,
                     newDayNightType:  $newDayNightType,
-                    allScenes:        $allScenes
+                    allScenes:        allScenesBinding
                 )
                 .padding(.top, 4)
             } label: {
@@ -551,18 +542,18 @@ struct ContentView: View {
         let working = ScheduleLockScanner.currentWorkingDays(shootDays: shootDays)
         var stored: [String: [Date]] = [:]
         for (character, dates) in working { stored[character] = dates.sorted() }
-        productionInfo.scheduleLock = ScheduleLock(lockedAt: Date(), workingDays: stored)
-        markDirty()
-        recomputeScheduleLockChanges()
+        edit(L("Lock Schedule")) { data in
+            var info = data.productionInfo ?? ProductionInfo()
+            info.scheduleLock = ScheduleLock(lockedAt: Date(), workingDays: stored)
+            data.productionInfo = info
+        }
         alertMessage = "Schedule locked. You'll be notified in the Schedule Lock Report if any actor's working days change from here."
         showingAlert = true
     }
 
     private func unlockSchedule() {
         guard productionInfo.scheduleLock != nil else { return }
-        productionInfo.scheduleLock = nil
-        markDirty()
-        recomputeScheduleLockChanges()
+        edit(L("Unlock Schedule")) { $0.productionInfo?.scheduleLock = nil }
     }
 
     private func recomputeScheduleLockChanges() {
@@ -570,39 +561,7 @@ struct ContentView: View {
         scheduleLockChangedDates = ScheduleLockScanner.changedDates(scheduleLockChanges)
     }
 
-    // MARK: - Undo/Redo
-
-    private func captureUndoSnapshot() {
-        undoStack.append(SceneUndoSnapshot(allScenes: allScenes, shootDays: shootDays))
-        if undoStack.count > maxUndoDepth { undoStack.removeFirst() }
-        redoStack.removeAll()
-    }
-
-    private func performUndo() {
-        guard let previous = undoStack.popLast() else { return }
-        redoStack.append(SceneUndoSnapshot(allScenes: allScenes, shootDays: shootDays))
-        allScenes = previous.allScenes
-        shootDays = previous.shootDays
-        markDirty()
-        recomputeSortedScenes()
-        pruneSelection()
-        recomputeConflicts()
-        recomputeScheduleLockChanges()
-        dragStateResetToken += 1
-    }
-
-    private func performRedo() {
-        guard let next = redoStack.popLast() else { return }
-        undoStack.append(SceneUndoSnapshot(allScenes: allScenes, shootDays: shootDays))
-        allScenes = next.allScenes
-        shootDays = next.shootDays
-        markDirty()
-        recomputeSortedScenes()
-        pruneSelection()
-        recomputeConflicts()
-        recomputeScheduleLockChanges()
-        dragStateResetToken += 1
-    }
+    // MARK: - Selection and cast helpers
 
     private func pruneSelection() {
         let scheduledIDs = Set(shootDays.flatMap { $0.scenes.map(\.id) })
@@ -619,18 +578,19 @@ struct ContentView: View {
             cast.map { $0.caseInsensitiveCompare(old) == .orderedSame ? new : $0 }
         }
 
-        for i in allScenes.indices {
-            allScenes[i].cast = renamed(allScenes[i].cast)
-        }
-        for d in shootDays.indices {
-            for s in shootDays[d].scenes.indices {
-                shootDays[d].scenes[s].cast = renamed(shootDays[d].scenes[s].cast)
+        edit(L("Rename Character")) { data in
+            for i in data.allScenes.indices {
+                data.allScenes[i].cast = renamed(data.allScenes[i].cast)
             }
-            if let override = shootDays[d].callSheet.castOverride {
-                shootDays[d].callSheet.castOverride = renamed(override)
+            for d in data.shootDays.indices {
+                for s in data.shootDays[d].scenes.indices {
+                    data.shootDays[d].scenes[s].cast = renamed(data.shootDays[d].scenes[s].cast)
+                }
+                if let override = data.shootDays[d].callSheet.castOverride {
+                    data.shootDays[d].callSheet.castOverride = renamed(override)
+                }
             }
         }
-        markDirty()
     }
 
     private func stripSceneNumber(_ title: String) -> String {
@@ -798,8 +758,7 @@ struct ContentView: View {
                             activeSheet = .unscheduledEdit
                         }
                         Button(L("Duplicate Scene")) {
-                            captureUndoSnapshot()
-                            allScenes.append(Scene(
+                            edit(L("Duplicate Scene")) { $0.allScenes.append(Scene(
                                 title:            item.scene.title + " (Copy)",
                                 sceneNumber:      item.scene.sceneNumber,
                                 duration:         item.scene.duration,
@@ -818,14 +777,11 @@ struct ContentView: View {
                                 sfx:              item.scene.sfx,
                                 vfx:              item.scene.vfx,
                                 breakdownNotes:   item.scene.breakdownNotes
-                            ))
-                            markDirty()
+                            )) }
                         }
                         Divider()
                         Button(L("Delete Scene"), role: .destructive) {
-                            captureUndoSnapshot()
-                            allScenes.remove(at: item.index)
-                            markDirty()
+                            edit(L("Delete Scene")) { $0.allScenes.remove(at: item.index) }
                         }
                     }
                 }
@@ -847,11 +803,13 @@ struct ContentView: View {
     private func moveScenesToBoneyard(_ payload: String) {
         let ids = payload.components(separatedBy: ",").compactMap { UUID(uuidString: $0) }
         guard !ids.isEmpty else { return }
-        captureUndoSnapshot()
-        for id in ids {
-            guard let day = shootDays.first(where: { day in day.scenes.contains { $0.id == id } }),
-                  let scene = day.scenes.first(where: { $0.id == id }) else { continue }
-            removeScene(scene, from: day.id)
+        edit(L("Move to Boneyard")) { data in
+            for id in ids {
+                guard let d = data.shootDays.firstIndex(where: { day in day.scenes.contains { $0.id == id } }),
+                      let scene = data.shootDays[d].scenes.first(where: { $0.id == id }) else { continue }
+                data.shootDays[d].scenes.removeAll { $0.id == id }
+                data.allScenes.append(scene)
+            }
         }
     }
 
@@ -893,9 +851,9 @@ struct ContentView: View {
             toolbarRow
             if viewMode == .calendar {
                 CompactMonthCalendarView(
-                    shootDays:    $shootDays,
+                    shootDays:    shootDaysBinding,
                     assignScene:  assign,
-                    allScenes:    $allScenes,
+                    allScenes:    allScenesBinding,
                     updateScene:  updateScene,
                     removeScene:  removeScene,
                     projectTitle: projectTitle,
@@ -912,9 +870,9 @@ struct ContentView: View {
                     duplicateSceneNumberIDs: duplicateSceneNumberIDs,
                     scheduleLockChangedDates: scheduleLockChangedDates,
                     scrollToDate: $scrollToDate,
-                    dragStateResetToken: dragStateResetToken,
-                    onBeforeSceneChange: captureUndoSnapshot,
-                    onSceneChanged: { markDirty(); pruneSelection(); recomputeConflicts(); recomputeScheduleLockChanges() },
+                    dragStateResetToken: document.restoreCount,
+                    onBeforeSceneChange: beginEditGesture,
+                    onSceneChanged: endEditGesture,
                     onCallSheetExport: { day in
                         showCallSheetPDFSavePanel(for: day)
                     },
@@ -925,8 +883,8 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 StripboardView(
-                    shootDays: $shootDays,
-                    allScenes: $allScenes,
+                    shootDays: shootDaysBinding,
+                    allScenes: allScenesBinding,
                     productionInfo: productionInfo,
                     visibleFields: stripboardFields.wrappedValue,
                     showAllDays: stripboardShowAllDays,
@@ -936,8 +894,8 @@ struct ContentView: View {
                     conflictSceneIDs: conflictSceneIDs,
                     duplicateSceneNumberIDs: duplicateSceneNumberIDs,
                     scrollToDate: $scrollToDate,
-                    dragStateResetToken: dragStateResetToken,
-                    onSceneChanged: { markDirty(); pruneSelection(); recomputeConflicts(); recomputeScheduleLockChanges() },
+                    dragStateResetToken: document.restoreCount,
+                    onSceneChanged: endEditGesture,
                     onCallSheetExport: { day in
                         showCallSheetPDFSavePanel(for: day)
                     },
@@ -1152,13 +1110,13 @@ struct ContentView: View {
     private var unscheduledEditSheet: some View {
         if let idx = editingUnscheduledSceneIndex, idx < allScenes.count {
             SceneEditSheet(
-                scene: $allScenes[idx],
+                scene: allScenesBinding[idx],
                 isPresented: isPresentedUnscheduledEdit,
-                onSave: { markDirty() },
+                onSave: {},
                 onDelete: {
-                    captureUndoSnapshot()
-                    if let i = editingUnscheduledSceneIndex { allScenes.remove(at: i) }
-                    markDirty()
+                    if let i = editingUnscheduledSceneIndex {
+                        edit(L("Delete Scene")) { $0.allScenes.remove(at: i) }
+                    }
                     clearUnscheduledEditingState()
                 },
                 canGoPrevious: (currentBoneyardPosition ?? 0) > 0,
@@ -1221,29 +1179,32 @@ struct ContentView: View {
     private func writeBackCurrentBreakdownScene() {
         guard breakdownBrowserScenes.indices.contains(breakdownBrowserIndex) else { return }
         let scene = breakdownBrowserScenes[breakdownBrowserIndex]
-        if let i = allScenes.firstIndex(where: { $0.id == scene.id }) {
-            allScenes[i] = scene
-            return
-        }
-        for d in shootDays.indices {
-            if let i = shootDays[d].scenes.firstIndex(where: { $0.id == scene.id }) {
-                shootDays[d].scenes[i] = scene
+        edit(L("Edit Scene")) { data in
+            if let i = data.allScenes.firstIndex(where: { $0.id == scene.id }) {
+                data.allScenes[i] = scene
                 return
+            }
+            for d in data.shootDays.indices {
+                if let i = data.shootDays[d].scenes.firstIndex(where: { $0.id == scene.id }) {
+                    data.shootDays[d].scenes[i] = scene
+                    return
+                }
             }
         }
     }
 
     private func deleteCurrentBreakdownScene() {
         guard breakdownBrowserScenes.indices.contains(breakdownBrowserIndex) else { return }
-        captureUndoSnapshot()
         let id = breakdownBrowserScenes[breakdownBrowserIndex].id
-        if let i = allScenes.firstIndex(where: { $0.id == id }) {
-            allScenes.remove(at: i)
-        } else {
-            for d in shootDays.indices {
-                if let i = shootDays[d].scenes.firstIndex(where: { $0.id == id }) {
-                    shootDays[d].scenes.remove(at: i)
-                    break
+        edit(L("Delete Scene")) { data in
+            if let i = data.allScenes.firstIndex(where: { $0.id == id }) {
+                data.allScenes.remove(at: i)
+            } else {
+                for d in data.shootDays.indices {
+                    if let i = data.shootDays[d].scenes.firstIndex(where: { $0.id == id }) {
+                        data.shootDays[d].scenes.remove(at: i)
+                        break
+                    }
                 }
             }
         }
@@ -1251,7 +1212,6 @@ struct ContentView: View {
         if breakdownBrowserIndex >= breakdownBrowserScenes.count {
             breakdownBrowserIndex = max(0, breakdownBrowserScenes.count - 1)
         }
-        markDirty()
         if breakdownBrowserScenes.isEmpty { activeSheet = nil }
     }
 
@@ -1267,36 +1227,46 @@ struct ContentView: View {
 
     // MARK: - Scene management
 
+    /// The calendar's three scene callbacks, each one edit through the funnel.
     func assign(scene: Scene, to day: ShootDay) {
-        if let idx = shootDays.firstIndex(where: { $0.id == day.id }) {
-            shootDays[idx].scenes.append(scene)
-            allScenes.removeAll { $0.id == scene.id }
-            markDirty()
+        edit(L("Schedule Scene")) { data in
+            guard let idx = data.shootDays.firstIndex(where: { $0.id == day.id }) else { return }
+            data.shootDays[idx].scenes.append(scene)
+            data.allScenes.removeAll { $0.id == scene.id }
         }
     }
 
     func updateScene(_ updated: Scene, in dayId: UUID) {
-        if let di = shootDays.firstIndex(where: { $0.id == dayId }),
-           let si = shootDays[di].scenes.firstIndex(where: { $0.id == updated.id }) {
-            shootDays[di].scenes[si] = updated
-            markDirty()
+        edit(L("Edit Scene")) { data in
+            guard let di = data.shootDays.firstIndex(where: { $0.id == dayId }),
+                  let si = data.shootDays[di].scenes.firstIndex(where: { $0.id == updated.id }) else { return }
+            data.shootDays[di].scenes[si] = updated
         }
     }
 
     func removeScene(_ scene: Scene, from dayId: UUID) {
-        if let di = shootDays.firstIndex(where: { $0.id == dayId }) {
-            shootDays[di].scenes.removeAll { $0.id == scene.id }
-            allScenes.append(scene)
-            markDirty()
+        edit(L("Move to Boneyard")) { data in
+            guard let di = data.shootDays.firstIndex(where: { $0.id == dayId }) else { return }
+            data.shootDays[di].scenes.removeAll { $0.id == scene.id }
+            data.allScenes.append(scene)
         }
     }
 
     // MARK: - Calendar update (merge vs shift)
 
     private func updateShootDays(from newStart: Date, to newEnd: Date) {
+        edit(L("Update Calendar")) { data in
+            updateShootDays(of: &data, from: newStart, to: newEnd)
+        }
+    }
+
+    /// The range regeneration itself, over the snapshot being edited.
+    private func updateShootDays(of data: inout ProjectData, from newStart: Date, to newEnd: Date) {
         let cal          = Calendar.current
         let normNewStart = cal.startOfDay(for: newStart)
         let normNewEnd   = cal.startOfDay(for: newEnd)
+        let shootDays    = data.shootDays
+        let isShiftModeEnabled = data.isShiftModeEnabled ?? false
 
         // 1. Bucket everything by date: script scenes, calendar events, call sheets, and day
         //    types/notes. In shift mode all of it slides by the same offset, so a travel day
@@ -1394,18 +1364,13 @@ struct ContentView: View {
         // 4. ANTI-LOSS SAFETY NET: Any script scenes that didn't fit into the new schedule
         // are returned to allScenes (Boneyard) so they are NEVER permanently lost!
         for (sceneId, scene) in allExistingScriptScenes {
-            if !scheduledSceneIDs.contains(sceneId) && !allScenes.contains(where: { $0.id == sceneId }) {
-                allScenes.append(scene)
+            if !scheduledSceneIDs.contains(sceneId) && !data.allScenes.contains(where: { $0.id == sceneId }) {
+                data.allScenes.append(scene)
             }
         }
 
         updatedDays.sort { $0.date < $1.date }
-        shootDays = updatedDays
-        recomputeSortedScenes()
-        pruneSelection()
-        recomputeConflicts()
-        recomputeScheduleLockChanges()
-        markDirty()
+        data.shootDays = updatedDays
     }
 }
 

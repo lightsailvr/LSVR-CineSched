@@ -1,6 +1,10 @@
 # 0004 — One project document on every platform
 
-Status: Accepted (2026-09-16, #7, part of #1)
+Status: Accepted (2026-09-16, #7, part of #1). The Mac adopted it in #8 (same day): the
+"next ticket" below is done; `DocumentGroup` in CineSchedApp owns one document per window,
+menus reach it through `ProjectCommands` (a focused scene value), and the manual undo stack,
+the recent-files bookmarks and the two-second autosave are gone. The first-launch recovery
+of the UserDefaults working copy is #10.
 
 ## Context
 

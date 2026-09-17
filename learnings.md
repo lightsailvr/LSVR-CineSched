@@ -9,6 +9,52 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-16 — The Mac as a document app: `makeDocument` gets no URL, the Open panel follows `readableContentTypes`, LaunchServices ignores apps in /tmp, and how to check any of it without a screen (#8)
+
+Wiring `DocumentGroup(editor:makeDocument:)` around `ProjectDocument` and moving every
+mutation in `ContentView` onto `perform`:
+
+- **`makeDocument`'s `configuration.fileURL` is nil even when a file is being opened**
+  (observed for File ▸ Open, LaunchServices and state restoration alike; it was set for one
+  `open file.cinesched` and nil for the others). The URL is settable on the configuration and
+  arrives by the time `apply(snapshot:previous:)` runs, so the document keeps the
+  configuration and reads `fileURL` live rather than copying it at construction. Do not
+  branch on the URL in `makeDocument`; give every document the blank template and let
+  `apply` replace it.
+- **The system Open panel offers exactly `readableContentTypes`** (`com.lsvr.cinesched.project`
+  and `public.json`, read straight off `NSOpenPanel`'s log line) with no `CFBundleDocumentTypes`
+  entry for JSON. So the viewer role for a legacy `.json` needs nothing in the plist, which is
+  what keeps iOS from claiming every JSON later. The plist declares only the native type, as
+  Editor with `LSHandlerRank` Owner, which is what Finder's kind string ("CineSched Project")
+  and double-click come from.
+- **With iCloud Drive on, a document app launched with nothing to open shows the Open panel,
+  not an untitled window** (the `NSShowAppCentricOpenPanelInsteadOfUntitledFile` behaviour
+  TextEdit has). ⌘N still makes the untitled window; the AC's "New Project opens an untitled
+  window" is about that, not launch.
+- **LaunchServices will not make an app under `/private/tmp` (so a scratch `-derivedDataPath`)
+  the handler for anything**: `lsregister -dump` shows the claim, `NSWorkspace
+  .urlsForApplications(toOpen:)` leaves the app out, and `open file.cinesched` goes to
+  TextEdit. Copy the build to `~/Applications` (then remove it and `lsregister -u`) to test
+  the association.
+- **Checking the lifecycle from an agent shell that has no screen-recording or automation
+  permission** (screenshots come back black, `osascript` to System Events hangs on the consent
+  prompt): temporary `os.Logger(subsystem: "cinesched.trace", …).notice("… \(x, privacy:
+  .public)")` lines in `makeDocument`, `apply` and `snapshot`, launch with `open -n`, drive it
+  with `open -a App file` / `open file`, and read `/usr/bin/log show --info --predicate
+  'subsystem == "cinesched.trace"'`. `print` is block-buffered off a tty and `NSLog` payloads
+  show as `<private>`; and `log` is a zsh builtin, so spell out `/usr/bin/log`. What this
+  cannot check is Save/autosave/undo through the menus; that stays a human step.
+- **`onBeforeSceneChange` cannot be a strict undo bracket.** Several calendar paths call it and
+  then finish through `assign`/`removeScene` without `onSceneChanged`, so an `EditGesture`
+  opened there is also closed at the end of the run-loop turn (`DispatchQueue.main.async`);
+  otherwise the next unrelated edit would fold into the drag's undo step. The window's
+  `UndoManager` groups by event anyway, so the token only matters for gestures that span
+  turns.
+- **A no-op `perform` must not register**: the editors write their whole value back on Save,
+  and with bindings now funnelling into `perform` that would dirty the document (and add a
+  blank undo step) every time a sheet is dismissed with Save. `perform` compares before and
+  after and returns early.
+
 ## 2026-09-16 — The project document: `nonisolated Codable` is a two-word fix, UndoManager needs a run loop or a group, a partial Info.plist merges (#7)
 
 Building `ProjectDocument` on the 27 `Document` protocol and extracting `ProjectCodec`:

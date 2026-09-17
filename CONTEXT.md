@@ -30,7 +30,7 @@ Film-production terms first, then app-specific ones.
 | **Strip** | The colored horizontal bar representing one scene (or banner) on the calendar and the stripboard. Named after the paper strips on a physical production board. |
 | **Strip color** | The industry color code (e.g. white = INT day, yellow = EXT day, blue = INT night, green = EXT night). User-overridable via `SceneColorSettings`; `Scene.stripColor` is the single source of truth for every view and exporter. |
 | **Stripboard** | The vertical strip-schedule view (`StripboardView`), the digital equivalent of a production board. Shows a time cascade per day. |
-| **Boneyard** | The sidebar list of **unscheduled** scenes. Backed by `ContentView.allScenes`. A scene is either in the Boneyard or on exactly one shoot day, never both. |
+| **Boneyard** | The sidebar list of **unscheduled** scenes. Backed by `ProjectData.allScenes`. A scene is either in the Boneyard or on exactly one shoot day, never both. |
 | **Shoot day** | One calendar date in the production, modelled by `ShootDay`: a date, an ordered list of scenes, an optional call sheet, a day type, and a day note. Every date in the production range has a `ShootDay`, even if empty. |
 | **Production range** | The start and end dates of the shoot. Changing it regenerates the `ShootDay` list; scenes on removed days are returned to the Boneyard. |
 | **Production day number** | "Day 1, Day 2, …" counting only days that have real scenes and are not blackouts. Computed by `productionDayNumbers(for:)` in `Formatting.swift`. |
@@ -57,12 +57,14 @@ Film-production terms first, then app-specific ones.
 | **DOOD (Days Out of Days)** | Industry grid of which cast members work which days, using codes SW (start work), W (work), WF (work finish), SWF (start-work-finish), H (hold), X (unavailable). `DaysOutOfDaysExporter`. |
 | **Hold day** | A DOOD day where the production shoots but this actor does not. Optionally excluded via the "Include Hold" toggle. |
 | **One-line schedule / shooting schedule** | The portrait PDF listing every day's strips with times and page counts. `ShootingSchedulePDFExporter`. Called "Plan de Rodaje" in the fork's Spanish-era code. |
-| **Project file** | A `.json` document holding `ProjectData`: all scenes, shoot days, call sheets, production info, and schedule lock. Human-readable and portable. |
-| **Autosave** | The whole project blob written to `UserDefaults` two seconds after the last change. Distinct from the manual Save to a `.json` file. |
+| **Project file** | A `.cinesched` document (or a legacy `.json`) holding `ProjectData`: all scenes, shoot days, call sheets, production info, and schedule lock. Human-readable JSON, portable across lineages. |
+| **Autosave** | The document infrastructure's autosave in place: an edit registered with the window's `UndoManager` is written to the project file by the system without a Save. (Formerly a `UserDefaults` blob written two seconds after the last change; gone since #8, recovered once by #10.) |
 | **Fountain / FDX / Highland** | Supported screenplay import formats: plain-text Fountain, Final Draft XML, and Highland's zipped TextBundle. |
-| **Project document** | `ProjectDocument`: the one observable document every platform reads, writes and edits (ADR 0004). Its snapshot is `ProjectData`; its reader and writer go through `ProjectCodec`; every edit goes through `perform`, which registers the undo action. Not yet wired to the Mac window. |
+| **Project document** | `ProjectDocument`: the one observable document every platform reads, writes and edits (ADR 0004). Its snapshot is `ProjectData`; its reader and writer go through `ProjectCodec`; every edit goes through `perform`, which registers the undo action. On the Mac, `DocumentGroup` makes one per window and `ContentView` edits it. |
 | **Edit gesture** | An `EditGesture` token passed to every `perform` of one user gesture (a drag, a typing burst) so the gesture undoes as one step. |
-| **Native file type** | `com.lsvr.cinesched.project`, extension `.cinesched`, conforming to JSON (ADR 0005). Same bytes as the `.json` the app has always written; declared in `Config/Info.plist`. |
+| **Native file type** | `com.lsvr.cinesched.project`, extension `.cinesched`, conforming to JSON (ADR 0005). Same bytes as the `.json` the app has always written; declared in `Config/Info.plist` as the exported type and the only document type. |
+| **Viewer role** | How a legacy `.json` opens on the Mac: readable by the document but not writable, so it shows and edits, and the first Save asks for a `.cinesched` destination. The `.json` is never modified. |
+| **Project commands** | `ProjectCommands`: the closure slots a `ContentView` publishes as a focused scene value so the app-wide menus act on the frontmost window. |
 | **Pure core** | The platform-free part of the code: models, parsers and importers, scanners, formatting, row logic, palette settings. Compiles on every platform with no `#if os`. |
 | **Platform seam** | A file that exists to hold a platform difference (`FilePanels`, `ModifierKeys`, `PlatformControlStyles`, …). The only places `#if os(...)` may appear; each starts with a comment saying why. See ADR 0003. |
 
@@ -71,14 +73,17 @@ Film-production terms first, then app-specific ones.
 Everything lives flat in `LSVR CineSched/`. One responsibility per file; no third-party dependencies.
 
 ```
-CineSchedApp.swift        @main, WindowGroup, all menus. Menu items post NotificationCenter names.
-ContentView.swift         Root view AND the owner of all project state (@State). No view model.
-  ProjectStore.swift      extension ContentView: load/save/autosave/import/export panels.
-  RecentFilesStore.swift  Recent-file bookmarks + every Notification.Name the menus use.
+CineSchedApp.swift        @main; on the Mac a DocumentGroup (one window per ProjectDocument) plus the menus,
+                          which reach the key window through @FocusedValue(\.projectCommands).
+ProjectCommands.swift     The closure slots a ContentView publishes for those menus (focused scene value).
+ContentView.swift         The Mac editor for one document: sidebar, toolbar, calendar and stripboard. Reads
+                          `document.project`, writes only through `edit` / bindings built on `perform`.
+  ContentView+ScriptImport.swift   File ▸ Import Script… (Final Draft, Fountain, Highland) into the Boneyard.
+  ContentView+PDFExports.swift     every "generate then save" PDF action; the panel comes from FilePanels.
 Models.swift              All value types (Scene, ShootDay, ProjectData, CallSheetData, ...). Hand-written Codable.
 ProjectCodec.swift        The one project encoder/decoder (pretty JSON, ISO dates, legacy shapes).
 ProjectDocument.swift     The project document (27 Document protocol), URL reader/writer, perform undo funnel,
-                          UTType.cineschedProject. Built in #7; the Mac window adopts it in the next ticket.
+                          UTType.cineschedProject, ProjectData.newProject (the File ▸ New template).
 CalendarView.swift        Month grid / full-schedule scroll, drag & drop, day cells.
 StripboardView.swift      Strip schedule with time cascade and auto-meal sync.
 *Sheet.swift              Modal editors (Scene, CallSheet, ProductionSetup, Banner, CalendarEvent, SendToDay, ...).
@@ -86,7 +91,6 @@ PDFCanvas.swift           Shared PDF drawing helper: pages, rects, lines, TextKi
 *Exporter.swift           PDF generation, one file per document type (Stripboard, ShootingSchedule, the month
                           calendar (PDFExporter), CallSheet, Breakdown, DaysOutOfDays). All draw on PDFCanvas
                           and build everywhere.
-  ProjectStore+PDFExports.swift   every "generate then save" action; the panel comes from FilePanels.
 Fountain*.swift, FinalDraftParser.swift, HighlandArchiveReader.swift   Script importers (pure Swift).
 Parsers.swift, Formatting.swift                                        Eighths/time parsing, date/number formatting.
 ConflictScanner.swift, ScheduleLockScanner.swift                       Pure analysis over shoot days.
@@ -98,24 +102,32 @@ PlatformColors, PlatformPlaceholderView                                        P
 
 ### Data flow
 
-1. `ContentView` holds `allScenes` (Boneyard) and `shootDays` as `@State`, and hands them to child
-   views as `@Binding` plus two callbacks: `onBeforeSceneChange` (capture an undo snapshot) and
-   `onSceneChanged` (mark dirty, recompute conflicts and caches).
-2. Menu commands cannot reach window state, so `CineSchedApp` posts a `Notification.Name` and
-   `ContentView` observes it in one of three `applyNotificationHandlers*` functions.
-3. Every mutation calls `markDirty()`; a debounced task autosaves to `UserDefaults` two seconds later.
-   Manual Save writes the same JSON to the current file URL via a security-scoped bookmark.
-4. Undo is a manual 30-deep snapshot stack of `(allScenes, shootDays)` in `ContentView`, not `UndoManager`.
-   It does not cover call sheets, production info, or the title. `ProjectDocument.perform` is the
-   replacement (whole-snapshot undo through a real `UndoManager`, per-gesture coalescing); the Mac
-   switches to it when it adopts the document.
-5. Exporters are pure functions from model values to `Data` (PDF). The save-panel actions around them
-   live in `ProjectStore+PDFExports.swift`; the panels themselves come from `FilePanels`.
+1. `DocumentGroup` (CineSchedApp) makes a `ProjectDocument` per window and reads the file into it
+   through `ProjectDocumentReader`; `ContentView(document:)` is the window's content.
+2. `ContentView` reads `document.project` and hands the calendar and Stripboard `Binding`s whose
+   setters call `edit`, i.e. `document.perform(…, undoManager: environment's)`. The child views'
+   callbacks are `onBeforeSceneChange` (open an `EditGesture` so the action's several binding
+   writes are one undo step) and `onSceneChanged` (close it); the window's `UndoManager` also groups
+   by run-loop event, so a single-event action undoes as one step either way.
+3. `perform` registers the undo action with the window's `UndoManager`; that is what marks the
+   document edited and what the system autosaves from. A mutation that bypasses `perform` never
+   saves and cannot be undone. Save, Save As (for a viewer-role `.json`), Duplicate, Rename,
+   Move To, Revert To and Open Recent are the system's.
+4. Derived state (sorted Boneyard, conflict sets, schedule-lock drift, selection pruning) is
+   recomputed in `onChange(of: document.project)`, which fires for edits, undo and reloads alike;
+   `document.restoreCount` tells views with drag state that the model was replaced under them.
+5. Menu commands reach the key window through `ProjectCommands`: `ContentView` publishes its
+   closures with `.focusedSceneValue`, `CineSchedApp` reads `@FocusedValue` and disables the item
+   when no project window is key.
+6. Exporters are pure functions from model values to `Data` (PDF). The save-panel actions around them
+   live in `ContentView+PDFExports.swift`; the panels themselves come from `FilePanels`.
 
 ### Invariants to preserve
 
 - A scene ID appears in exactly one of `allScenes` or some `shootDays[i].scenes`. Nothing enforces
   this; `updateShootDays` has an explicit safety net that returns orphans to the Boneyard.
+- Every write to the project goes through `ProjectDocument.perform` (in `ContentView`, through
+  `edit` or a binding built on it). Nothing writes `document.project` directly.
 - Project files must stay backward compatible. Every new `Codable` field is optional in the decoder
   with a default (`decodeIfPresent ?? default`). There is no schema version number.
 - `Scene.stripColor` is the only place strip colors are resolved.
