@@ -19,9 +19,6 @@ import AppKit
 struct CineSchedApp: App {
     @AppStorage("CineSchedDarkMode") private var isDarkMode: Bool = false
     @AppStorage("CineSchedIncludeHoldInDOOD") private var includeHoldInDOOD: Bool = true
-    @AppStorage("CineSchedShowCastRow") private var showCastOnCards: Bool = false
-    @AppStorage("CineSchedShowEstTimeOnCards") private var showEstTimeOnCards: Bool = false
-    @AppStorage("CineSchedStripboardShowAllDays") private var stripboardShowAllDays: Bool = false
     @AppStorage("cinesched_app_language") private var appLanguage: AppLanguage = .english
     @AppStorage("CineSchedTheme") private var currentTheme: AppTheme = .blue
 
@@ -142,14 +139,23 @@ struct CineSchedApp: App {
             .disabled(commands == nil)
         }
 
-        // View menu — Dark Mode, Theme, Color Legend & Language
+        // View menu — appearance for the app, then the key window's view state
         CommandGroup(after: .toolbar) {
             Divider()
             Toggle(L("Dark Mode", lang: appLanguage), isOn: $isDarkMode)
                 .keyboardShortcut("d", modifiers: [.command, .shift])
 
-            Toggle(L("Show Cast in Calendar", lang: appLanguage), isOn: $showCastOnCards)
-            Toggle(L("Show Estimated Time Instead of Page Count", lang: appLanguage), isOn: $showEstTimeOnCards)
+            Picker(L("Schedule View", lang: appLanguage), selection: commands?.viewMode ?? .constant(.calendar)) {
+                ForEach(ScheduleViewMode.allCases, id: \.self) { mode in
+                    Text(mode.localizedTitle).tag(mode)
+                }
+            }
+            .disabled(commands == nil)
+
+            Toggle(L("Show Cast in Calendar", lang: appLanguage), isOn: commands?.showCastOnCards ?? .constant(false))
+                .disabled(commands == nil)
+            Toggle(L("Show Estimated Time Instead of Page Count", lang: appLanguage), isOn: commands?.showEstTimeOnCards ?? .constant(false))
+                .disabled(commands == nil)
 
             Menu(L("Theme", lang: appLanguage)) {
                 ForEach(AppTheme.allCases, id: \.self) { theme in
@@ -174,7 +180,8 @@ struct CineSchedApp: App {
                 commands?.showStripboardFields()
             }
             .disabled(commands == nil)
-            Toggle(L("Show All Days on Stripboard", lang: appLanguage), isOn: $stripboardShowAllDays)
+            Toggle(L("Show All Days on Stripboard", lang: appLanguage), isOn: commands?.stripboardShowAllDays ?? .constant(false))
+                .disabled(commands == nil)
         }
     }
 }

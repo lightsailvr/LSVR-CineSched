@@ -505,8 +505,8 @@ struct CompactMonthCalendarView: View {
     /// exporter call and the save panel live with the other exports in ContentView.
     let onExportMonthPDF: (Date, MonthPDFOptions) -> Void
 
-    // View Mode Switcher
-    @AppStorage("CineSchedCalendarViewMode") private var calendarViewMode: CalendarViewMode = .monthGrid
+    // View Mode Switcher: this window's, seeded from the last (see WindowPreference.swift)
+    @WindowPreference("CineSchedCalendarViewMode") private var calendarViewMode: CalendarViewMode = .monthGrid
 
     // Day Detail Inspector Sheet state
     @State private var inspectingDay: ShootDay? = nil

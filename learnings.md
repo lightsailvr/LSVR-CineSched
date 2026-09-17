@@ -68,6 +68,13 @@ mutation in `ContentView` onto `perform`:
   path as argv in the sandboxed build makes the file unwritable ("You don't own the file…
   Duplicate?"); use `ENABLE_APP_SANDBOX=NO` for the harness build. And `pkill -f "LSVR
   CineSched"` also hits a copy the human is running from Xcode; kill by PID.
+- **An `@AppStorage` view toggle is an app preference, and the moment there are two windows
+  it flips both.** Human testing caught Calendar/Stripboard, cast row, times-vs-pages and
+  all-days switching every open project. `@WindowPreference` (a `DynamicProperty` around
+  `@State`, seeded from the defaults key once per window and written back on change) keeps
+  the last-used behaviour with per-window state, and the View menu binds to the key window's
+  values through `ProjectCommands` (`commands?.x ?? .constant(…)`, disabled when nil).
+  Appearance (Dark Mode, Theme) is deliberately still app-wide.
 - **`onBeforeSceneChange` cannot be a strict undo bracket.** Several calendar paths call it and
   then finish through `assign`/`removeScene` without `onSceneChanged`, so an `EditGesture`
   opened there is also closed at the end of the run-loop turn (`DispatchQueue.main.async`);

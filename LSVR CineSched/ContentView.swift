@@ -90,17 +90,20 @@ struct ContentView: View {
     @State private var editingUnscheduledScene:      Scene?
     @State private var editingUnscheduledSceneIndex: Int?
 
-    // Appearance & view mode
+    // Appearance (app-wide)
     @AppStorage("CineSchedDarkMode") var isDarkMode: Bool = false
     @AppStorage("CineSchedIncludeHoldInDOOD") var includeHoldInDOOD: Bool = true
-    @AppStorage("CineSchedShowCastRow") var showCastOnCards: Bool = false
-    @AppStorage("CineSchedShowEstTimeOnCards") var showEstTimeOnCards: Bool = false
     /// Stripboard field selection, stored as a comma-joined raw-value string so it fits
     /// @AppStorage; decoded on read via `stripboardFields`.
     @AppStorage(StripboardFieldSettings.defaultsKey) private var stripboardFieldsRaw: String = StripboardFieldSettings.defaultRaw
-    @AppStorage("CineSchedViewMode") private var viewMode: ScheduleViewMode = .calendar
+
+    // View state (this window's, seeded from the last window's; see WindowPreference.swift).
+    // The View menu edits these through `projectCommands`, so it acts on the key window.
+    @WindowPreference("CineSchedViewMode") private var viewMode: ScheduleViewMode = .calendar
+    @WindowPreference("CineSchedShowCastRow") var showCastOnCards: Bool = false
+    @WindowPreference("CineSchedShowEstTimeOnCards") var showEstTimeOnCards: Bool = false
     /// Stripboard only: draw every date, or fold runs of empty days into one gap row each.
-    @AppStorage("CineSchedStripboardShowAllDays") private var stripboardShowAllDays: Bool = false
+    @WindowPreference("CineSchedStripboardShowAllDays") private var stripboardShowAllDays: Bool = false
 
     // Production Setup & Conflict states
     @State private var conflictReportResults: [ScheduleConflict] = []
@@ -355,7 +358,11 @@ struct ContentView: View {
                 // switches views rather than opening a sheet over a calendar it won't affect.
                 viewMode = .stripboard
                 activeSheet = .stripboardFields
-            }
+            },
+            viewMode:               $viewMode,
+            showCastOnCards:        $showCastOnCards,
+            showEstTimeOnCards:     $showEstTimeOnCards,
+            stripboardShowAllDays:  $stripboardShowAllDays
         )
     }
 

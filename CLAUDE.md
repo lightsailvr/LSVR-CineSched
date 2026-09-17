@@ -73,7 +73,10 @@ All Swift sources are flat in `LSVR CineSched/`, one responsibility per file (th
 
 - `CineSchedApp.swift`: `@main`; on the Mac a `DocumentGroup` (one window per `ProjectDocument`)
   and the menus, which act on the key window through `@FocusedValue(\.projectCommands)`.
-- `ProjectCommands.swift`: the closure slots a `ContentView` publishes for those menus.
+- `ProjectCommands.swift`: the closure slots (and View-menu bindings) a `ContentView` publishes
+  for those menus. `WindowPreference.swift`: `@WindowPreference`, per-window view state (Calendar
+  vs Stripboard, cast row, times vs pages, all days, grid vs list) seeded from and written back to
+  the last-used value; app-wide preferences (Dark Mode, Theme, Stripboard fields) stay `@AppStorage`.
 - `ContentView.swift`: the Mac editor for one document (`ContentView(document:)`). It reads
   `document.project` and writes only through `edit(_:_:)` or the bindings built on it. There is
   no view model; UI-only state (range-picker dates, selection, sheets) stays `@State`.
@@ -106,7 +109,8 @@ All Swift sources are flat in `LSVR CineSched/`, one responsibility per file (th
 - **Adding a menu command touches three places**: a closure slot in `ProjectCommands`, the `Button`
   in `CineSchedApp.swift` (calling `commands?.slot()` and `.disabled(commands == nil)`), and the
   slot's assignment in `ContentView.projectCommands`. Do not add `Notification.Name`s for menus:
-  a notification reaches every open window.
+  a notification reaches every open window. A View-menu toggle for window state is a `Binding`
+  slot bound to a `@WindowPreference`, not an `@AppStorage`, or it flips every open project.
 - **Adding a sheet**: add a case to `ContentView.ActiveSheet` and to the `switch` in `applySheets`.
   Sheets take `@Binding var isPresented` and an `onSave` closure; editors copy the model into local
   `@State` on appear and write back in an explicit save function.
