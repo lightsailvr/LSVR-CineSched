@@ -32,7 +32,7 @@ Film-production terms first, then app-specific ones.
 | **Stripboard** | The vertical strip-schedule view (`StripboardView`), the digital equivalent of a production board. Shows a time cascade per day. |
 | **Boneyard** | The sidebar list of **unscheduled** scenes. Backed by `ProjectData.allScenes`. A scene is either in the Boneyard or on exactly one shoot day, never both. |
 | **Shoot day** | One calendar date in the production, modelled by `ShootDay`: a date, an ordered list of scenes, an optional call sheet, a day type, and a day note. Every date in the production range has a `ShootDay`, even if empty. |
-| **Production range** | The start and end dates of the shoot. Changing it regenerates the `ShootDay` list; scenes on removed days are returned to the Boneyard. |
+| **Production range** | The start and end dates of the shoot. Changing it regenerates the `ShootDay` list (`ProjectData.updateProductionRange`, a pure edit in `ProductionRange.swift`); scenes on removed days are returned to the Boneyard, everything else on them is kept on its date. |
 | **Production day number** | "Day 1, Day 2, …" counting only days that have real scenes and are not blackouts. Computed by `productionDayNumbers(for:)` in `Formatting.swift`. |
 | **Day type** | What a date is for: shoot (default), travel, scout, prep, rehearsal, weather hold, holiday, day off, or unavailable (`DayType`, stored in `ShootDay.dayType`). Only shoot days earn a production day number. Non-shoot days are tinted and labelled on the calendar, kept as full badged day rows on the Stripboard (never folded into a gap), and shaded in the DOOD. Scenes may still be placed on them but are flagged. Set or cleared from the day's right-click menu or the Day Detail sheet. Belongs to the shoot, not the date: it slides with the scenes in shift mode. Dragging the type band moves only the type and note; dragging the day handle swaps the whole day. |
 | **Day note** | Free text on a `ShootDay` (`dayNote`), e.g. travel details or a hold reason. Shown under the day-type band in the calendar cell, in the Stripboard day header, and in the month PDF. |
@@ -95,6 +95,7 @@ PDFCanvas.swift           Shared PDF drawing helper: pages, rects, lines, TextKi
 Fountain*.swift, FinalDraftParser.swift, HighlandArchiveReader.swift   Script importers (pure Swift).
 Parsers.swift, Formatting.swift                                        Eighths/time parsing, date/number formatting.
 ConflictScanner.swift, ScheduleLockScanner.swift                       Pure analysis over shoot days.
+ProductionRange.swift                                                  Regenerating the shoot days for a new range (merge or shift), as one edit.
 DerivedScheduleState.swift                                             What the editor derives from the whole project (sorted Boneyard,
                                                                        conflict sets, lock drift) and the per-window cache that memoizes it.
 Localization.swift, ThemeManager.swift, SceneColorSettings.swift       Cross-cutting settings.
@@ -132,7 +133,8 @@ PlatformColors, PlatformPlaceholderView, LegacyProjectHandoff                  P
 ### Invariants to preserve
 
 - A scene ID appears in exactly one of `allScenes` or some `shootDays[i].scenes`. Nothing enforces
-  this; `updateShootDays` has an explicit safety net that returns orphans to the Boneyard.
+  this; `ProjectData.updateProductionRange` has an explicit safety net that returns orphans to
+  the Boneyard.
 - Every write to the project goes through `ProjectDocument.perform` (in `ContentView`, through
   `edit` or a binding built on it). Nothing writes `document.project` directly.
 - Project files must stay backward compatible. Every new `Codable` field is optional in the decoder

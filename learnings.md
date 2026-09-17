@@ -9,6 +9,42 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-17 — Undo coverage on the document model: the funnel was already complete, the gaps were editors writing a field at a time (#9)
+
+Auditing every edit path for #9 after #8 and #34:
+
+- **Every write already reached `perform`**; nothing bypassed it and the manual snapshot
+  stack was gone. What #8 left was two editors writing their value back one property at a
+  time through their binding: `CallSheetEditor.saveToDay` made 19 binding writes and
+  `ProductionSetupSheet`'s Save 11, i.e. 19 and 11 `perform`s (each a whole-project
+  compare and an undo registration). In the app they still undid as one step only because
+  the window's `UndoManager` groups by run-loop event; with `groupsByEvent` off (the tests)
+  they were 19 and 11 steps. Build the whole value locally and assign it once. Any new
+  editor should write its value back as **one assignment** to its binding.
+- **A pure `ProjectData` mutation that lives as a `private func` on a SwiftUI view is
+  untestable through the funnel.** The range regeneration was one; it moved to
+  `ProjectData.updateProductionRange` (ProductionRange.swift) unchanged apart from the
+  Boneyard return order, which used to come from iterating a `[UUID: Scene]`, i.e.
+  arbitrary. Iterating the days instead is deterministic and lets a test pin it.
+- **The regeneration appends a day's calendar events after its script scenes** (it buckets
+  the two separately), so a day that held an event before its last strip comes back with
+  the event last. Long-standing; the Stripboard and calendar draw events in their own row
+  anyway, so nothing visible changes. A test comparing whole scene arrays across a
+  regeneration must compare script scenes and events separately.
+- **The Stripboard had no `onBeforeSceneChange` at all**, so its drops (`shootDays` then
+  `allScenes`), its quick-time sheet (scene then lunch time) and its call sheet Save
+  (the day, then the auto-meal sync) were one undo step only by run-loop grouping. It now
+  takes the same closure as the calendar and opens the gesture in `editSchedule`, the
+  quick-time save and a wrapping binding for the call sheet editor (the editor writes
+  before `onSave` runs, so the binding's setter is the place to open it). Likewise a
+  Production Setup save that renames characters: `renameCastCharacter` opens the gesture
+  (once) so the roster write that follows folds in. Any new child-view action that writes
+  a binding more than once must call `onBeforeSceneChange()` first.
+- **Child-view edits (calendar and Stripboard bindings) carry no action name**, so a drag
+  or a call sheet Save shows as plain "Undo" in the Edit menu, while `ContentView`'s own
+  edits are labelled. Naming them means `onBeforeSceneChange` carrying a name through ~18
+  call sites; not done in #9.
+
 ## 2026-09-16 — Measuring the document model's lag: the funnel was innocent, `L()` built its 250-entry table per call, and every drop drew the calendar twice (#34)
 
 Every hypothesis in #34 pointed at `perform`, the whole-project `!=` compare and the binding

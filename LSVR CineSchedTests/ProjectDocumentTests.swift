@@ -351,6 +351,93 @@ struct ProjectDocumentTests {
         #expect(!undoManager.canUndo)
     }
 
+    // MARK: - Every edit kind (#9)
+
+    /// One edit of each kind the Mac editor routes through the funnel, as the editor makes
+    /// it: the call sheet and production setup sheets write their whole value back on Save,
+    /// the range button regenerates the days, the sidebar toggles shift mode. Each is one
+    /// undo step with its menu label, and redo brings it back.
+    struct EditKind: CustomTestStringConvertible {
+        let actionName: String
+        let edit: @MainActor (inout ProjectData) -> Void
+        var testDescription: String { actionName }
+    }
+
+    static let editKinds: [EditKind] = [
+        EditKind(actionName: "Edit Call Sheet") { data in
+            var sheet = data.shootDays[3].callSheet
+            sheet.generalCallTime = "5:00 AM"
+            sheet.lunchTime       = "12:30 PM"
+            data.shootDays[3].callSheet = sheet
+        },
+        EditKind(actionName: "Edit Production Setup") { data in
+            var info = data.productionInfo ?? ProductionInfo()
+            info.castList.append(CastMember(actorName: "Taylor Brooks", characterName: "Alex Morgan"))
+            info.crew.removeFirst()
+            data.productionInfo = info
+        },
+        EditKind(actionName: "Rename Project") { data in
+            data.projectTitle = "The Longer Way Home"
+        },
+        EditKind(actionName: "Update Calendar") { data in
+            data.updateProductionRange(from: PDFFixture.novemberDate(day: 3), to: PDFFixture.novemberDate(day: 20))
+        },
+        EditKind(actionName: "Shift Schedule") { data in
+            data.isShiftModeEnabled = !(data.isShiftModeEnabled ?? false)
+        },
+    ]
+
+    @Test(arguments: editKinds)
+    func eachEditKindIsOneLabelledUndoStep(kind: EditKind) throws {
+        let undoManager = makeUndoManager()
+        let document    = ProjectDocument(project)
+        let original    = document.project
+
+        document.perform(kind.actionName, undoManager: undoManager, kind.edit)
+        let edited = document.project
+        #expect(edited != original)
+        #expect(undoManager.undoActionName == kind.actionName)
+
+        undoManager.undo()
+        #expect(document.project == original)
+        #expect(!undoManager.canUndo)
+        #expect(undoManager.redoActionName == kind.actionName)
+
+        undoManager.redo()
+        #expect(document.project == edited)
+        #expect(!undoManager.canRedo)
+    }
+
+    /// The title field is the one text field that writes straight to the project on every
+    /// keystroke; the editor gives each focus session one token, so a typed burst is one
+    /// step and the next session is another.
+    @Test func typingTheTitleUndoesAsOneStepPerFocusSession() throws {
+        let undoManager = makeUndoManager()
+        let document    = ProjectDocument(project)
+        let original    = document.project
+
+        let firstSession = EditGesture()
+        for typed in ["T", "Th", "The", "The "] {
+            document.perform("Rename Project", coalescing: firstSession, undoManager: undoManager) { $0.projectTitle = typed }
+        }
+        let secondSession = EditGesture()
+        for typed in ["The E", "The En", "The End"] {
+            document.perform("Rename Project", coalescing: secondSession, undoManager: undoManager) { $0.projectTitle = typed }
+        }
+        #expect(document.project.projectTitle == "The End")
+
+        undoManager.undo()
+        #expect(document.project.projectTitle == "The ")
+        undoManager.undo()
+        #expect(document.project == original)
+        #expect(!undoManager.canUndo)
+
+        undoManager.redo()
+        #expect(document.project.projectTitle == "The ")
+        undoManager.redo()
+        #expect(document.project.projectTitle == "The End")
+    }
+
     @Test func performWithoutAnUndoManagerStillEdits() throws {
         let document = ProjectDocument(project)
         document.perform(undoManager: nil) { $0.projectTitle = "No Undo" }

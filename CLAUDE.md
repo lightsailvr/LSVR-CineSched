@@ -96,6 +96,8 @@ All Swift sources are flat in `LSVR CineSched/`, one responsibility per file (th
   project (sorted Boneyard, conflict sets, duplicate numbers, lock drift), the `BoneyardSort`
   enum, and the cache that computes it once per `ProjectDocument.changeCount`. Add new
   whole-project derivations here, not as `@State` recomputed in an `onChange`.
+- `ProductionRange.swift`: `ProjectData.updateProductionRange`, the range regeneration (merge or
+  shift) that Update Calendar applies as one edit; pure, tested in `ProductionRangeTests`.
 - `CalendarView.swift`, `StripboardView.swift`: the two schedule views.
 - `*Sheet.swift`: modal editors. `*Exporter.swift`: PDF generators; every call site is in
   `ContentView+PDFExports.swift`. `PDFCanvas.swift` is the shared drawing helper (CoreGraphics +
@@ -165,7 +167,8 @@ All Swift sources are flat in `LSVR CineSched/`, one responsibility per file (th
 The test targets are Xcode template stubs. `LSVR CineSchedTests` uses Swift Testing (`@Test`,
 `#expect`). Pure, testable units: `FountainParser`, `FountainPaginator`, `FractionParser`,
 `TimeParser`, `Formatting.swift` free functions, `ConflictScanner` (`ConflictScannerTests`),
-`ScheduleLockScanner`, `DerivedScheduleState` and its cache (`DerivedScheduleStateTests`),
+`ScheduleLockScanner`, `ProjectData.updateProductionRange` (`ProductionRangeTests`),
+`DerivedScheduleState` and its cache (`DerivedScheduleStateTests`),
 `L(_:)` (`LocalizationTests`),
 `DaysOutOfDaysExporter.buildRows`, `PDFCanvas`, `ProjectCodec` (`ProjectCodecTests`),
 `ProjectDocument` with its reader, writer, type and undo funnel (`ProjectDocumentTests`, against a

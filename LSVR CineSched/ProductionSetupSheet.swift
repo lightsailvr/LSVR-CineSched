@@ -362,17 +362,21 @@ struct ProductionSetupSheet: View {
                         }
                     }
 
-                    productionInfo.companyName      = companyName
-                    productionInfo.directorName     = directorName
-                    productionInfo.directorPhone    = directorPhone
-                    productionInfo.producerName     = producerName
-                    productionInfo.producerPhone    = producerPhone
-                    productionInfo.adName           = adName
-                    productionInfo.adPhone          = adPhone
-                    productionInfo.defaultLunchTime = defaultLunchTime
-                    productionInfo.castList         = castList
-                    productionInfo.crew             = crew
-                    productionInfo.locationRoster   = locationRoster
+                    // One assignment: the binding is a trip through the document's edit
+                    // funnel, so writing the whole value keeps Save one undo step (#9).
+                    var info = productionInfo
+                    info.companyName      = companyName
+                    info.directorName     = directorName
+                    info.directorPhone    = directorPhone
+                    info.producerName     = producerName
+                    info.producerPhone    = producerPhone
+                    info.adName           = adName
+                    info.adPhone          = adPhone
+                    info.defaultLunchTime = defaultLunchTime
+                    info.castList         = castList
+                    info.crew             = crew
+                    info.locationRoster   = locationRoster
+                    productionInfo = info
                     onSave()
                     isPresented = false
                 }

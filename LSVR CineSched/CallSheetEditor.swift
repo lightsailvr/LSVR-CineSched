@@ -725,25 +725,31 @@ struct CallSheetEditor: View {
         }
     }
 
+    /// Writes the fields back as one value. `shootDay` is a binding into the project, so
+    /// every write to it is one trip through the document's edit funnel; one assignment
+    /// keeps Save a single undo step (and a single snapshot compare) rather than
+    /// nineteen (#9).
     private func saveToDay() {
-        shootDay.callSheet.generalCallTime    = generalCallTime
-        shootDay.callSheet.workDaySchedule    = workDaySchedule
-        shootDay.callSheet.quoteOfTheDay      = quoteOfTheDay
-        shootDay.callSheet.readyToShootTime   = readyToShootTime
-        shootDay.callSheet.lunchTime          = lunchTime
-        shootDay.callSheet.snackTime          = snackTime
-        shootDay.callSheet.dinnerTime         = dinnerTime
-        shootDay.callSheet.wrapTime           = wrapTime
-        shootDay.callSheet.basecampLocation   = basecampLocation
-        shootDay.callSheet.nearestHospital    = nearestHospital
-        shootDay.callSheet.weatherTemp        = weatherTemp
-        shootDay.callSheet.weatherCondition   = weatherCondition
-        shootDay.callSheet.weatherPrecipWind  = weatherPrecipWind
-        shootDay.callSheet.sunTimes           = sunTimes
-        shootDay.callSheet.locations          = locations
-        shootDay.callSheet.castCallEntries    = castCallEntries
-        shootDay.callSheet.crewCallEntries    = crewCallEntries
-        shootDay.callSheet.notes              = generalObservations
-        shootDay.callSheet.productionNotes    = generalObservations.isEmpty ? [] : generalObservations.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        var sheet = shootDay.callSheet
+        sheet.generalCallTime    = generalCallTime
+        sheet.workDaySchedule    = workDaySchedule
+        sheet.quoteOfTheDay      = quoteOfTheDay
+        sheet.readyToShootTime   = readyToShootTime
+        sheet.lunchTime          = lunchTime
+        sheet.snackTime          = snackTime
+        sheet.dinnerTime         = dinnerTime
+        sheet.wrapTime           = wrapTime
+        sheet.basecampLocation   = basecampLocation
+        sheet.nearestHospital    = nearestHospital
+        sheet.weatherTemp        = weatherTemp
+        sheet.weatherCondition   = weatherCondition
+        sheet.weatherPrecipWind  = weatherPrecipWind
+        sheet.sunTimes           = sunTimes
+        sheet.locations          = locations
+        sheet.castCallEntries    = castCallEntries
+        sheet.crewCallEntries    = crewCallEntries
+        sheet.notes              = generalObservations
+        sheet.productionNotes    = generalObservations.isEmpty ? [] : generalObservations.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        shootDay.callSheet = sheet
     }
 }

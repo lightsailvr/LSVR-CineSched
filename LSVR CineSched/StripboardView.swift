@@ -29,6 +29,11 @@ struct StripboardView: View {
     let duplicateSceneNumberIDs: Set<UUID>
     @Binding var scrollToDate: Date?
     let dragStateResetToken: Int
+    /// Opens the edit gesture the following binding writes fold into, so an action that
+    /// writes more than once (a drop that touches `shootDays` and `allScenes`, a call sheet
+    /// Save followed by the auto-meal sync) is one undo step by construction rather than
+    /// by the window's run-loop grouping (#9). Same contract as the calendar's.
+    let onBeforeSceneChange: () -> Void
     let onSceneChanged: () -> Void
     let onCallSheetExport: (ShootDay) -> Void
     let onShootingScheduleExport: ([ShootDay]) -> Void
@@ -138,6 +143,7 @@ struct StripboardView: View {
                     if let dId = quickEditingDayId,
                        let dayIdx = shootDays.firstIndex(where: { $0.id == dId }),
                        let sceneIdx = shootDays[dayIdx].scenes.firstIndex(where: { $0.id == updated.id }) {
+                        onBeforeSceneChange()
                         shootDays[dayIdx].scenes[sceneIdx] = updated
                         if (updated.isAutoMeal && updated.mealKind == .lunch) || updated.title.lowercased().contains("almuerzo") || updated.title.lowercased().contains("lunch") {
                             if !updated.customStartTime.isEmpty {
@@ -664,7 +670,12 @@ struct StripboardView: View {
     private func callSheetEditorContent(for day: ShootDay) -> some View {
         if let idx = shootDays.firstIndex(where: { $0.id == day.id }) {
             CallSheetEditor(
-                shootDay: $shootDays[idx],
+                // The editor writes the day, then `onSave` syncs the auto-meal strips from
+                // the new times: two writes, one gesture, opened by the first.
+                shootDay: Binding(
+                    get: { shootDays[idx] },
+                    set: { new in onBeforeSceneChange(); shootDays[idx] = new }
+                ),
                 productionInfo: productionInfo,
                 isPresented: Binding(
                     get: { callSheetDay != nil },
@@ -768,6 +779,7 @@ struct StripboardView: View {
     /// binding is one trip through the document's edit funnel, so a multi-scene drop that
     /// wrote per scene cost two trips per scene (#34). Same shape as the calendar's `editDays`.
     private func editSchedule(_ change: (inout [ShootDay], inout [Scene]) -> Void) {
+        onBeforeSceneChange()
         var days   = shootDays
         var scenes = allScenes
         change(&days, &scenes)
