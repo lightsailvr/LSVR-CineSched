@@ -98,6 +98,11 @@ All Swift sources are flat in `LSVR CineSched/`, one responsibility per file (th
   whole-project derivations here, not as `@State` recomputed in an `onChange`.
 - `ProductionRange.swift`: `ProjectData.updateProductionRange`, the range regeneration (merge or
   shift) that Update Calendar applies as one edit; pure, tested in `ProductionRangeTests`.
+- `LegacyWorkingCopyRecovery.swift`: the first-launch decision over the two UserDefaults keys
+  the pre-document builds wrote (`SavedProject`, `CineSchedCurrentFileBookmark`): launch
+  normally, open the bookmarked file, or open the working copy untitled; pure, one test per
+  row. `MacAppDelegate` (a seam) reads the keys, resolves the bookmark, opens through
+  `NSDocumentController` in `applicationDidFinishLaunching` and removes the keys afterward.
 - `CalendarView.swift`, `StripboardView.swift`: the two schedule views.
 - `*Sheet.swift`: modal editors. `*Exporter.swift`: PDF generators; every call site is in
   `ContentView+PDFExports.swift`. `PDFCanvas.swift` is the shared drawing helper (CoreGraphics +
@@ -107,8 +112,8 @@ All Swift sources are flat in `LSVR CineSched/`, one responsibility per file (th
   for writing one). `Fountain*`, `FinalDraftParser`, `HighlandArchiveReader`: importers.
 - Platform seams (ADR 0003): `FilePanels`, `SelectAllTextField`, `WindowAccessor`, `ModifierKeys`,
   `PlatformControlStyles`, `PlatformColors`, `PlatformPlaceholderView`, `LegacyProjectHandoff`,
-  plus the root/tabbing choice in `CineSchedApp`. These are the only files allowed to contain
-  `#if os(...)`.
+  `MacAppDelegate`, plus the root/tabbing choice and the delegate adaptor in `CineSchedApp`.
+  These are the only files allowed to contain `#if os(...)`.
 
 ## Conventions
 
@@ -168,6 +173,7 @@ The test targets are Xcode template stubs. `LSVR CineSchedTests` uses Swift Test
 `#expect`). Pure, testable units: `FountainParser`, `FountainPaginator`, `FractionParser`,
 `TimeParser`, `Formatting.swift` free functions, `ConflictScanner` (`ConflictScannerTests`),
 `ScheduleLockScanner`, `ProjectData.updateProductionRange` (`ProductionRangeTests`),
+`LegacyWorkingCopyRecovery.decide` (`LegacyWorkingCopyRecoveryTests`),
 `DerivedScheduleState` and its cache (`DerivedScheduleStateTests`),
 `L(_:)` (`LocalizationTests`),
 `DaysOutOfDaysExporter.buildRows`, `PDFCanvas`, `ProjectCodec` (`ProjectCodecTests`),
@@ -179,7 +185,8 @@ fixture in `PDFTestSupport.swift` and read back through PDFKit in `SchedulePDFEx
 diff, see `PDFTestSupport`'s header). Prefer adding tests there over UI tests. The document
 lifecycle itself (Open panel types, Finder association, autosave, the viewer role of `.json`)
 has no unit seam; check it by running the app (learnings.md, 2026-09-16 #8 has a recipe that
-works without screen access). Any change to
+works without screen access; 2026-09-17 #10 has one for launch behaviour with seeded defaults
+under a throwaway bundle identifier). Any change to
 `PDFCanvas` gets the pixel comparison: dump every fixture before and after, rasterize and
 diff (learnings.md, 2026-09-16 #6 has the recipe); expectations that depend on the Mac's SF
 metrics or wrapping are guarded by `PDFFixture.hasMacSystemFace`.

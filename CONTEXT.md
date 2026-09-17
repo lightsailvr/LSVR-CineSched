@@ -58,7 +58,7 @@ Film-production terms first, then app-specific ones.
 | **Hold day** | A DOOD day where the production shoots but this actor does not. Optionally excluded via the "Include Hold" toggle. |
 | **One-line schedule / shooting schedule** | The portrait PDF listing every day's strips with times and page counts. `ShootingSchedulePDFExporter`. Called "Plan de Rodaje" in the fork's Spanish-era code. |
 | **Project file** | A `.cinesched` document (or a legacy `.json`) holding `ProjectData`: all scenes, shoot days, call sheets, production info, and schedule lock. Human-readable JSON, portable across lineages. |
-| **Autosave** | The document infrastructure's autosave in place: an edit registered with the window's `UndoManager` is written to the project file by the system without a Save. (Formerly a `UserDefaults` blob written two seconds after the last change; gone since #8, recovered once by #10.) |
+| **Autosave** | The document infrastructure's autosave in place: an edit registered with the window's `UndoManager` is written to the project file by the system without a Save. (Formerly a `UserDefaults` blob written two seconds after the last change; gone since #8. The first launch of a document-model build recovers that blob once, `LegacyWorkingCopyRecovery` deciding whether it is already in the bookmarked file or needs an untitled window, #10.) |
 | **Fountain / FDX / Highland** | Supported screenplay import formats: plain-text Fountain, Final Draft XML, and Highland's zipped TextBundle. |
 | **Project document** | `ProjectDocument`: the one observable document every platform reads, writes and edits (ADR 0004). Its snapshot is `ProjectData`; its reader and writer go through `ProjectCodec`; every edit goes through `perform`, which registers the undo action. On the Mac, `DocumentGroup` makes one per window and `ContentView` edits it. |
 | **Edit gesture** | An `EditGesture` token passed to every `perform` of one user gesture (a drag, a typing burst) so the gesture undoes as one step. |
@@ -101,7 +101,9 @@ DerivedScheduleState.swift                                             What the 
 Localization.swift, ThemeManager.swift, SceneColorSettings.swift       Cross-cutting settings.
 HoverTooltip.swift, LocationAutocompleteField.swift                            UI utilities.
 FilePanels, SelectAllTextField, WindowAccessor, ModifierKeys, PlatformControlStyles,
-PlatformColors, PlatformPlaceholderView, LegacyProjectHandoff                  Platform seams (ADR 0003).
+PlatformColors, PlatformPlaceholderView, LegacyProjectHandoff, MacAppDelegate  Platform seams (ADR 0003).
+LegacyWorkingCopyRecovery.swift                                       The first-launch decision over the pre-document builds' UserDefaults
+                                                                       working copy and file bookmark (#10); MacAppDelegate acts on it.
 ```
 
 ### Data flow

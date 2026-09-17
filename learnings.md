@@ -9,6 +9,65 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-17 — Recovering the UserDefaults working copy: no view exists at launch, `makeDocument` runs after `openUntitledDocumentAndDisplay` returns, and a foreign security-scoped bookmark is "not in the correct format" (#10)
+
+Recovering the pre-document builds' `SavedProject` blob and `CineSchedCurrentFileBookmark`
+on the first launch of the document model:
+
+- **There is no SwiftUI view to run a launch-time recovery from.** With iCloud Drive on the
+  app shows the Open panel at launch (no window, no `DocumentGroup` editor), and the
+  `openDocument` / `newDocument` environment actions need a view. So it is an
+  `@NSApplicationDelegateAdaptor` (`MacAppDelegate`, a seam) driving `NSDocumentController`,
+  which is what those actions use anyway, from `applicationDidFinishLaunching`. That runs
+  before AppKit's "open untitled" step, and a document open (or opening) by then suppresses
+  the Open panel and the blank window; no second window appeared in any case tried.
+- **SwiftUI's own app delegate does not forward `applicationShouldOpenUntitledFile`** to the
+  adaptor's delegate (never called across six launches, including one where the Open panel
+  did appear). Do not make a launch decision depend on it.
+- **`NSDocumentController.openUntitledDocumentAndDisplay(true)` returns before
+  `DocumentGroup`'s `makeDocument` closure runs**; the infrastructure builds the SwiftUI
+  document lazily. A "set the seed, open, clear the seed" sequence hands `makeDocument` nil.
+  The seed (`MacAppDelegate.pendingUntitledProject`) therefore stays set until
+  `makeDocument` takes it, which is the next document made; on the first launch nothing
+  else is making one. Taking the seed is also what removes the legacy keys, so "after a
+  successful open" means after the project is in a document, not after the
+  `NSDocumentController` call returned.
+- **`updateChangeCount(.changeDone)` on the returned `NSDocument` is enough for "edited"**:
+  closing raised the Save sheet (Delete / Cancel / Save, the autosave-in-place form) and the
+  document reported `isDocumentEdited`. The window's own edited flag reads false within a
+  second, the same as after any real edit (the draft autosaves at once and the title's
+  "Edited" clears; 2026-09-16 #8). A seeded project registers no undo action, so without
+  this call the recovered window would close silently.
+- **A security-scoped bookmark resolves only in the app that made it.** One made by a
+  helper tool, or to a file since deleted, fails with `NSCocoaErrorDomain 259` ("isn't in
+  the correct format"), not "no such file". Seed a test bookmark from inside the app under
+  test (a temporary env-gated branch that calls `bookmarkData(options: .withSecurityScope)`
+  and writes the key), never from a script.
+- **The oldest lineage's file shape can never compare equal to anything**: `ProjectCodec`
+  gives it `createdDate = Date()` on every decode. Only matters for a fixture; a real
+  working copy is the current shape.
+- **An undecodable blob is left in place, not deleted.** The spec removes the keys "after a
+  successful open", and nothing opened; the check on every later launch is one defaults
+  read and a failed decode. With no blob at all, the bookmark key alone is removed.
+- **Checking launch behaviour without touching the real container**: the shell cannot read
+  `~/Library/Containers/com.lsvr.LSVR-CineSched` (TCC), so build with
+  `PRODUCT_BUNDLE_IDENTIFIER=com.lsvr.CineSched-recoverytest ENABLE_APP_SANDBOX=NO
+  CODE_SIGNING_ALLOWED=NO`, seed with `defaults write <id> SavedProject -data <hex>`, launch
+  with `open -n … --args -ApplePersistenceIgnoreState YES`, and read the outcome from a
+  temporary `os.Logger` trace (`/usr/bin/log show --predicate 'subsystem == "<id>"'`; the
+  delegate's subsystem is the bundle identifier) that lists
+  `NSDocumentController.shared.documents` (`isDocumentEdited`, `fileURL`) and `NSApp.windows`
+  (`attachedSheet`) and calls `performClose(nil)` on the first window. `NSApp.terminate` is
+  blocked by the Save sheet; end the trace with `exit(0)`. Every row was run this way,
+  plus a launch with the keys already gone (the second launch: the Open panel, nothing
+  touched). What this does not cover: the sandboxed container's prefs and a panel-made
+  bookmark under the real bundle identifier, which need the human's Mac.
+- **Closing the untitled document a legacy `.json` hands off to is silent** (pre-existing,
+  #8): it is not marked edited, so the window closes without a Save prompt and the copy is
+  gone (the `.json` on disk is untouched). The "equal" recovery row goes through that path.
+
+---
+
 ## 2026-09-17 — Undo coverage on the document model: the funnel was already complete, the gaps were editors writing a field at a time (#9)
 
 Auditing every edit path for #9 after #8 and #34:

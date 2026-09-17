@@ -9,7 +9,7 @@ All notable changes to CineSched are documented here.
 - **iPhone, iPad and Vision Pro targets.** The same project now builds and launches on the iOS, iPadOS and visionOS simulators, showing a placeholder that names the platform as in progress. This is the first step of the multiplatform port (#1); nothing is usable there yet. The Mac app is unchanged.
 
 ### Removed
-- **The UserDefaults working copy, the current-file bookmark and the app's own Open Recent list.** The document infrastructure replaced all three; a working copy that was never saved to a file is recovered on first launch by a follow-up change (#10) and is left in place until then.
+- **The UserDefaults working copy, the current-file bookmark and the app's own Open Recent list.** The document infrastructure replaced all three. The first launch of this build recovers the working copy the previous build kept: if it is exactly what is in the project file you last saved or opened, that file opens (as a legacy `.json` always does now, into an untitled window that saves as `.cinesched`); if it holds edits you never saved to a file, or there was no file, it opens as an untitled project that asks where to save when closed. Either way the old copy is removed once it has opened, and the next launch is an ordinary one.
 - **The "Clear All Scenes and Schedule?" prompt behind New Project.** New Project now opens a new window instead of clearing the current one.
 
 ### Changed

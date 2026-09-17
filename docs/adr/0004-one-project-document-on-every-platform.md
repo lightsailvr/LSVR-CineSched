@@ -4,7 +4,8 @@ Status: Accepted (2026-09-16, #7, part of #1). The Mac adopted it in #8 (same da
 "next ticket" below is done; `DocumentGroup` in CineSchedApp owns one document per window,
 menus reach it through `ProjectCommands` (a focused scene value), and the manual undo stack,
 the recent-files bookmarks and the two-second autosave are gone. The first-launch recovery
-of the UserDefaults working copy is #10.
+of the UserDefaults working copy landed in #10 (2026-09-17): `LegacyWorkingCopyRecovery` is
+the pure decision, `MacAppDelegate` opens through `NSDocumentController` and removes the keys.
 
 ## Context
 

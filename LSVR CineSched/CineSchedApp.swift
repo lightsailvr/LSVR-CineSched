@@ -26,6 +26,12 @@ struct CineSchedApp: App {
     /// every item that needs one.
     @FocusedValue(\.projectCommands) private var commands
 
+    // Platform seam: the delegate that recovers the legacy UserDefaults working copy on
+    // the first launch of the document model (#10). Mac-only because the copy was.
+    #if os(macOS)
+    @NSApplicationDelegateAdaptor(MacAppDelegate.self) private var appDelegate
+    #endif
+
     init() {
         // Platform seam: window tabbing is a Mac-only concept (the "+" tab bar the system
         // adds to every multi-window app), and a schedule window makes no sense as a tab.
@@ -51,8 +57,9 @@ struct CineSchedApp: App {
             }
         }, makeDocument: { configuration, _ in
             // Called for New and for Open alike; an opened file's contents arrive through
-            // the reader and `apply` straight after, replacing the blank month.
-            ProjectDocument(.newProject(), configuration: configuration)
+            // the reader and `apply` straight after, replacing the blank month. The one
+            // untitled document that starts with a project is the recovered working copy.
+            ProjectDocument(MacAppDelegate.takePendingUntitledProject() ?? .newProject(), configuration: configuration)
         })
         .commands { menus }
         #else
