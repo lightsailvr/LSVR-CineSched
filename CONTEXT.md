@@ -95,6 +95,8 @@ PDFCanvas.swift           Shared PDF drawing helper: pages, rects, lines, TextKi
 Fountain*.swift, FinalDraftParser.swift, HighlandArchiveReader.swift   Script importers (pure Swift).
 Parsers.swift, Formatting.swift                                        Eighths/time parsing, date/number formatting.
 ConflictScanner.swift, ScheduleLockScanner.swift                       Pure analysis over shoot days.
+DerivedScheduleState.swift                                             What the editor derives from the whole project (sorted Boneyard,
+                                                                       conflict sets, lock drift) and the per-window cache that memoizes it.
 Localization.swift, ThemeManager.swift, SceneColorSettings.swift       Cross-cutting settings.
 HoverTooltip.swift, LocationAutocompleteField.swift                            UI utilities.
 FilePanels, SelectAllTextField, WindowAccessor, ModifierKeys, PlatformControlStyles,
@@ -114,9 +116,13 @@ PlatformColors, PlatformPlaceholderView, LegacyProjectHandoff                  P
    document edited and what the system autosaves from. A mutation that bypasses `perform` never
    saves and cannot be undone. Save, Save As (for a viewer-role `.json`), Duplicate, Rename,
    Move To, Revert To and Open Recent are the system's.
-4. Derived state (sorted Boneyard, conflict sets, schedule-lock drift, selection pruning) is
-   recomputed in `onChange(of: document.project)`, which fires for edits, undo and reloads alike;
-   `document.restoreCount` tells views with drag state that the model was replaced under them.
+4. Derived state (the sorted Boneyard, conflict sets, duplicate scene numbers, schedule-lock
+   drift) is `DerivedScheduleState`, a pure function of the project that `ContentView` reads
+   through a cache keyed on `document.changeCount` and the Boneyard sort, so it is computed at
+   most once per change and never stored as view state (#34). `changeCount` moves on every
+   change to the project (edit, undo, redo, reload); the selection is pruned in
+   `onChange(of: document.changeCount)`. `document.restoreCount` tells views with drag state
+   that the model was replaced under them (undo, redo, reload only).
 5. Menu commands reach the key window through `ProjectCommands`: `ContentView` publishes its
    closures with `.focusedSceneValue`, `CineSchedApp` reads `@FocusedValue` and disables the item
    when no project window is key.

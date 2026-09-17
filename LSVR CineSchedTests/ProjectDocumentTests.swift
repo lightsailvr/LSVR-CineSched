@@ -285,6 +285,34 @@ struct ProjectDocumentTests {
         #expect(document.project.projectTitle == "CD")
     }
 
+    /// The editor caches what it derives from the project (sorted Boneyard, conflict sets)
+    /// against this counter, so it must move on every way the project can change and on
+    /// no other (#34): an edit under an open gesture is a change, a no-op edit is not.
+    @Test func changeCountTicksOnEveryChangeToTheProject() async throws {
+        let undoManager = makeUndoManager()
+        let document    = ProjectDocument(project)
+        let drag        = EditGesture()
+        #expect(document.changeCount == 0)
+
+        document.perform(undoManager: undoManager) { $0.projectTitle = "Edited" }
+        #expect(document.changeCount == 1)
+
+        document.perform(undoManager: undoManager) { $0.projectTitle = "Edited" }
+        #expect(document.changeCount == 1)
+
+        document.perform(coalescing: drag, undoManager: undoManager) { $0.shootDays[0].dayNote = "F" }
+        document.perform(coalescing: drag, undoManager: undoManager) { $0.shootDays[0].dayNote = "Fl" }
+        #expect(document.changeCount == 3)
+
+        undoManager.undo()
+        #expect(document.changeCount == 4)
+        undoManager.redo()
+        #expect(document.changeCount == 5)
+
+        try await document.apply(snapshot: project, previous: nil)
+        #expect(document.changeCount == 6)
+    }
+
     /// Views that keep drag state keyed to the model watch this counter: an undo, a redo or
     /// a snapshot from disk replaces the project under them, an ordinary edit does not.
     @Test func restoreCountTicksOnUndoRedoAndApplyButNotOnPerform() async throws {

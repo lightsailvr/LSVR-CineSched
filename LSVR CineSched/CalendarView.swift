@@ -387,17 +387,11 @@ struct DayCellView: View {
     }
 
     private func localizedShortWeekday(_ date: Date) -> String {
-        let df = DateFormatter()
-        df.locale = LocalizationManager.shared.currentLanguage == .spanish ? Locale(identifier: "es_ES") : Locale(identifier: "en_US")
-        df.dateFormat = "EEE"
-        return df.string(from: date).capitalized
+        formattedDate(date, pattern: "EEE")
     }
 
     private func localizedFullWeekday(_ date: Date) -> String {
-        let df = DateFormatter()
-        df.locale = LocalizationManager.shared.currentLanguage == .spanish ? Locale(identifier: "es_ES") : Locale(identifier: "en_US")
-        df.dateFormat = "EEEE"
-        return df.string(from: date).capitalized
+        formattedDate(date, pattern: "EEEE")
     }
 
     private var sceneList: some View {
@@ -459,12 +453,6 @@ struct DayCellView: View {
         }
     }
 
-    private func formattedDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = LocalizationManager.shared.currentLanguage == .spanish ? Locale(identifier: "es_ES") : Locale(identifier: "en_US")
-        formatter.dateFormat = "EEE d MMM"
-        return formatter.string(from: date).capitalized
-    }
 }
 
 // MARK: - CompactMonthCalendarView
@@ -583,10 +571,7 @@ struct CompactMonthCalendarView: View {
     }
 
     private var monthYearTitle: String {
-        let df = DateFormatter()
-        df.locale = isSpanish ? Locale(identifier: "es_ES") : Locale(identifier: "en_US")
-        df.dateFormat = "LLLL yyyy"
-        return df.string(from: displayedMonth).capitalized
+        formattedDate(displayedMonth, pattern: "LLLL yyyy")
     }
 
     private var weekdaySymbols: [String] {
@@ -709,6 +694,10 @@ struct CompactMonthCalendarView: View {
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: true) {
                     let columns = Array(repeating: GridItem(.flexible(minimum: 100), spacing: 8), count: 7)
+                    // Computed once per redraw, not once per cell: with a few hundred days
+                    // the per-cell versions were a measurable share of every drop (#34).
+                    let numbers     = dayNumbers
+                    let indexByDate = dayIndexByDate
                     LazyVGrid(columns: columns, spacing: 8) {
                         if calendarViewMode == .monthGrid {
                             ForEach(0..<monthLeadingOffsetCount, id: \.self) { _ in
@@ -716,8 +705,8 @@ struct CompactMonthCalendarView: View {
                                     .frame(minHeight: 120)
                             }
                             ForEach(daysInDisplayedMonth, id: \.self) { date in
-                                if let dayIndex = shootDays.firstIndex(where: { Calendar.current.isDate($0.date, inSameDayAs: date) }) {
-                                    dayCell(day: shootDays[dayIndex], dayIndex: dayIndex)
+                                if let dayIndex = indexByDate[Calendar.current.startOfDay(for: date)] {
+                                    dayCell(day: shootDays[dayIndex], dayIndex: dayIndex, dayNumber: numbers[shootDays[dayIndex].id])
                                         .id(shootDays[dayIndex].id)
                                 } else {
                                     emptyDayCell(for: date)
@@ -737,7 +726,7 @@ struct CompactMonthCalendarView: View {
                                     .frame(minHeight: 120)
                             }
                             ForEach(shootDaysList, id: \.element.id) { dayIndex, day in
-                                dayCell(day: day, dayIndex: dayIndex)
+                                dayCell(day: day, dayIndex: dayIndex, dayNumber: numbers[day.id])
                                     .id(day.id)
                             }
                         }
@@ -1014,9 +1003,11 @@ struct CompactMonthCalendarView: View {
     private func setDayTypeForWeekday(_ day: ShootDay, to type: DayType) {
         let targetWeekday = Calendar.current.component(.weekday, from: day.date)
         onBeforeSceneChange()
-        for idx in 0..<shootDays.count
-        where Calendar.current.component(.weekday, from: shootDays[idx].date) == targetWeekday {
-            shootDays[idx].dayType = type
+        editDays { days in
+            for idx in days.indices
+            where Calendar.current.component(.weekday, from: days[idx].date) == targetWeekday {
+                days[idx].dayType = type
+            }
         }
         onSceneChanged()
     }
@@ -1043,15 +1034,26 @@ struct CompactMonthCalendarView: View {
 
     private var dayNumbers: [UUID: Int] { productionDayNumbers(for: shootDays) }
 
+    /// Each day's index in `shootDays` by its calendar day, so the month grid finds the
+    /// day for a date with one lookup instead of a scan.
+    private var dayIndexByDate: [Date: Int] {
+        let cal = Calendar.current
+        var result: [Date: Int] = [:]
+        for (index, day) in shootDays.enumerated() where result[cal.startOfDay(for: day.date)] == nil {
+            result[cal.startOfDay(for: day.date)] = index
+        }
+        return result
+    }
+
     @ViewBuilder
-    private func dayCell(day: ShootDay, dayIndex: Int) -> some View {
+    private func dayCell(day: ShootDay, dayIndex: Int, dayNumber: Int?) -> some View {
         let cal = Calendar.current
         let inRange = day.date >= cal.startOfDay(for: startDate) && day.date <= cal.startOfDay(for: endDate)
 
         DayCellView(
             day: day,
             dayIndex: dayIndex,
-            dayNumber: dayNumbers[day.id],
+            dayNumber: dayNumber,
             isSidebarCollapsed: isSidebarCollapsed,
             showCastOnCards: showCastOnCards,
             showEstTimeOnCards: showEstTimeOnCards,
@@ -1144,10 +1146,12 @@ struct CompactMonthCalendarView: View {
             ? selectedSceneIDs
             : [scene.id]
         onBeforeSceneChange()
-        for id in idsToToggle {
-            guard let dayIdx = shootDays.firstIndex(where: { $0.scenes.contains(where: { $0.id == id }) }),
-                  let sceneIdx = shootDays[dayIdx].scenes.firstIndex(where: { $0.id == id }) else { continue }
-            shootDays[dayIdx].scenes[sceneIdx].isCompleted = newValue
+        editDays { days in
+            for id in idsToToggle {
+                guard let dayIdx = days.firstIndex(where: { $0.scenes.contains(where: { $0.id == id }) }),
+                      let sceneIdx = days[dayIdx].scenes.firstIndex(where: { $0.id == id }) else { continue }
+                days[dayIdx].scenes[sceneIdx].isCompleted = newValue
+            }
         }
         onSceneChanged()
     }
@@ -1189,14 +1193,27 @@ struct CompactMonthCalendarView: View {
         showingSendToDaySheet = true
     }
 
+    /// Every action that touches more than one day edits a local copy of `shootDays` here and
+    /// writes it back once. Each write to the binding is one trip through the document's edit
+    /// funnel (a whole-project copy and, for the first write of a gesture, a compare and an
+    /// undo registration), so a loop that wrote per day cost as many trips as there were days
+    /// in the range (#34).
+    private func editDays(_ change: (inout [ShootDay]) -> Void) {
+        var days = shootDays
+        change(&days)
+        shootDays = days
+    }
+
     private func sendScenes(_ ids: [UUID], toDay targetDayId: UUID) {
-        onBeforeSceneChange()
         guard let targetDay = shootDays.first(where: { $0.id == targetDayId }) else { return }
+        onBeforeSceneChange()
         var scenesToMove: [Scene] = []
-        for dIdx in 0..<shootDays.count {
-            let matches = shootDays[dIdx].scenes.filter { ids.contains($0.id) }
-            scenesToMove.append(contentsOf: matches)
-            shootDays[dIdx].scenes.removeAll { ids.contains($0.id) }
+        editDays { days in
+            for dIdx in days.indices {
+                let matches = days[dIdx].scenes.filter { ids.contains($0.id) }
+                scenesToMove.append(contentsOf: matches)
+                days[dIdx].scenes.removeAll { ids.contains($0.id) }
+            }
         }
         for s in scenesToMove {
             assignScene(s, targetDay)
@@ -1213,23 +1230,25 @@ struct CompactMonthCalendarView: View {
 
         if let sourceDayIndex = shootDays.firstIndex(where: { $0.scenes.contains(where: { $0.id == sceneId }) }) {
             // Dragged from another shoot day or reordering
-            var scenesToMove: [Scene] = []
-            if sourceDayIndex == targetDayIndex {
-                let dayScenes = shootDays[sourceDayIndex].scenes
-                let movingSet = Set(idsToMove)
-                scenesToMove = dayScenes.filter { movingSet.contains($0.id) }
-                var remaining = dayScenes.filter { !movingSet.contains($0.id) }
-                let clampedPos = min(targetPosition, remaining.count)
-                remaining.insert(contentsOf: scenesToMove, at: clampedPos)
-                shootDays[sourceDayIndex].scenes = remaining
-            } else {
-                for dIdx in 0..<shootDays.count {
-                    let matches = shootDays[dIdx].scenes.filter { idsToMove.contains($0.id) }
-                    scenesToMove.append(contentsOf: matches)
-                    shootDays[dIdx].scenes.removeAll { idsToMove.contains($0.id) }
+            editDays { days in
+                if sourceDayIndex == targetDayIndex {
+                    let dayScenes = days[sourceDayIndex].scenes
+                    let movingSet = Set(idsToMove)
+                    let scenesToMove = dayScenes.filter { movingSet.contains($0.id) }
+                    var remaining = dayScenes.filter { !movingSet.contains($0.id) }
+                    let clampedPos = min(targetPosition, remaining.count)
+                    remaining.insert(contentsOf: scenesToMove, at: clampedPos)
+                    days[sourceDayIndex].scenes = remaining
+                } else {
+                    var scenesToMove: [Scene] = []
+                    for dIdx in days.indices {
+                        let matches = days[dIdx].scenes.filter { idsToMove.contains($0.id) }
+                        scenesToMove.append(contentsOf: matches)
+                        days[dIdx].scenes.removeAll { idsToMove.contains($0.id) }
+                    }
+                    let clampedPos = min(targetPosition, days[targetDayIndex].scenes.count)
+                    days[targetDayIndex].scenes.insert(contentsOf: scenesToMove, at: clampedPos)
                 }
-                let clampedPos = min(targetPosition, shootDays[targetDayIndex].scenes.count)
-                shootDays[targetDayIndex].scenes.insert(contentsOf: scenesToMove, at: clampedPos)
             }
             onSceneChanged()
         } else {
@@ -1249,8 +1268,10 @@ struct CompactMonthCalendarView: View {
               let dstIdx = shootDays.firstIndex(where: { $0.id == targetDayId }),
               srcIdx != dstIdx else { return }
         onBeforeSceneChange()
-        swapDayContents(srcIdx, dstIdx)
-        pruneIfEmptyOutsideRange(dayId: sourceDayId)
+        editDays { days in
+            swapDayContents(&days, srcIdx, dstIdx)
+            pruneIfEmptyOutsideRange(&days, dayId: sourceDayId)
+        }
         onSceneChanged()
     }
 
@@ -1259,14 +1280,16 @@ struct CompactMonthCalendarView: View {
     private func handleDayRearrange(sourceDayId: UUID, toDate date: Date) {
         guard shootDays.contains(where: { $0.id == sourceDayId }) else { return }
         onBeforeSceneChange()
-        let newDay = ShootDay(date: date)
-        shootDays.append(newDay)
-        shootDays.sort { $0.date < $1.date }
-        if let s = shootDays.firstIndex(where: { $0.id == sourceDayId }),
-           let d = shootDays.firstIndex(where: { $0.id == newDay.id }) {
-            swapDayContents(s, d)
+        editDays { days in
+            let newDay = ShootDay(date: date)
+            days.append(newDay)
+            days.sort { $0.date < $1.date }
+            if let s = days.firstIndex(where: { $0.id == sourceDayId }),
+               let d = days.firstIndex(where: { $0.id == newDay.id }) {
+                swapDayContents(&days, s, d)
+            }
+            pruneIfEmptyOutsideRange(&days, dayId: sourceDayId)
         }
-        pruneIfEmptyOutsideRange(dayId: sourceDayId)
         onSceneChanged()
     }
 
@@ -1276,8 +1299,10 @@ struct CompactMonthCalendarView: View {
         guard let s = shootDays.firstIndex(where: { $0.id == sourceDayId }),
               let d = shootDays.firstIndex(where: { $0.id == targetDayId }), s != d else { return }
         onBeforeSceneChange()
-        swapDayTypeAndNote(s, d)
-        pruneIfEmptyOutsideRange(dayId: sourceDayId)
+        editDays { days in
+            swapDayTypeAndNote(&days, s, d)
+            pruneIfEmptyOutsideRange(&days, dayId: sourceDayId)
+        }
         onSceneChanged()
     }
 
@@ -1285,54 +1310,56 @@ struct CompactMonthCalendarView: View {
     private func moveDayType(from sourceDayId: UUID, toDate date: Date) {
         guard shootDays.contains(where: { $0.id == sourceDayId }) else { return }
         onBeforeSceneChange()
-        let newDay = ShootDay(date: date)
-        shootDays.append(newDay)
-        shootDays.sort { $0.date < $1.date }
-        if let s = shootDays.firstIndex(where: { $0.id == sourceDayId }),
-           let d = shootDays.firstIndex(where: { $0.id == newDay.id }) {
-            swapDayTypeAndNote(s, d)
+        editDays { days in
+            let newDay = ShootDay(date: date)
+            days.append(newDay)
+            days.sort { $0.date < $1.date }
+            if let s = days.firstIndex(where: { $0.id == sourceDayId }),
+               let d = days.firstIndex(where: { $0.id == newDay.id }) {
+                swapDayTypeAndNote(&days, s, d)
+            }
+            pruneIfEmptyOutsideRange(&days, dayId: sourceDayId)
         }
-        pruneIfEmptyOutsideRange(dayId: sourceDayId)
         onSceneChanged()
     }
 
-    private func swapDayTypeAndNote(_ a: Int, _ b: Int) {
-        let type = shootDays[a].dayType
-        let note = shootDays[a].dayNote
-        shootDays[a].dayType = shootDays[b].dayType
-        shootDays[a].dayNote = shootDays[b].dayNote
-        shootDays[b].dayType = type
-        shootDays[b].dayNote = note
+    private func swapDayTypeAndNote(_ days: inout [ShootDay], _ a: Int, _ b: Int) {
+        let type = days[a].dayType
+        let note = days[a].dayNote
+        days[a].dayType = days[b].dayType
+        days[a].dayNote = days[b].dayNote
+        days[b].dayType = type
+        days[b].dayNote = note
     }
 
     /// Swaps everything that makes a day *that* day: scenes (including calendar events), call
     /// sheet, day type, and note. Dragging a travel day onto a Tuesday makes Tuesday the
     /// travel day. No undo snapshot or dirty flag here; callers bracket it.
-    private func swapDayContents(_ a: Int, _ b: Int) {
-        let scenes    = shootDays[a].scenes
-        let callSheet = shootDays[a].callSheet
-        let type      = shootDays[a].dayType
-        let note      = shootDays[a].dayNote
-        shootDays[a].scenes    = shootDays[b].scenes
-        shootDays[a].callSheet = shootDays[b].callSheet
-        shootDays[a].dayType   = shootDays[b].dayType
-        shootDays[a].dayNote   = shootDays[b].dayNote
-        shootDays[b].scenes    = scenes
-        shootDays[b].callSheet = callSheet
-        shootDays[b].dayType   = type
-        shootDays[b].dayNote   = note
+    private func swapDayContents(_ days: inout [ShootDay], _ a: Int, _ b: Int) {
+        let scenes    = days[a].scenes
+        let callSheet = days[a].callSheet
+        let type      = days[a].dayType
+        let note      = days[a].dayNote
+        days[a].scenes    = days[b].scenes
+        days[a].callSheet = days[b].callSheet
+        days[a].dayType   = days[b].dayType
+        days[a].dayNote   = days[b].dayNote
+        days[b].scenes    = scenes
+        days[b].callSheet = callSheet
+        days[b].dayType   = type
+        days[b].dayNote   = note
     }
 
     /// Days outside the production range only exist to hold something (an event, a type, a
     /// note, a call sheet). Once that is gone the entry goes too, so the date becomes an
     /// empty tile again instead of a stray blank day cell.
-    private func pruneIfEmptyOutsideRange(dayId: UUID) {
-        guard let idx = shootDays.firstIndex(where: { $0.id == dayId }) else { return }
-        let day = shootDays[idx]
+    private func pruneIfEmptyOutsideRange(_ days: inout [ShootDay], dayId: UUID) {
+        guard let idx = days.firstIndex(where: { $0.id == dayId }) else { return }
+        let day = days[idx]
         let cal = Calendar.current
         let inRange = day.date >= cal.startOfDay(for: startDate) && day.date <= cal.startOfDay(for: endDate)
         if !inRange, day.scenes.isEmpty, day.dayType.isShootable, day.dayNote.isEmpty, !day.hasCallSheetData {
-            shootDays.remove(at: idx)
+            days.remove(at: idx)
         }
     }
 
@@ -1341,9 +1368,11 @@ struct CompactMonthCalendarView: View {
     private func clearDayType(_ day: ShootDay) {
         guard let idx = shootDays.firstIndex(where: { $0.id == day.id }) else { return }
         onBeforeSceneChange()
-        shootDays[idx].dayType = .shoot
-        shootDays[idx].dayNote = ""
-        pruneIfEmptyOutsideRange(dayId: day.id)
+        editDays { days in
+            days[idx].dayType = .shoot
+            days[idx].dayNote = ""
+            pruneIfEmptyOutsideRange(&days, dayId: day.id)
+        }
         onSceneChanged()
     }
 

@@ -92,6 +92,10 @@ All Swift sources are flat in `LSVR CineSched/`, one responsibility per file (th
   contents to an untitled document and the writer refuses `.json` destinations, because the
   infrastructure autosaves an opened file within seconds and ignores the readable/writable split.
 - `Models.swift`: all value types. `Scene` doubles as banner, auto-meal, and calendar event via flags.
+- `DerivedScheduleState.swift`: everything `ContentView` shows that is computed from the whole
+  project (sorted Boneyard, conflict sets, duplicate numbers, lock drift), the `BoneyardSort`
+  enum, and the cache that computes it once per `ProjectDocument.changeCount`. Add new
+  whole-project derivations here, not as `@State` recomputed in an `onChange`.
 - `CalendarView.swift`, `StripboardView.swift`: the two schedule views.
 - `*Sheet.swift`: modal editors. `*Exporter.swift`: PDF generators; every call site is in
   `ContentView+PDFExports.swift`. `PDFCanvas.swift` is the shared drawing helper (CoreGraphics +
@@ -142,6 +146,13 @@ All Swift sources are flat in `LSVR CineSched/`, one responsibility per file (th
 - **`ContentView.body`** is a chain of `applyX(_:)` helper functions to keep the type-checker fast.
   Add new modifiers inside one of those helpers, not inline.
 - Use the two-argument `onChange(of:) { old, new in }` form. The one-argument form is deprecated.
+- **View-body costs** (#34): a calendar or Stripboard redraw evaluates every day cell, every
+  strip, every Boneyard row and every `.contextMenu` builder (SwiftUI evaluates those eagerly,
+  not when the menu opens), so nothing drawn per day or per strip may build a table or a
+  `DateFormatter`. `L()` is a lookup in a table built once; date strings go through
+  `formattedDate(_:pattern:)`, which caches its formatters; whole-project derivations go in
+  `DerivedScheduleState`. Anything a cell needs from the whole `shootDays` array (day numbers,
+  a date index) is computed once per redraw, not per cell.
 - Match the existing style: `// MARK: -` sections, vertically aligned assignment blocks, header
   comments that explain *why*. Many inline comments document past bugs; read them before simplifying.
 - Localization is intentionally disabled (`LocalizationManager.setLanguage` is a no-op). Wrap new
@@ -153,7 +164,9 @@ All Swift sources are flat in `LSVR CineSched/`, one responsibility per file (th
 
 The test targets are Xcode template stubs. `LSVR CineSchedTests` uses Swift Testing (`@Test`,
 `#expect`). Pure, testable units: `FountainParser`, `FountainPaginator`, `FractionParser`,
-`TimeParser`, `Formatting.swift` free functions, `ConflictScanner`, `ScheduleLockScanner`,
+`TimeParser`, `Formatting.swift` free functions, `ConflictScanner` (`ConflictScannerTests`),
+`ScheduleLockScanner`, `DerivedScheduleState` and its cache (`DerivedScheduleStateTests`),
+`L(_:)` (`LocalizationTests`),
 `DaysOutOfDaysExporter.buildRows`, `PDFCanvas`, `ProjectCodec` (`ProjectCodecTests`),
 `ProjectDocument` with its reader, writer, type and undo funnel (`ProjectDocumentTests`, against a
 real `UndoManager` with `groupsByEvent` off), and all six exporters (rendered from the shared

@@ -60,6 +60,14 @@ final class ProjectDocument: Document {
     /// and production info. Read freely; change it only through `perform`.
     private(set) var project: ProjectData
 
+    /// Bumped on every change to `project`, however it arrives: an edit through `perform`,
+    /// an undo or redo, or a snapshot from disk. An edit that leaves the project equal does
+    /// not count, except one folded into an open gesture, which is applied without the
+    /// compare and counts regardless. The editor keys what it derives from the project
+    /// (sorted Boneyard, conflict sets, lock drift) on this, so a body pass never has to
+    /// compare two whole projects to learn whether anything moved (#34).
+    private(set) var changeCount = 0
+
     /// Bumped every time the project is replaced wholesale — an undo, a redo, or a
     /// snapshot arriving from disk — as opposed to edited through `perform`. Views that
     /// keep drag state keyed to the old model (a highlighted drop target, say) watch it,
@@ -120,6 +128,7 @@ final class ProjectDocument: Document {
     func apply(snapshot: ProjectData, previous: ProjectData?) async throws {
         openGesture   = nil
         project       = snapshot
+        changeCount  += 1
         restoreCount += 1
     }
 
@@ -156,6 +165,7 @@ final class ProjectDocument: Document {
     ) {
         if let gesture, let open = openGesture, open.token == gesture, open.undoManager === undoManager {
             edit(&project)
+            changeCount += 1
             return
         }
         let before = project
@@ -166,6 +176,7 @@ final class ProjectDocument: Document {
             openGesture = nil
             return
         }
+        changeCount += 1
         guard let undoManager else {
             openGesture = nil
             return
@@ -186,6 +197,7 @@ final class ProjectDocument: Document {
             let current = document.project
             document.openGesture   = nil
             document.project       = snapshot
+            document.changeCount  += 1
             document.restoreCount += 1
             document.registerUndo(restoring: current, named: actionName, with: undoManager)
         }

@@ -701,8 +701,7 @@ struct StripboardView: View {
                 },
                 onDelete: {
                     if let id = editingDayId {
-                        removeSceneDirect(shootDays[dayIndex].scenes[sceneIndex], dayId: id)
-                        onSceneChanged()
+                        removeFromDay(shootDays[dayIndex].scenes[sceneIndex], dayId: id)
                     }
                     clearEditingState()
                 },
@@ -764,65 +763,81 @@ struct StripboardView: View {
         dropTargetDayId == dayId && dropTargetPosition == position
     }
 
+    /// An action that touches several scenes or days edits local copies of `shootDays` and
+    /// `allScenes` here and writes each back once (only if it changed). Every write to a
+    /// binding is one trip through the document's edit funnel, so a multi-scene drop that
+    /// wrote per scene cost two trips per scene (#34). Same shape as the calendar's `editDays`.
+    private func editSchedule(_ change: (inout [ShootDay], inout [Scene]) -> Void) {
+        var days   = shootDays
+        var scenes = allScenes
+        change(&days, &scenes)
+        if days != shootDays   { shootDays = days }
+        if scenes != allScenes { allScenes = scenes }
+    }
+
     /// Accepts either a single scene ID or a comma-separated list (a Boneyard
     /// multi-selection) and inserts them, in order, starting at targetPosition.
     private func handleSceneDrop(sceneId: String, targetDayId: UUID, targetPosition: Int) {
         let ids = sceneId.components(separatedBy: ",").compactMap { UUID(uuidString: $0) }
         guard !ids.isEmpty else { return }
 
-        var insertPosition = targetPosition
-        for uuid in ids {
-            // From the Boneyard
-            if let idx = allScenes.firstIndex(where: { $0.id == uuid }) {
-                let scene = allScenes.remove(at: idx)
-                insertSceneIntoDay(scene: scene, dayId: targetDayId, position: insertPosition)
-                insertPosition += 1
-                continue
-            }
-            // From another (or the same) day
-            for dayIdx in shootDays.indices {
-                if let sceneIdx = shootDays[dayIdx].scenes.firstIndex(where: { $0.id == uuid }) {
-                    let scene = shootDays[dayIdx].scenes.remove(at: sceneIdx)
-                    var adjustedPos = insertPosition
-                    if shootDays[dayIdx].id == targetDayId && sceneIdx < insertPosition { adjustedPos -= 1 }
-                    insertSceneIntoDay(scene: scene, dayId: targetDayId, position: adjustedPos)
+        editSchedule { days, boneyard in
+            var insertPosition = targetPosition
+            for uuid in ids {
+                // From the Boneyard
+                if let idx = boneyard.firstIndex(where: { $0.id == uuid }) {
+                    let scene = boneyard.remove(at: idx)
+                    insertScene(scene, into: &days, dayId: targetDayId, position: insertPosition)
                     insertPosition += 1
-                    break
+                    continue
+                }
+                // From another (or the same) day
+                for dayIdx in days.indices {
+                    if let sceneIdx = days[dayIdx].scenes.firstIndex(where: { $0.id == uuid }) {
+                        let scene = days[dayIdx].scenes.remove(at: sceneIdx)
+                        var adjustedPos = insertPosition
+                        if days[dayIdx].id == targetDayId && sceneIdx < insertPosition { adjustedPos -= 1 }
+                        insertScene(scene, into: &days, dayId: targetDayId, position: adjustedPos)
+                        insertPosition += 1
+                        break
+                    }
                 }
             }
         }
         onSceneChanged()
     }
 
-    private func insertSceneIntoDay(scene: Scene, dayId: UUID, position: Int) {
-        guard let dayIdx = shootDays.firstIndex(where: { $0.id == dayId }) else { return }
-        let clamped = min(max(0, position), shootDays[dayIdx].scenes.count)
-        shootDays[dayIdx].scenes.insert(scene, at: clamped)
+    private func insertScene(_ scene: Scene, into days: inout [ShootDay], dayId: UUID, position: Int) {
+        guard let dayIdx = days.firstIndex(where: { $0.id == dayId }) else { return }
+        let clamped = min(max(0, position), days[dayIdx].scenes.count)
+        days[dayIdx].scenes.insert(scene, at: clamped)
     }
 
     /// Removes the clicked scene from its day back into the Boneyard — or, if it's
     /// part of a multi-scene selection, every selected scene currently scheduled
     /// anywhere on the board, mirroring the calendar's grouped removal.
     private func removeFromDay(_ scene: Scene, dayId: UUID) {
-        if selectedSceneIDs.contains(scene.id), selectedSceneIDs.count > 1 {
-            for dayIdx in shootDays.indices {
-                let matching = shootDays[dayIdx].scenes.filter { selectedSceneIDs.contains($0.id) }
-                for s in matching {
-                    removeSceneDirect(s, dayId: shootDays[dayIdx].id)
+        editSchedule { days, boneyard in
+            if selectedSceneIDs.contains(scene.id), selectedSceneIDs.count > 1 {
+                for dayIdx in days.indices {
+                    let matching = days[dayIdx].scenes.filter { selectedSceneIDs.contains($0.id) }
+                    for s in matching {
+                        removeScene(s, from: &days, boneyard: &boneyard, dayId: days[dayIdx].id)
+                    }
                 }
+            } else {
+                removeScene(scene, from: &days, boneyard: &boneyard, dayId: dayId)
             }
-        } else {
-            removeSceneDirect(scene, dayId: dayId)
         }
         onSceneChanged()
     }
 
-    private func removeSceneDirect(_ scene: Scene, dayId: UUID) {
-        if let di = shootDays.firstIndex(where: { $0.id == dayId }) {
-            shootDays[di].scenes.removeAll { $0.id == scene.id }
+    private func removeScene(_ scene: Scene, from days: inout [ShootDay], boneyard: inout [Scene], dayId: UUID) {
+        if let di = days.firstIndex(where: { $0.id == dayId }) {
+            days[di].scenes.removeAll { $0.id == scene.id }
             // Calendar events are never Boneyard material; a grouped removal that sweeps
             // one up (multi-select spanning a chip) just deletes it.
-            if !scene.isCalendarEvent { allScenes.append(scene) }
+            if !scene.isCalendarEvent { boneyard.append(scene) }
         }
     }
 
@@ -831,10 +846,12 @@ struct StripboardView: View {
         let idsToToggle: Set<UUID> = (selectedSceneIDs.contains(scene.id) && selectedSceneIDs.count > 1)
             ? selectedSceneIDs
             : [scene.id]
-        for id in idsToToggle {
-            guard let di = shootDays.firstIndex(where: { $0.scenes.contains(where: { $0.id == id }) }),
-                  let si = shootDays[di].scenes.firstIndex(where: { $0.id == id }) else { continue }
-            shootDays[di].scenes[si].isCompleted = newValue
+        editSchedule { days, _ in
+            for id in idsToToggle {
+                guard let di = days.firstIndex(where: { $0.scenes.contains(where: { $0.id == id }) }),
+                      let si = days[di].scenes.firstIndex(where: { $0.id == id }) else { continue }
+                days[di].scenes[si].isCompleted = newValue
+            }
         }
         onSceneChanged()
     }
@@ -874,23 +891,25 @@ struct StripboardView: View {
         else { return }
 
         // Swap everything that makes the day *that* day (mirrors CompactMonthCalendarView).
-        let sourceScenes    = shootDays[sourceIdx].scenes
-        let sourceCallSheet = shootDays[sourceIdx].callSheet
-        let sourceType      = shootDays[sourceIdx].dayType
-        let sourceNote      = shootDays[sourceIdx].dayNote
-        let targetScenes    = shootDays[targetIdx].scenes
-        let targetCallSheet = shootDays[targetIdx].callSheet
-        let targetType      = shootDays[targetIdx].dayType
-        let targetNote      = shootDays[targetIdx].dayNote
+        editSchedule { days, _ in
+            let sourceScenes    = days[sourceIdx].scenes
+            let sourceCallSheet = days[sourceIdx].callSheet
+            let sourceType      = days[sourceIdx].dayType
+            let sourceNote      = days[sourceIdx].dayNote
+            let targetScenes    = days[targetIdx].scenes
+            let targetCallSheet = days[targetIdx].callSheet
+            let targetType      = days[targetIdx].dayType
+            let targetNote      = days[targetIdx].dayNote
 
-        shootDays[sourceIdx].scenes    = targetScenes
-        shootDays[sourceIdx].callSheet = targetCallSheet
-        shootDays[sourceIdx].dayType   = targetType
-        shootDays[sourceIdx].dayNote   = targetNote
-        shootDays[targetIdx].scenes    = sourceScenes
-        shootDays[targetIdx].callSheet = sourceCallSheet
-        shootDays[targetIdx].dayType   = sourceType
-        shootDays[targetIdx].dayNote   = sourceNote
+            days[sourceIdx].scenes    = targetScenes
+            days[sourceIdx].callSheet = targetCallSheet
+            days[sourceIdx].dayType   = targetType
+            days[sourceIdx].dayNote   = targetNote
+            days[targetIdx].scenes    = sourceScenes
+            days[targetIdx].callSheet = sourceCallSheet
+            days[targetIdx].dayType   = sourceType
+            days[targetIdx].dayNote   = sourceNote
+        }
 
         draggingDayId   = nil
         dayDropTargetId = nil

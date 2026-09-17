@@ -108,10 +108,17 @@ struct ContentView: View {
     // Production Setup & Conflict states
     @State private var conflictReportResults: [ScheduleConflict] = []
     @State private var scrollToDate: Date? = nil
-    @State private var conflictDates: Set<Date> = []
-    @State private var conflictSceneIDs: Set<UUID> = []
-    @State private var duplicateSceneNumberIDs: Set<UUID> = []
     @State private var searchQuery: String = ""
+
+    // MARK: - Derived state
+
+    /// The sorted Boneyard, conflict sets, duplicate numbers and lock drift, computed from
+    /// the project at most once per change (see DerivedScheduleState.swift). Read through
+    /// `derived`; nothing here is stored state, so an edit costs one body pass, not two.
+    @State private var derivedCache = DerivedScheduleStateCache()
+    private var derived: DerivedScheduleState {
+        derivedCache.state(for: document.project, changeCount: document.changeCount, boneyardSort: boneyardSort)
+    }
 
     // MARK: - Breakdown Browser
     @State private var breakdownBrowserScenes: [Scene] = []
@@ -128,9 +135,6 @@ struct ContentView: View {
     /// the binding, and without a token each would be its own undo step.
     @State private var titleGesture = EditGesture()
     @FocusState private var titleFieldFocused: Bool
-
-    @State private var scheduleLockChanges: [ScheduleLockChange] = []
-    @State private var scheduleLockChangedDates: Set<Date> = []
 
     // MARK: - Sheet presentation
     private enum ActiveSheet: Identifiable, Hashable {
@@ -150,15 +154,7 @@ struct ContentView: View {
         Binding(get: { activeSheet == .breakdownBrowser }, set: { if !$0 { activeSheet = nil } })
     }
 
-    // Boneyard sort
-    enum BoneyardSort: String, CaseIterable {
-        case showOrder    = "Show Order"
-        case defaultOrder = "Default"
-        case location     = "Location"
-        case intExt       = "INT/EXT"
-        case cast         = "Cast"
-        case dayNight     = "Day/Night"
-    }
+    // Boneyard sort (see DerivedScheduleState.swift for the enum and the sorting)
     @AppStorage("CineSchedBoneyardSort") private var boneyardSort: BoneyardSort = .showOrder
 
     @AppStorage("CineSchedDateRangeExpanded") private var isDateRangeExpanded: Bool = true
@@ -253,7 +249,7 @@ struct ContentView: View {
                     )
                 case .scheduleLockReport:
                     ScheduleLockReportSheet(
-                        changes: scheduleLockChanges,
+                        changes: derived.scheduleLockChanges,
                         lockedAt: productionInfo.scheduleLock?.lockedAt,
                         onSelectDate: { date in
                             activeSheet = nil
@@ -312,22 +308,19 @@ struct ContentView: View {
         content
             .focusedSceneValue(\.projectCommands, projectCommands)
             .onAppear {
-                recomputeDerivedState()
                 columnVisibility = sidebarCollapsedPreference ? .detailOnly : .all
             }
             .onChange(of: columnVisibility) { _, newValue in
                 sidebarCollapsedPreference = (newValue == .detailOnly)
             }
-            // Every path into the project (an edit, an undo, a reload from disk) lands
-            // here, so the derived sets never go stale whichever way the model moved.
-            .onChange(of: document.project) { _, _ in
-                recomputeDerivedState()
+            // Every path into the project (an edit, an undo, a reload from disk) moves the
+            // change count. The derived sets follow it through `derived`; only the
+            // selection is real state that has to be trimmed here.
+            .onChange(of: document.changeCount) { _, _ in
+                pruneSelection()
             }
             .onChange(of: document.restoreCount) { _, _ in
                 seedRangePickers()
-            }
-            .onChange(of: boneyardSort) { _, _ in
-                recomputeSortedScenes()
             }
             .onChange(of: titleFieldFocused) { _, focused in
                 if !focused { titleGesture = EditGesture() }
@@ -418,13 +411,6 @@ struct ContentView: View {
         startDate   = range.lowerBound
         endDate     = range.upperBound
         seededRange = range
-    }
-
-    private func recomputeDerivedState() {
-        recomputeSortedScenes()
-        pruneSelection()
-        recomputeConflicts()
-        recomputeScheduleLockChanges()
     }
 
     // MARK: - Sidebar
@@ -521,7 +507,7 @@ struct ContentView: View {
                         Button(L("Day/Night"))     { boneyardSort = .dayNight }
                     } label: {
                         HStack(spacing: 3) {
-                            Text(boneyardSortLabel)
+                            Text(boneyardSort.localizedTitle)
                             Image(systemName: "chevron.down").font(.caption2)
                         }
                         .font(.caption)
@@ -540,15 +526,6 @@ struct ContentView: View {
         .padding(10)
         .frame(minWidth: 300, maxHeight: .infinity)
         .background(currentTheme.panelBackground(isDarkMode: isDarkMode))
-    }
-
-    // MARK: - Boneyard sort & conflict helpers
-
-    private func recomputeConflicts() {
-        let conflicts = ConflictScanner.scan(shootDays: shootDays, productionInfo: productionInfo)
-        conflictDates = ConflictScanner.conflictDates(conflicts)
-        conflictSceneIDs = ConflictScanner.conflictSceneIDs(conflicts)
-        duplicateSceneNumberIDs = ConflictScanner.duplicateSceneNumberIDs(allScenes: allScenes, shootDays: shootDays)
     }
 
     // MARK: - Schedule Lock
@@ -571,17 +548,16 @@ struct ContentView: View {
         edit(L("Unlock Schedule")) { $0.productionInfo?.scheduleLock = nil }
     }
 
-    private func recomputeScheduleLockChanges() {
-        scheduleLockChanges = ScheduleLockScanner.changes(shootDays: shootDays, productionInfo: productionInfo)
-        scheduleLockChangedDates = ScheduleLockScanner.changedDates(scheduleLockChanges)
-    }
-
     // MARK: - Selection and cast helpers
 
+    /// Drops selected IDs that are no longer in the project. Writes the selection only when
+    /// something was dropped, so the usual edit does not invalidate the view a second time.
     private func pruneSelection() {
+        guard !selectedSceneIDs.isEmpty else { return }
         let scheduledIDs = Set(shootDays.flatMap { $0.scenes.map(\.id) })
         let boneyardIDs  = Set(allScenes.map(\.id))
-        selectedSceneIDs = selectedSceneIDs.intersection(scheduledIDs.union(boneyardIDs))
+        let pruned = selectedSceneIDs.intersection(scheduledIDs.union(boneyardIDs))
+        if pruned != selectedSceneIDs { selectedSceneIDs = pruned }
     }
 
     private func renameCastCharacter(from oldName: String, to newName: String) {
@@ -608,110 +584,35 @@ struct ContentView: View {
         }
     }
 
-    private func stripSceneNumber(_ title: String) -> String {
-        let pattern = #"^\d+[A-Za-z]?\.\s*"#
-        if let range = title.range(of: pattern, options: .regularExpression) {
-            return String(title[range.upperBound...])
-        }
-        return title
-    }
-
-    private func locationSortKey(_ title: String) -> String {
-        let withoutNumber = stripSceneNumber(title)
-        let pattern = #"^(INT\.|EXT\.)\s*"#
-        if let range = withoutNumber.range(of: pattern, options: [.regularExpression, .caseInsensitive]) {
-            return String(withoutNumber[range.upperBound...])
-        }
-        return withoutNumber
-    }
-
-    private func intExtSortKey(_ title: String) -> String {
-        let withoutNumber = stripSceneNumber(title)
-        if withoutNumber.uppercased().hasPrefix("INT.") { return "INT." }
-        if withoutNumber.uppercased().hasPrefix("EXT.") { return "EXT." }
-        return "ZZZ"
-    }
-
-    private var boneyardSortLabel: String {
-        switch boneyardSort {
-        case .showOrder:    return L("Show Order")
-        case .defaultOrder: return L("Default")
-        case .location:     return L("Location")
-        case .intExt:       return L("INT/EXT")
-        case .cast:         return L("Cast")
-        case .dayNight:     return L("Day/Night")
-        }
-    }
-
     // MARK: - Boneyard scene navigation
 
     private var currentBoneyardPosition: Int? {
         guard let idx = editingUnscheduledSceneIndex else { return nil }
-        return sortedScenes.firstIndex { $0.index == idx }
+        return derived.sortedBoneyard.firstIndex { $0.index == idx }
     }
 
     private func goToPreviousUnscheduledScene() {
         guard let pos = currentBoneyardPosition, pos > 0 else { return }
-        let target = sortedScenes[pos - 1]
+        let target = derived.sortedBoneyard[pos - 1]
         editingUnscheduledSceneIndex = target.index
         editingUnscheduledScene      = target.scene
     }
 
     private func goToNextUnscheduledScene() {
-        guard let pos = currentBoneyardPosition, pos < sortedScenes.count - 1 else { return }
-        let target = sortedScenes[pos + 1]
+        guard let pos = currentBoneyardPosition, pos < derived.sortedBoneyard.count - 1 else { return }
+        let target = derived.sortedBoneyard[pos + 1]
         editingUnscheduledSceneIndex = target.index
         editingUnscheduledScene      = target.scene
-    }
-
-    @State private var sortedScenes: [(index: Int, scene: Scene)] = []
-
-    private func recomputeSortedScenes() {
-        let indexed = allScenes.enumerated()
-            .filter { !$0.element.isBanner }
-            .map { (index: $0.offset, scene: $0.element) }
-        switch boneyardSort {
-        case .showOrder:
-            sortedScenes = indexed.sorted {
-                let a = $0.scene.scriptOrderKey
-                let b = $1.scene.scriptOrderKey
-                if a.0 != b.0 { return a.0 < b.0 }
-                return a.1 < b.1
-            }
-        case .defaultOrder:
-            sortedScenes = indexed
-        case .location:
-            sortedScenes = indexed.sorted { locationSortKey($0.scene.title) < locationSortKey($1.scene.title) }
-        case .intExt:
-            sortedScenes = indexed.sorted {
-                let a = intExtSortKey($0.scene.title)
-                let b = intExtSortKey($1.scene.title)
-                if a != b { return a < b }
-                return locationSortKey($0.scene.title) < locationSortKey($1.scene.title)
-            }
-        case .cast:
-            sortedScenes = indexed.sorted {
-                let a = $0.scene.cast.sorted().first ?? "ZZZ"
-                let b = $1.scene.cast.sorted().first ?? "ZZZ"
-                return a < b
-            }
-        case .dayNight:
-            sortedScenes = indexed.sorted {
-                if $0.scene.dayNightType != $1.scene.dayNightType {
-                    return $0.scene.dayNightType.sortOrder < $1.scene.dayNightType.sortOrder
-                }
-                return locationSortKey($0.scene.title) < locationSortKey($1.scene.title)
-            }
-        }
     }
 
     // MARK: - Boneyard list (Movie Magic strip styling)
 
     private var boneyardList: some View {
-        ScrollView {
+        let state = derived
+        return ScrollView {
             VStack(spacing: 2) {
-                ForEach(sortedScenes, id: \.scene.id) { item in
-                    let isDup = duplicateSceneNumberIDs.contains(item.scene.id)
+                ForEach(state.sortedBoneyard, id: \.scene.id) { item in
+                    let isDup = state.duplicateSceneNumberIDs.contains(item.scene.id)
                     HStack(spacing: 6) {
                         if !item.scene.sceneNumber.isEmpty {
                             Text(item.scene.sceneNumber)
@@ -836,10 +737,10 @@ struct ContentView: View {
             if selectedSceneIDs.contains(id) { selectedSceneIDs.remove(id) } else { selectedSceneIDs.insert(id) }
             lastSelectedSceneID = id
         } else if flags.contains(.shift), let anchor = lastSelectedSceneID,
-                  let anchorIdx  = sortedScenes.firstIndex(where: { $0.scene.id == anchor }),
-                  let targetIdx  = sortedScenes.firstIndex(where: { $0.scene.id == id }) {
+                  let anchorIdx  = derived.sortedBoneyard.firstIndex(where: { $0.scene.id == anchor }),
+                  let targetIdx  = derived.sortedBoneyard.firstIndex(where: { $0.scene.id == id }) {
             let range = anchorIdx < targetIdx ? anchorIdx...targetIdx : targetIdx...anchorIdx
-            selectedSceneIDs.formUnion(range.map { sortedScenes[$0].scene.id })
+            selectedSceneIDs.formUnion(range.map { derived.sortedBoneyard[$0].scene.id })
         } else {
             selectedSceneIDs = [id]
             lastSelectedSceneID = id
@@ -849,7 +750,7 @@ struct ContentView: View {
     private func dragPayload(for scene: Scene) -> NSItemProvider {
         let ids: [UUID]
         if selectedSceneIDs.contains(scene.id), selectedSceneIDs.count > 1 {
-            ids = sortedScenes.map(\.scene).filter { selectedSceneIDs.contains($0.id) }.map(\.id)
+            ids = derived.sortedBoneyard.map(\.scene).filter { selectedSceneIDs.contains($0.id) }.map(\.id)
         } else {
             selectedSceneIDs   = [scene.id]
             lastSelectedSceneID = scene.id
@@ -862,7 +763,8 @@ struct ContentView: View {
     // MARK: - Detail / main area
 
     private var detailView: some View {
-        VStack {
+        let state = derived
+        return VStack {
             toolbarRow
             if viewMode == .calendar {
                 CompactMonthCalendarView(
@@ -880,10 +782,10 @@ struct ContentView: View {
                     endDate: endDate,
                     selectedSceneIDs: $selectedSceneIDs,
                     lastSelectedSceneID: $lastSelectedSceneID,
-                    conflictDates: conflictDates,
-                    conflictSceneIDs: conflictSceneIDs,
-                    duplicateSceneNumberIDs: duplicateSceneNumberIDs,
-                    scheduleLockChangedDates: scheduleLockChangedDates,
+                    conflictDates: state.conflictDates,
+                    conflictSceneIDs: state.conflictSceneIDs,
+                    duplicateSceneNumberIDs: state.duplicateSceneNumberIDs,
+                    scheduleLockChangedDates: state.scheduleLockChangedDates,
                     scrollToDate: $scrollToDate,
                     dragStateResetToken: document.restoreCount,
                     onBeforeSceneChange: beginEditGesture,
@@ -905,9 +807,9 @@ struct ContentView: View {
                     showAllDays: stripboardShowAllDays,
                     selectedSceneIDs: $selectedSceneIDs,
                     lastSelectedSceneID: $lastSelectedSceneID,
-                    conflictDates: conflictDates,
-                    conflictSceneIDs: conflictSceneIDs,
-                    duplicateSceneNumberIDs: duplicateSceneNumberIDs,
+                    conflictDates: state.conflictDates,
+                    conflictSceneIDs: state.conflictSceneIDs,
+                    duplicateSceneNumberIDs: state.duplicateSceneNumberIDs,
                     scrollToDate: $scrollToDate,
                     dragStateResetToken: document.restoreCount,
                     onSceneChanged: endEditGesture,
@@ -1135,10 +1037,10 @@ struct ContentView: View {
                     clearUnscheduledEditingState()
                 },
                 canGoPrevious: (currentBoneyardPosition ?? 0) > 0,
-                canGoNext: currentBoneyardPosition.map { $0 < sortedScenes.count - 1 } ?? false,
+                canGoNext: currentBoneyardPosition.map { $0 < derived.sortedBoneyard.count - 1 } ?? false,
                 onPrevious: goToPreviousUnscheduledScene,
                 onNext: goToNextUnscheduledScene,
-                positionLabel: currentBoneyardPosition.map { "Scene \($0 + 1) of \(sortedScenes.count)" }
+                positionLabel: currentBoneyardPosition.map { "Scene \($0 + 1) of \(derived.sortedBoneyard.count)" }
             )
         } else {
             VStack(spacing: 20) {

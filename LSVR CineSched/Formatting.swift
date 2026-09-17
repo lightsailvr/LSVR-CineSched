@@ -8,28 +8,43 @@ func appLocale() -> Locale {
     LocalizationManager.shared.currentLanguage == .spanish ? Locale(identifier: "es_ES") : Locale(identifier: "en_US")
 }
 
+/// One `DateFormatter` per (pattern, locale), kept for the life of the app. Making a
+/// formatter is a slow, allocation-heavy call, and the calendar used to make three per day
+/// cell on every redraw (#34). Every view-side date string goes through this. A plain
+/// global is safe because the target's default isolation makes it, and every caller, main
+/// actor; a `@concurrent` caller would need its own formatter.
+private var dateFormatters: [String: DateFormatter] = [:]
+
+/// `date` in the given `dateFormat` pattern and the app's locale, capitalized the way the
+/// views have always shown dates ("Mon Jun 2", "Lunes").
+func formattedDate(_ date: Date, pattern: String) -> String {
+    let locale = appLocale()
+    let key    = "\(pattern)|\(locale.identifier)"
+    let formatter: DateFormatter
+    if let cached = dateFormatters[key] {
+        formatter = cached
+    } else {
+        formatter = DateFormatter()
+        formatter.locale     = locale
+        formatter.dateFormat = pattern
+        dateFormatters[key]  = formatter
+    }
+    return formatter.string(from: date).capitalized
+}
+
 /// Returns a short date string, e.g. "Mon Jun 2" or "Lun 2 Jun"
 func formattedDate(_ date: Date) -> String {
-    let formatter = DateFormatter()
-    formatter.locale = appLocale()
-    formatter.dateFormat = LocalizationManager.shared.currentLanguage == .spanish ? "E d MMM" : "E MMM d"
-    return formatter.string(from: date).capitalized
+    formattedDate(date, pattern: LocalizationManager.shared.currentLanguage == .spanish ? "E d MMM" : "E MMM d")
 }
 
 /// Returns a full date string, e.g. "Tuesday, October 6, 2026" or "Martes, 6 de octubre de 2026"
 func formattedFullDate(_ date: Date) -> String {
-    let formatter = DateFormatter()
-    formatter.locale = appLocale()
-    formatter.dateFormat = LocalizationManager.shared.currentLanguage == .spanish ? "EEEE, d 'de' MMMM, yyyy" : "EEEE, MMMM d, yyyy"
-    return formatter.string(from: date).capitalized
+    formattedDate(date, pattern: LocalizationManager.shared.currentLanguage == .spanish ? "EEEE, d 'de' MMMM, yyyy" : "EEEE, MMMM d, yyyy")
 }
 
 /// Returns weekday name in the current language, e.g. "Monday" / "Lunes"
 func weekdayName(for date: Date) -> String {
-    let formatter = DateFormatter()
-    formatter.locale = appLocale()
-    formatter.dateFormat = "EEEE"
-    return formatter.string(from: date).capitalized
+    formattedDate(date, pattern: "EEEE")
 }
 
 /// Returns a minute count as "H:MM", e.g. 510 -> "8:30" — used by the

@@ -24,15 +24,33 @@ struct ConflictScanner {
         guard !productionInfo.castList.isEmpty else { return [] }
         var conflicts: [ScheduleConflict] = []
 
+        // The roster keyed by normalized character name, with each member's unavailable
+        // ranges already reduced to calendar days, built once. This runs on every change
+        // to the project, and scanning the roster per character of every scene with two
+        // trims and a compare each, then normalizing three dates per range, was most of
+        // that cost (#34). The first roster entry for a name wins, as the linear search it
+        // replaces did.
+        let cal = Calendar.current
+        var members: [String: (member: CastMember, unavailableDays: [ClosedRange<Date>])] = [:]
+        for member in productionInfo.castList {
+            let key = normalized(member.characterName)
+            if members[key] == nil {
+                // A range read from a file could be inverted; it matches nothing, as before.
+                let days = member.unavailableRanges.compactMap { range -> ClosedRange<Date>? in
+                    let first = cal.startOfDay(for: range.start), last = cal.startOfDay(for: range.end)
+                    return first <= last ? first...last : nil
+                }
+                members[key] = (member, days)
+            }
+        }
+
         for day in shootDays {
+            let dayStart = cal.startOfDay(for: day.date)
             for scene in day.scenes {
                 for character in scene.cast {
-                    guard let member = productionInfo.castList.first(where: {
-                        $0.characterName.trimmingCharacters(in: .whitespaces)
-                            .caseInsensitiveCompare(character.trimmingCharacters(in: .whitespaces)) == .orderedSame
-                    }), !member.unavailableRanges.isEmpty else { continue }
+                    guard let (member, unavailableDays) = members[normalized(character)], !unavailableDays.isEmpty else { continue }
 
-                    if member.unavailableRanges.contains(where: { $0.contains(day.date) }) {
+                    if unavailableDays.contains(where: { $0.contains(dayStart) }) {
                         conflicts.append(ScheduleConflict(
                             date: day.date,
                             sceneID: scene.id,
@@ -45,6 +63,12 @@ struct ConflictScanner {
             }
         }
         return conflicts.sorted { $0.date < $1.date }
+    }
+
+    /// The character-name join's key: trimmed and case-folded the same way
+    /// `caseInsensitiveCompare` folds, so "ALEX MORGAN" and " alex morgan " match.
+    private static func normalized(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespaces).folding(options: .caseInsensitive, locale: nil)
     }
 
     /// Just the set of dates with at least one conflict — cheap to check per date header

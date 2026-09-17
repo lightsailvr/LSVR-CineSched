@@ -9,6 +9,73 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-16 — Measuring the document model's lag: the funnel was innocent, `L()` built its 250-entry table per call, and every drop drew the calendar twice (#34)
+
+Every hypothesis in #34 pointed at `perform`, the whole-project `!=` compare and the binding
+writes. Measured (a 300-scene, 200-day project, main-thread CPU per operation, Debug), the
+funnel was 2–10 ms of a 125 ms drop. What the profile actually showed, in order:
+
+- **`L(_:lang:)` built a `[String: [AppLanguage: String]]` literal of ~250 entries on every
+  call**, and a calendar redraw calls it from every day cell's context menu, tooltip and
+  "Day N" badge, and from every Boneyard row's context menu: 20–30 ms of every drop, in
+  Release too (allocation, not code, dominates). It is a lookup in a global `let` now.
+- **SwiftUI evaluates `.contextMenu { … }` builders eagerly** on every body pass of the
+  view they hang off, not when the menu opens. `View.contextMenu<A>(menuItems:)` was 429 ms
+  of a 1.5 s profile. Anything inside one is body cost.
+- **A drop cost two full body passes**: the edit invalidated `ContentView`, then
+  `onChange(of: document.project)` (a whole-project compare per pass) wrote five `@State`
+  values, one a tuple array that is never `Equatable`, so the calendar and Boneyard drew
+  again. Undo the same. `DerivedScheduleState` + a cache keyed on `ProjectDocument.changeCount`
+  makes the derivation part of the one pass, and the compare is gone. `pruneSelection` only
+  writes the selection when it actually shrinks (SwiftUI does compare `Equatable` state on
+  write — the pre-#8 profile showed `ShootDay ==` under `ContentView.shootDays.setter`).
+- Not on the profile at all: the fresh `ProjectCommands` published per body pass (one
+  `FocusedValues` assign sample in a 1.5 s trace, no `Commands` or `NSMenu` frames), the
+  `perform` compare, and the `@Observable` granularity of `document.project`. Left alone.
+- Smaller: three `DateFormatter()`s per day cell (35 ms/run; now `formattedDate(_:pattern:)`
+  caches them), `productionDayNumbers` and a `firstIndex(where: isDate(inSameDayAs:))` per
+  cell, `ConflictScanner.scan` trimming and comparing every roster name for every character
+  of every scene (a normalized dictionary now), and the calendar's cross-day move writing
+  the `shootDays` binding once per day in the range (a local copy, written once).
+
+Numbers (main-thread CPU per operation, 300 scenes / 200 days, Release; Debug in brackets):
+pre-#8 `2f48f5c` drop 106 [123], move 84 [101], undo 68 [74], redo 71 [70]; `document-model`
+tip `20d06d2` drop 108 [129], move 104 [125], undo 107 [123], redo 103 [136]; after this
+change drop 73 [72], move 72 [80], undo 60–70 [76], redo 65 [66]. What is left is SwiftUI's
+own update of ~4–6k attributes per redraw (every `DayCellView` and `SceneCardView` takes
+closures, so none is skipped); the next step, if ever needed, is Equatable cells.
+
+How it was measured, since none of it needs a screen (the harness lived in a temporary
+`PerfFixture.swift` + an env-gated `.task` in `applyLifecycle`, removed before commit):
+
+- **Drive the editor from inside**: a `.task` gated on `CINESCHED_PERF` that loads a
+  generated project through `edit`, then replays the calendar's exact binding-write
+  sequences (`allScenesBinding.wrappedValue.removeAll…`, `shootDaysBinding.wrappedValue[i]
+  .scenes.insert…` under `beginEditGesture`/`endEditGesture`) and `undoManager?.undo()`.
+  The pre-#8 worktree got the same script against its `@State` and `performUndo()`.
+- **"Lag" = main-thread time until the run loop sleeps**: a `CFRunLoopObserver` on
+  `beforeWaiting` with order `CFIndex.max` (after Core Animation's commit) records the first
+  and last wake within 400 ms of the edit; `thread_info(THREAD_BASIC_INFO)` on the main
+  thread gives its CPU over the same span. Both agreed to the millisecond, so the lag is CPU.
+- **`xctrace record --launch` runs the copy LaunchServices knows**, i.e. the human's
+  DerivedData build, not the scratch one (the trace's `<process path>` tells). Launch the
+  scratch binary yourself (`open -n --env K=V app --args …`, or the executable directly with
+  the env in the shell) and `--attach <pid>`; an unsigned scratch build attaches fine.
+  `xctrace export --xpath '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]'`
+  gives XML with `ref`-deduplicated frames (resolve `id`/`ref` yourself); frames carry
+  `<source line=…>`, which is how `L()` at `contextMenu` call sites was pinned. The Time
+  Profiler template only records signposts in the `PointsOfInterest` category, so window
+  each operation with `OSSignposter(subsystem:category: .pointsOfInterest)`. The `SwiftUI`
+  template's `swiftui-updates` table gives per-view update counts and durations.
+- **Harness pitfalls**: state restoration reopened the previous run's window, so the `.task`
+  ran in two documents (`-ApplePersistenceIgnoreState YES` as a launch argument); the
+  window's `NSUndoManager` does not close its per-event group between Swift-concurrency
+  continuations, so every scripted edit folded into one undo step until the script posted an
+  `.applicationDefined` `NSEvent` between operations; `open` with `--args <file>` silently did
+  nothing for the pre-#8 (non-document) app, whose binary had to be run directly; and the
+  pre-#8 build must run under its own `PRODUCT_BUNDLE_IDENTIFIER`, or its two-second
+  autosave overwrites the human's UserDefaults working copy.
+
 ## 2026-09-16 — The Mac as a document app: `makeDocument` gets no URL, the Open panel follows `readableContentTypes`, LaunchServices ignores apps in /tmp, and how to check any of it without a screen (#8)
 
 Wiring `DocumentGroup(editor:makeDocument:)` around `ProjectDocument` and moving every
