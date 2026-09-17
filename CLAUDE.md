@@ -27,10 +27,10 @@ Add `CODE_SIGNING_ALLOWED=NO` for a headless build that should not touch signing
 
 **iOS and visionOS** build and test against the simulators (the installed 27.0 runtimes have
 iPhone 17, iPad Pro 13-inch (M5) and Apple Vision Pro; `xcrun simctl list devices available`
-for the current names). The two exporters still on AppKit (`BreakdownExporter`,
-`DaysOutOfDaysExporter`) are gated to the Mac (ADR 0003); everything else, including
-`PDFCanvasTests`, `SchedulePDFExporterTests`, `MonthPDFExporterTests` and
-`CallSheetPDFExporterTests`, must pass there.
+for the current names). Everything, including every PDF exporter and its tests
+(`PDFCanvasTests`, `SchedulePDFExporterTests`, `MonthPDFExporterTests`,
+`CallSheetPDFExporterTests`, `BreakdownPDFExporterTests`, `DaysOutOfDaysPDFExporterTests`),
+must pass there.
 
 ```bash
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -scheme "LSVR CineSched" -destination 'platform=iOS Simulator,name=iPhone 17' CODE_SIGNING_ALLOWED=NO build
@@ -77,16 +77,13 @@ All sources are flat in `LSVR CineSched/`, one responsibility per file:
 - `CalendarView.swift`, `StripboardView.swift`: the two schedule views.
 - `*Sheet.swift`: modal editors. `*Exporter.swift`: PDF generators; every call site is in
   `ProjectStore+PDFExports.swift`. `PDFCanvas.swift` is the shared drawing helper (CoreGraphics +
-  CoreText, no AppKit); `StripboardPDFExporter`, `ShootingSchedulePDFExporter`, `PDFExporter` (the
-  month calendar) and `CallSheetExporter` draw on it and build everywhere, `BreakdownExporter` and
-  `DaysOutOfDaysExporter` still draw through AppKit and are Mac-only until they are migrated (its
-  header comment is the migration recipe). `Fountain*`, `FinalDraftParser`,
-  `HighlandArchiveReader`: importers.
+  CoreText, no AppKit); all six exporters (`StripboardPDFExporter`, `ShootingSchedulePDFExporter`,
+  `PDFExporter` (the month calendar), `CallSheetExporter`, `BreakdownExporter`,
+  `DaysOutOfDaysExporter`) draw on it and build everywhere (its header comment is the recipe
+  for writing one). `Fountain*`, `FinalDraftParser`, `HighlandArchiveReader`: importers.
 - Platform seams (ADR 0003): `FilePanels`, `SelectAllTextField`, `WindowAccessor`, `ModifierKeys`,
   `PlatformControlStyles`, `PlatformColors`, `PlatformPlaceholderView`, plus the root/tabbing
-  choice in `CineSchedApp`, and the temporary `#if os(macOS)` gate on `BreakdownExporter`,
-  `DaysOutOfDaysExporter` and `ProjectStore+PDFExports.swift`. These are the only files allowed
-  to contain `#if os(...)`.
+  choice in `CineSchedApp`. These are the only files allowed to contain `#if os(...)`.
 
 ## Conventions
 
@@ -125,11 +122,14 @@ All sources are flat in `LSVR CineSched/`, one responsibility per file:
 The test targets are Xcode template stubs. `LSVR CineSchedTests` uses Swift Testing (`@Test`,
 `#expect`). Pure, testable units: `FountainParser`, `FountainPaginator`, `FractionParser`,
 `TimeParser`, `Formatting.swift` free functions, `ConflictScanner`, `ScheduleLockScanner`,
-`DaysOutOfDaysExporter.buildRows`, `PDFCanvas`, and the four PDFCanvas-based exporters (rendered from
-the shared fixture in `PDFTestSupport.swift` and read back through PDFKit in
-`SchedulePDFExporterTests`, `MonthPDFExporterTests` and `CallSheetPDFExporterTests`; set
-`CINESCHED_PDF_DUMP_DIR` to keep the PDFs for a visual diff, see `PDFTestSupport`'s header).
-Prefer adding tests there over UI tests.
+`DaysOutOfDaysExporter.buildRows`, `PDFCanvas`, and all six exporters (rendered from the shared
+fixture in `PDFTestSupport.swift` and read back through PDFKit in `SchedulePDFExporterTests`,
+`MonthPDFExporterTests`, `CallSheetPDFExporterTests`, `BreakdownPDFExporterTests` and
+`DaysOutOfDaysPDFExporterTests`; set `CINESCHED_PDF_DUMP_DIR` to keep the PDFs for a visual
+diff, see `PDFTestSupport`'s header). Prefer adding tests there over UI tests. Any change to
+`PDFCanvas` gets the pixel comparison: dump every fixture before and after, rasterize and
+diff (learnings.md, 2026-09-16 #6 has the recipe); expectations that depend on the Mac's SF
+metrics or wrapping are guarded by `PDFFixture.hasMacSystemFace`.
 
 ## Working agreements
 

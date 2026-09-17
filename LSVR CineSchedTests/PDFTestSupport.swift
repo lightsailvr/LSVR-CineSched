@@ -2,9 +2,9 @@
 //  PDFTestSupport.swift
 //  LSVR CineSchedTests
 //
-//  One fixture project and two helpers shared by every exporter test, so the strip
-//  schedule, shooting schedule, month calendar and call sheet are all rendered from the
-//  same days and can be compared side by side.
+//  One fixture project and a few helpers shared by every exporter test, so the strip
+//  schedule, shooting schedule, month calendar, call sheet, breakdown sheets and DOOD are
+//  all rendered from the same days and can be compared side by side.
 //
 //  Set CINESCHED_PDF_DUMP_DIR to a directory and every fixture export is also written
 //  there, for the visual comparison that guards any change to the drawing code. Through
@@ -13,6 +13,7 @@
 //  ENABLE_APP_SANDBOX=NO to the build settings or nothing gets written.
 //
 
+import CoreText
 import Foundation
 import Testing
 import PDFKit
@@ -21,6 +22,13 @@ import PDFKit
 enum PDFFixture {
 
     static let title = "The Long Way Home"
+
+    /// Whether the platform has the Mac's SF face (18pt ascent 17.40234375). iOS and
+    /// visionOS ship a differently-hinted, slightly narrower SF, so any expectation about
+    /// a measured line height or about where a line wraps holds only when this is true.
+    nonisolated static var hasMacSystemFace: Bool {
+        CTFontCreateUIFontForLanguage(.system, 18, nil).map { CTFontGetAscent($0) == 17.40234375 } ?? false
+    }
 
     static var productionInfo: ProductionInfo {
         var info = ProductionInfo()

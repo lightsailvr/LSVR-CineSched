@@ -2,14 +2,17 @@
 // Generates a landscape US Letter "Days Out of Days" (DOOD) PDF — one row per cast
 // member, one column per shoot day, showing when each character starts, works,
 // holds, and finishes across the schedule.
+//
+// Draws through PDFCanvas (CoreGraphics + CoreText, no AppKit), so it builds on every
+// platform. The rects handed to `canvas.draw(_:in:…)` are the ones the AppKit version
+// handed to `NSAttributedString.draw(in:)`, and the points handed to `draw(_:lineOrigin:…)`
+// are the ones it handed to `draw(at:)`, so the grid lands pixel for pixel where it did.
+// The status colors used to be `NSColor.systemBlue` / `.systemYellow` / `.systemRed`,
+// which followed the app's appearance (the PDF came out a shade different in dark mode);
+// they are pinned to the light-appearance values now.
 
-// Platform seam: macOS only for now. The exporters still draw through AppKit
-// (NSGraphicsContext, NSFont, NSColor, NSAttributedString), so they are gated out
-// of the iOS and visionOS builds until the shared CoreGraphics/CoreText drawing
-// helper lands (see docs/adr/0003 and the exporter tickets under #1).
-#if os(macOS)
-import SwiftUI
-import AppKit
+import CoreGraphics
+import Foundation
 
 enum DOODStatus: Equatable {
     case startWork, work, hold, finish, startFinish, unavailable, none
@@ -33,23 +36,30 @@ enum DOODStatus: Equatable {
         }
     }
 
-    var textColor: NSColor {
+    /// Light-appearance `systemBlue`, `systemYellow` and `systemRed` (sRGB 0/136/255,
+    /// 255/204/0 and 255/56/60).
+    private static let blue   = CGColor.srgb(0, 136.0 / 255, 1)
+    private static let yellow = CGColor.srgb(1, 0.8, 0)
+    private static let red    = CGColor.srgb(1, 56.0 / 255, 60.0 / 255)
+
+    var textColor: CGColor {
         switch self {
-        case .startWork, .finish, .startFinish: return .white
-        case .work:  return .black
-        case .hold:  return NSColor(calibratedWhite: 0.35, alpha: 1)
-        case .unavailable: return .white
-        case .none:  return .clear
+        case .startWork, .finish, .startFinish: return .pdfWhite
+        case .work:  return .pdfBlack
+        case .hold:  return .calibratedGray(0.35)
+        case .unavailable: return .pdfWhite
+        case .none:  return .pdfBlack   // never drawn: `code` is empty
         }
     }
 
-    var fillColor: NSColor {
+    /// The cell background; `nil` leaves the cell unfilled.
+    var fillColor: CGColor? {
         switch self {
-        case .startWork, .finish, .startFinish: return NSColor.systemBlue
-        case .work:  return NSColor(calibratedWhite: 0.94, alpha: 1)
-        case .hold:  return NSColor.systemYellow.withAlphaComponent(0.35)
-        case .unavailable: return NSColor.systemRed.withAlphaComponent(0.55)
-        case .none:  return .clear
+        case .startWork, .finish, .startFinish: return Self.blue
+        case .work:  return .calibratedGray(0.94)
+        case .hold:  return Self.yellow.withAlpha(0.35)
+        case .unavailable: return Self.red.withAlpha(0.55)
+        case .none:  return nil
         }
     }
 }
@@ -183,10 +193,7 @@ struct DaysOutOfDaysExporter {
         let rowChunkStarts = stride(from: 0, to: rows.count, by: rowsPerPage).map { $0 }
         let totalPages = dayChunkStarts.count * rowChunkStarts.count
 
-        let pdfData = NSMutableData()
-        guard let consumer = CGDataConsumer(data: pdfData) else { return nil }
-        var mediaBox = CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight)
-        guard let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else { return nil }
+        guard let canvas = PDFCanvas(pageSize: CGSize(width: pageWidth, height: pageHeight)) else { return nil }
 
         let dayNumFormatter = DateFormatter(); dayNumFormatter.dateFormat = "d"
         let weekdayFormatter = DateFormatter(); weekdayFormatter.dateFormat = "EEEEE"
@@ -200,22 +207,15 @@ struct DaysOutOfDaysExporter {
                 let rowChunk = Array(rows[rowStart..<min(rowStart + rowsPerPage, rows.count)])
                 pageNum += 1
 
-                context.beginPDFPage(nil)
-                let gctx = NSGraphicsContext(cgContext: context, flipped: false)
-                NSGraphicsContext.saveGraphicsState()
-                NSGraphicsContext.current = gctx
+                canvas.beginPage()
 
                 var y = pageHeight - margin
 
                 // Title
                 let titleText = "\(projectTitle.isEmpty ? "Untitled Movie" : projectTitle) — Days Out of Days"
-                NSAttributedString(string: titleText, attributes: [
-                    .font: NSFont.boldSystemFont(ofSize: 14), .foregroundColor: NSColor.black
-                ]).draw(at: CGPoint(x: margin, y: y - 16))
-
-                NSAttributedString(string: "Page \(pageNum) of \(totalPages)", attributes: [
-                    .font: NSFont.systemFont(ofSize: 9), .foregroundColor: NSColor.gray
-                ]).draw(at: CGPoint(x: pageWidth - margin - 70, y: y - 14))
+                canvas.draw(titleText, lineOrigin: CGPoint(x: margin, y: y - 16), font: .boldSystem(size: 14), color: .pdfBlack)
+                canvas.draw("Page \(pageNum) of \(totalPages)", lineOrigin: CGPoint(x: pageWidth - margin - 70, y: y - 14),
+                            font: .system(size: 9), color: .pdfGray)
 
                 y -= titleHeight
 
@@ -223,12 +223,12 @@ struct DaysOutOfDaysExporter {
                 var x = margin
 
                 // Column headers
-                drawCell("", rect: CGRect(x: x, y: y - headerHeight, width: nameColWidth, height: headerHeight),
-                          font: .boldSystemFont(ofSize: 9), align: .left, textColor: .black, fill: nil)
+                drawCell(canvas, "", rect: CGRect(x: x, y: y - headerHeight, width: nameColWidth, height: headerHeight),
+                         font: .boldSystem(size: 9), align: .leading, textColor: .pdfBlack, fill: nil)
                 x += nameColWidth
                 for label in summaryLabels {
-                    drawCell(label, rect: CGRect(x: x, y: y - headerHeight, width: summaryColWidth, height: headerHeight),
-                             font: .boldSystemFont(ofSize: 8), align: .center, textColor: .black, fill: nil)
+                    drawCell(canvas, label, rect: CGRect(x: x, y: y - headerHeight, width: summaryColWidth, height: headerHeight),
+                             font: .boldSystem(size: 8), align: .center, textColor: .pdfBlack, fill: nil)
                     x += summaryColWidth
                 }
 
@@ -238,7 +238,7 @@ struct DaysOutOfDaysExporter {
                     let monthLabel = month != lastMonth ? month : ""
                     lastMonth = month
                     let headerText = "\(monthLabel)\n\(weekdayFormatter.string(from: day.date))\n\(dayNumFormatter.string(from: day.date))"
-                    drawMultilineHeader(headerText, rect: CGRect(x: x, y: y - headerHeight, width: dayColWidth, height: headerHeight),
+                    drawMultilineHeader(canvas, headerText, rect: CGRect(x: x, y: y - headerHeight, width: dayColWidth, height: headerHeight),
                                         isOff: !day.dayType.isShootable)
                     x += dayColWidth
                 }
@@ -248,26 +248,26 @@ struct DaysOutOfDaysExporter {
                 // Rows
                 for row in rowChunk {
                     var rx = margin
-                    drawCell(row.displayName, rect: CGRect(x: rx, y: y - rowHeight, width: nameColWidth, height: rowHeight),
-                             font: .systemFont(ofSize: 9), align: .left, textColor: .black, fill: nil)
+                    drawCell(canvas, row.displayName, rect: CGRect(x: rx, y: y - rowHeight, width: nameColWidth, height: rowHeight),
+                             font: .system(size: 9), align: .leading, textColor: .pdfBlack, fill: nil)
                     rx += nameColWidth
 
-                    drawCell("\(row.totalSpan)", rect: CGRect(x: rx, y: y - rowHeight, width: summaryColWidth, height: rowHeight),
-                             font: .boldSystemFont(ofSize: 9), align: .center, textColor: .black, fill: nil)
+                    drawCell(canvas, "\(row.totalSpan)", rect: CGRect(x: rx, y: y - rowHeight, width: summaryColWidth, height: rowHeight),
+                             font: .boldSystem(size: 9), align: .center, textColor: .pdfBlack, fill: nil)
                     rx += summaryColWidth
-                    drawCell("\(row.workDayCount)", rect: CGRect(x: rx, y: y - rowHeight, width: summaryColWidth, height: rowHeight),
-                             font: .systemFont(ofSize: 9), align: .center, textColor: .black, fill: nil)
+                    drawCell(canvas, "\(row.workDayCount)", rect: CGRect(x: rx, y: y - rowHeight, width: summaryColWidth, height: rowHeight),
+                             font: .system(size: 9), align: .center, textColor: .pdfBlack, fill: nil)
                     rx += summaryColWidth
                     if includeHold {
-                        drawCell("\(row.holdDayCount)", rect: CGRect(x: rx, y: y - rowHeight, width: summaryColWidth, height: rowHeight),
-                                 font: .systemFont(ofSize: 9), align: .center, textColor: .black, fill: nil)
+                        drawCell(canvas, "\(row.holdDayCount)", rect: CGRect(x: rx, y: y - rowHeight, width: summaryColWidth, height: rowHeight),
+                                 font: .system(size: 9), align: .center, textColor: .pdfBlack, fill: nil)
                         rx += summaryColWidth
                     }
 
                     for i in dayStart..<(dayStart + dayChunk.count) {
                         let status = row.statuses[i]
-                        drawCell(status.code, rect: CGRect(x: rx, y: y - rowHeight, width: dayColWidth, height: rowHeight),
-                                 font: .boldSystemFont(ofSize: 7), align: .center, textColor: status.textColor, fill: status.fillColor)
+                        drawCell(canvas, status.code, rect: CGRect(x: rx, y: y - rowHeight, width: dayColWidth, height: rowHeight),
+                                 font: .boldSystem(size: 7), align: .center, textColor: status.textColor, fill: status.fillColor)
                         rx += dayColWidth
                     }
                     y -= rowHeight
@@ -275,7 +275,7 @@ struct DaysOutOfDaysExporter {
                 let gridBottom = y
 
                 // Grid lines
-                drawGrid(top: gridTop, headerBottom: gridBottom0, bottom: gridBottom,
+                drawGrid(canvas, top: gridTop, headerBottom: gridBottom0, bottom: gridBottom,
                          left: margin, nameColWidth: nameColWidth, summaryColWidth: summaryColWidth, summaryColCount: summaryLabels.count,
                          dayColWidth: dayColWidth, dayCount: dayChunk.count, rowCount: rowChunk.count, rowHeight: rowHeight)
 
@@ -284,88 +284,71 @@ struct DaysOutOfDaysExporter {
                 let legendText = includeHold
                     ? "SW = Start Work    W = Work    H = Hold    WF = Work Finish    SWF = Start/Work/Finish    X = Unavailable    TOT = Total Days    WRK = Work Days    HLD = Hold Days"
                     : "SW = Start Work    W = Work    WF = Work Finish    SWF = Start/Work/Finish    X = Unavailable    TOT = Total Days    WRK = Work Days"
-                NSAttributedString(string: legendText, attributes: [
-                    .font: NSFont.systemFont(ofSize: 8), .foregroundColor: NSColor.gray
-                ]).draw(at: CGPoint(x: margin, y: legendY))
+                canvas.draw(legendText, lineOrigin: CGPoint(x: margin, y: legendY), font: .system(size: 8), color: .pdfGray)
 
-                NSGraphicsContext.restoreGraphicsState()
-                context.endPDFPage()
+                canvas.endPage()
             }
         }
 
-        context.closePDF()
-        return pdfData as Data
+        return canvas.finish()
     }
 
     // MARK: - Drawing helpers
 
-    private static func drawCell(_ text: String, rect: CGRect, font: NSFont, align: NSTextAlignment, textColor: NSColor, fill: NSColor?) {
+    /// One line, vertically centered in `rect` (the text box is exactly one TextKit line
+    /// tall, so a name that would wrap loses its second line, as it always did).
+    private static func drawCell(_ canvas: PDFCanvas, _ text: String, rect: CGRect, font: PDFFont, align: PDFCanvas.Alignment, textColor: CGColor, fill: CGColor?) {
         if let fill = fill {
-            fill.setFill()
-            NSBezierPath(rect: rect).fill()
+            canvas.fill(rect, color: fill)
         }
         guard !text.isEmpty else { return }
-        let style = NSMutableParagraphStyle()
-        style.alignment = align
-        let attrString = NSAttributedString(string: text, attributes: [
-            .font: font, .foregroundColor: textColor, .paragraphStyle: style
-        ])
-        let textHeight = attrString.size().height
+        let textHeight = font.lineHeight
         let textRect = CGRect(x: rect.minX + 2, y: rect.minY + (rect.height - textHeight) / 2,
                                width: rect.width - 4, height: textHeight)
-        attrString.draw(in: textRect)
+        canvas.draw(text, in: textRect, font: font, color: textColor, alignment: align)
     }
 
-    private static func drawMultilineHeader(_ text: String, rect: CGRect, isOff: Bool) {
+    private static func drawMultilineHeader(_ canvas: PDFCanvas, _ text: String, rect: CGRect, isOff: Bool) {
         if isOff {
-            NSColor(calibratedWhite: 0.9, alpha: 1).setFill()
-            NSBezierPath(rect: rect).fill()
+            canvas.fill(rect, color: .calibratedGray(0.9))
         }
-        let style = NSMutableParagraphStyle()
-        style.alignment = .center
-        style.lineSpacing = 0
-        let attrString = NSAttributedString(string: text, attributes: [
-            .font: NSFont.systemFont(ofSize: 7), .foregroundColor: NSColor.black, .paragraphStyle: style
-        ])
-        attrString.draw(in: rect.insetBy(dx: 0, dy: 2))
+        canvas.draw(text, in: rect.insetBy(dx: 0, dy: 2), font: .system(size: 7), color: .pdfBlack, alignment: .center)
     }
 
     private static func drawGrid(
+        _ canvas: PDFCanvas,
         top: CGFloat, headerBottom: CGFloat, bottom: CGFloat,
         left: CGFloat, nameColWidth: CGFloat, summaryColWidth: CGFloat, summaryColCount: Int,
         dayColWidth: CGFloat, dayCount: Int, rowCount: Int, rowHeight: CGFloat
     ) {
-        let path = NSBezierPath()
-        path.lineWidth = 0.4
-        NSColor.lightGray.setStroke()
+        var lines: [(CGPoint, CGPoint)] = []
 
         let right = left + nameColWidth + summaryColWidth * CGFloat(summaryColCount) + dayColWidth * CGFloat(dayCount)
 
         // Header underline + outer box
-        path.move(to: CGPoint(x: left, y: headerBottom)); path.line(to: CGPoint(x: right, y: headerBottom))
-        path.move(to: CGPoint(x: left, y: top)); path.line(to: CGPoint(x: right, y: top))
-        path.move(to: CGPoint(x: left, y: bottom)); path.line(to: CGPoint(x: right, y: bottom))
-        path.move(to: CGPoint(x: left, y: top)); path.line(to: CGPoint(x: left, y: bottom))
-        path.move(to: CGPoint(x: right, y: top)); path.line(to: CGPoint(x: right, y: bottom))
+        lines.append((CGPoint(x: left, y: headerBottom), CGPoint(x: right, y: headerBottom)))
+        lines.append((CGPoint(x: left, y: top),          CGPoint(x: right, y: top)))
+        lines.append((CGPoint(x: left, y: bottom),       CGPoint(x: right, y: bottom)))
+        lines.append((CGPoint(x: left, y: top),          CGPoint(x: left, y: bottom)))
+        lines.append((CGPoint(x: right, y: top),         CGPoint(x: right, y: bottom)))
 
         // Row separators
         for i in 0...rowCount {
             let y = headerBottom - CGFloat(i) * rowHeight
-            path.move(to: CGPoint(x: left, y: y)); path.line(to: CGPoint(x: right, y: y))
+            lines.append((CGPoint(x: left, y: y), CGPoint(x: right, y: y)))
         }
 
         // Column separators: name | summary columns... | day, day, day...
         var x = left + nameColWidth
-        path.move(to: CGPoint(x: x, y: top)); path.line(to: CGPoint(x: x, y: bottom))
+        lines.append((CGPoint(x: x, y: top), CGPoint(x: x, y: bottom)))
         for _ in 0..<summaryColCount {
             x += summaryColWidth
-            path.move(to: CGPoint(x: x, y: top)); path.line(to: CGPoint(x: x, y: bottom))
+            lines.append((CGPoint(x: x, y: top), CGPoint(x: x, y: bottom)))
         }
         for _ in 0..<dayCount {
             x += dayColWidth
-            path.move(to: CGPoint(x: x, y: top)); path.line(to: CGPoint(x: x, y: bottom))
+            lines.append((CGPoint(x: x, y: top), CGPoint(x: x, y: bottom)))
         }
-        path.stroke()
+        canvas.stroke(lines: lines, color: .pdfLightGray, lineWidth: 0.4)
     }
 }
-#endif

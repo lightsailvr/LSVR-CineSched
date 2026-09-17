@@ -3,29 +3,31 @@
 // script order, every scene included — in the classic AD breakdown sheet layout.
 // Enhanced with smart dynamic space allocation (shrinking unused categories to 24pt),
 // bulleted list formatting, larger legible typography, and color-coded department titles.
+//
+// Draws through PDFCanvas (CoreGraphics + CoreText, no AppKit), so it builds on every
+// platform. The rects handed to `canvas.draw(_:in:…)` are the ones the AppKit version
+// handed to `NSAttributedString.draw(in:)`, and the auto-scaling loop compares
+// `boundingHeight` (what `boundingRect` reported) against the cell exactly as before, so
+// each sheet picks the same size and lands pixel for pixel where it did.
 
-// Platform seam: macOS only for now. The exporters still draw through AppKit
-// (NSGraphicsContext, NSFont, NSColor, NSAttributedString), so they are gated out
-// of the iOS and visionOS builds until the shared CoreGraphics/CoreText drawing
-// helper lands (see docs/adr/0003 and the exporter tickets under #1).
-#if os(macOS)
-import AppKit
+import CoreGraphics
+import Foundation
 
 struct BreakdownExporter {
 
     // MARK: - Department Title Colors (Matching User Reference)
-    private static let castColor       = NSColor(red: 0.88, green: 0.12, blue: 0.12, alpha: 1.0) // Red
-    private static let wardrobeColor   = NSColor(red: 0.58, green: 0.28, blue: 0.08, alpha: 1.0) // Brown
-    private static let propsColor      = NSColor(red: 0.55, green: 0.15, blue: 0.75, alpha: 1.0) // Purple
-    private static let extrasColor     = NSColor(red: 0.00, green: 0.65, blue: 0.15, alpha: 1.0) // Green
-    private static let setDressColor   = NSColor(red: 0.80, green: 0.55, blue: 0.00, alpha: 1.0) // Gold / Yellow
-    private static let hairMakeupColor = NSColor(red: 0.05, green: 0.40, blue: 0.90, alpha: 1.0) // Blue
-    private static let vehiclesColor   = NSColor(red: 0.48, green: 0.12, blue: 0.52, alpha: 1.0) // Dark Violet
-    private static let sfxColor        = NSColor(red: 0.00, green: 0.55, blue: 0.65, alpha: 1.0) // Cyan / Teal
-    private static let vfxColor        = NSColor(red: 0.00, green: 0.55, blue: 0.65, alpha: 1.0) // Cyan / Teal
-    private static let specialEqColor  = NSColor(red: 0.27, green: 0.35, blue: 0.39, alpha: 1.0) // Slate
-    private static let stuntsColor     = NSColor(red: 0.78, green: 0.16, blue: 0.16, alpha: 1.0) // Crimson
-    private static let defaultColor    = NSColor(white: 0.10, alpha: 1.0)                        // Charcoal / Black
+    private static let castColor       = CGColor.srgb(0.88, 0.12, 0.12) // Red
+    private static let wardrobeColor   = CGColor.srgb(0.58, 0.28, 0.08) // Brown
+    private static let propsColor      = CGColor.srgb(0.55, 0.15, 0.75) // Purple
+    private static let extrasColor     = CGColor.srgb(0.00, 0.65, 0.15) // Green
+    private static let setDressColor   = CGColor.srgb(0.80, 0.55, 0.00) // Gold / Yellow
+    private static let hairMakeupColor = CGColor.srgb(0.05, 0.40, 0.90) // Blue
+    private static let vehiclesColor   = CGColor.srgb(0.48, 0.12, 0.52) // Dark Violet
+    private static let sfxColor        = CGColor.srgb(0.00, 0.55, 0.65) // Cyan / Teal
+    private static let vfxColor        = CGColor.srgb(0.00, 0.55, 0.65) // Cyan / Teal
+    private static let specialEqColor  = CGColor.srgb(0.27, 0.35, 0.39) // Slate
+    private static let stuntsColor     = CGColor.srgb(0.78, 0.16, 0.16) // Crimson
+    private static let defaultColor    = CGColor.gray(0.10)             // Charcoal / Black
 
     static func generatePDF(shootDays: [ShootDay], allScenes: [Scene], projectTitle: String) -> Data? {
         var seen: Set<UUID> = []
@@ -42,26 +44,19 @@ struct BreakdownExporter {
         let margin:     CGFloat = 36
         let contentWidth = pageWidth - 2 * margin
 
-        let pdfData = NSMutableData()
-        guard let consumer = CGDataConsumer(data: pdfData) else { return nil }
-        var mediaBox = CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight)
-        guard let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else { return nil }
+        guard let canvas = PDFCanvas(pageSize: CGSize(width: pageWidth, height: pageHeight)) else { return nil }
 
         let displayTitle = projectTitle.isEmpty ? "Untitled Movie" : projectTitle
 
         for (index, scene) in scenes.enumerated() {
-            context.beginPDFPage(nil)
-            let gctx = NSGraphicsContext(cgContext: context, flipped: false)
-            NSGraphicsContext.saveGraphicsState()
-            NSGraphicsContext.current = gctx
+            canvas.beginPage()
 
             let (sceneNumber, intExt, setting) = parseSceneHeading(scene.title)
 
             // Masthead
             let mastheadTop = pageHeight - margin
-            NSAttributedString(string: "BREAKDOWN SHEET", attributes: [
-                .font: NSFont.boldSystemFont(ofSize: 18), .foregroundColor: NSColor.black
-            ]).draw(at: CGPoint(x: margin, y: mastheadTop - 18))
+            canvas.draw("BREAKDOWN SHEET", lineOrigin: CGPoint(x: margin, y: mastheadTop - 18),
+                        font: .boldSystem(size: 18), color: .pdfBlack)
 
             let gridTop = mastheadTop - 26
             let footerBottom = margin + 12
@@ -78,15 +73,15 @@ struct BreakdownExporter {
             let narrowCol1: CGFloat = 115
             let wideCol1 = contentWidth - 2 * narrowCol1
             var x = margin
-            drawCell(label: "BREAKDOWN SHEET #", value: "\(index + 1)",
+            drawCell(canvas, label: "BREAKDOWN SHEET #", value: "\(index + 1)",
                      rect: CGRect(x: x, y: rowTops[0] - rowHeights[0], width: narrowCol1, height: rowHeights[0]),
                      valueSize: 13, valueBold: true, centered: true, labelSize: 9.0)
             x += narrowCol1
-            drawCell(label: "", value: displayTitle,
+            drawCell(canvas, label: "", value: displayTitle,
                      rect: CGRect(x: x, y: rowTops[0] - rowHeights[0], width: wideCol1, height: rowHeights[0]),
                      valueSize: 18, valueBold: true, centered: true)
             x += wideCol1
-            drawCell(label: "SCENE #", value: sceneNumber.isEmpty ? "—" : sceneNumber,
+            drawCell(canvas, label: "SCENE #", value: sceneNumber.isEmpty ? "—" : sceneNumber,
                      rect: CGRect(x: x, y: rowTops[0] - rowHeights[0], width: narrowCol1, height: rowHeights[0]),
                      valueSize: 15, valueBold: true, centered: true, labelSize: 9.0)
 
@@ -95,15 +90,15 @@ struct BreakdownExporter {
             let locationCol: CGFloat = 120
             let settingCol = contentWidth - intExtCol - locationCol
             x = margin
-            drawCell(label: "INT / EXT", value: intExt,
+            drawCell(canvas, label: "INT / EXT", value: intExt,
                      rect: CGRect(x: x, y: rowTops[1] - rowHeights[1], width: intExtCol, height: rowHeights[1]),
                      valueSize: 11, valueBold: true, centered: true, labelSize: 9.0)
             x += intExtCol
-            drawCell(label: "SETTING", value: setting,
+            drawCell(canvas, label: "SETTING", value: setting,
                      rect: CGRect(x: x, y: rowTops[1] - rowHeights[1], width: settingCol, height: rowHeights[1]),
                      valueSize: 10.0, valueBold: false, labelSize: 9.0)
             x += settingCol
-            drawCell(label: "LOCATION", value: "",
+            drawCell(canvas, label: "LOCATION", value: "",
                      rect: CGRect(x: x, y: rowTops[1] - rowHeights[1], width: locationCol, height: rowHeights[1]),
                      valueSize: 10.0, labelSize: 9.0)
 
@@ -112,66 +107,61 @@ struct BreakdownExporter {
             let descCol = contentWidth - rightCol2
             let halfHeight2 = rowHeights[2] / 2
             x = margin
-            drawCell(label: "DESCRIPTION", value: scene.summary,
+            drawCell(canvas, label: "DESCRIPTION", value: scene.summary,
                      rect: CGRect(x: x, y: rowTops[2] - rowHeights[2], width: descCol, height: rowHeights[2]),
                      valueSize: 9.5, labelSize: 9.0)
             x += descCol
-            drawCell(label: "DAY / NIGHT", value: scene.dayNightType.displayName,
+            drawCell(canvas, label: "DAY / NIGHT", value: scene.dayNightType.displayName,
                      rect: CGRect(x: x, y: rowTops[2] - halfHeight2, width: rightCol2, height: halfHeight2),
                      valueSize: 11, valueBold: true, centered: true, labelSize: 9.0)
-            drawCell(label: "SCRIPT PAGES", value: formattedEighths(scene.duration),
+            drawCell(canvas, label: "SCRIPT PAGES", value: formattedEighths(scene.duration),
                      rect: CGRect(x: x, y: rowTops[2] - rowHeights[2], width: rightCol2, height: halfHeight2),
                      valueSize: 11, valueBold: true, centered: true, labelSize: 9.0)
 
             // Row 3: Cast | Extras / Background | Wardrobe (Prominent colored department titles: 11.5pt bold)
-            drawThreeUp(row: 3, rowTops: rowTops, rowHeights: rowHeights, margin: margin, contentWidth: contentWidth,
+            drawThreeUp(canvas, row: 3, rowTops: rowTops, rowHeights: rowHeights, margin: margin, contentWidth: contentWidth,
                         a: ("CAST", formatBulletList(scene.cast), castColor),
                         b: ("EXTRAS / BACKGROUND", formatBulletList(scene.extras), extrasColor),
                         c: ("WARDROBE", formatBulletList(scene.wardrobe), wardrobeColor),
                         labelSize: 11.5)
 
             // Row 4: Hair & Makeup | Props | Set Dressing
-            drawThreeUp(row: 4, rowTops: rowTops, rowHeights: rowHeights, margin: margin, contentWidth: contentWidth,
+            drawThreeUp(canvas, row: 4, rowTops: rowTops, rowHeights: rowHeights, margin: margin, contentWidth: contentWidth,
                         a: ("HAIR & MAKEUP", formatBulletList(scene.makeupHair), hairMakeupColor),
                         b: ("PROPS", formatBulletList(scene.props), propsColor),
                         c: ("SET DRESSING", formatBulletList(scene.setDressing), setDressColor),
                         labelSize: 11.5)
 
             // Row 5: Vehicles | Special Equipment | Stunts
-            drawThreeUp(row: 5, rowTops: rowTops, rowHeights: rowHeights, margin: margin, contentWidth: contentWidth,
+            drawThreeUp(canvas, row: 5, rowTops: rowTops, rowHeights: rowHeights, margin: margin, contentWidth: contentWidth,
                         a: ("VEHICLES", formatBulletList(scene.vehicles), vehiclesColor),
                         b: ("SPECIAL EQUIPMENT", formatBulletList(scene.specialEquipment), specialEqColor),
                         c: ("STUNTS", formatBulletList(scene.stunts), stuntsColor),
                         labelSize: 11.5)
 
             // Row 6: SFX | VFX
-            drawTwoUp(row: 6, rowTops: rowTops, rowHeights: rowHeights, margin: margin, contentWidth: contentWidth,
+            drawTwoUp(canvas, row: 6, rowTops: rowTops, rowHeights: rowHeights, margin: margin, contentWidth: contentWidth,
                       a: ("SFX", formatBulletList(scene.sfx), sfxColor),
                       b: ("VFX", formatBulletList(scene.vfx), vfxColor),
                       labelSize: 11.5)
 
             // Row 7: Notes (full width)
-            drawCell(label: "NOTES", value: scene.breakdownNotes,
+            drawCell(canvas, label: "NOTES", value: scene.breakdownNotes,
                      rect: CGRect(x: margin, y: rowTops[7] - rowHeights[7], width: contentWidth, height: rowHeights[7]),
                      valueSize: 9.5,
                      labelColor: defaultColor,
                      labelSize: 10.0)
 
             // Footer: est. time + scene counter
-            NSAttributedString(string: "Est. Time: \(formattedTime(scene.estimatedTime))", attributes: [
-                .font: NSFont.systemFont(ofSize: 8.5), .foregroundColor: NSColor.gray
-            ]).draw(at: CGPoint(x: margin, y: gridBottom - 13))
-            
-            NSAttributedString(string: "Scene \(index + 1) of \(scenes.count)", attributes: [
-                .font: NSFont.systemFont(ofSize: 8.5), .foregroundColor: NSColor.gray
-            ]).draw(at: CGPoint(x: pageWidth - margin - 85, y: gridBottom - 13))
+            canvas.draw("Est. Time: \(formattedTime(scene.estimatedTime))", lineOrigin: CGPoint(x: margin, y: gridBottom - 13),
+                        font: .system(size: 8.5), color: .pdfGray)
+            canvas.draw("Scene \(index + 1) of \(scenes.count)", lineOrigin: CGPoint(x: pageWidth - margin - 85, y: gridBottom - 13),
+                        font: .system(size: 8.5), color: .pdfGray)
 
-            NSGraphicsContext.restoreGraphicsState()
-            context.endPDFPage()
+            canvas.endPage()
         }
 
-        context.closePDF()
-        return pdfData as Data
+        return canvas.finish()
     }
 
     // MARK: - Bullet List Formatter
@@ -233,112 +223,87 @@ struct BreakdownExporter {
     // MARK: - Drawing Helpers
 
     private static func drawTwoUp(
+        _ canvas: PDFCanvas,
         row: Int, rowTops: [CGFloat], rowHeights: [CGFloat], margin: CGFloat, contentWidth: CGFloat,
-        a: (String, String, NSColor), b: (String, String, NSColor),
+        a: (String, String, CGColor), b: (String, String, CGColor),
         labelSize: CGFloat = 10.0
     ) {
         let halfCol = contentWidth / 2
         var x = margin
         let h = rowHeights[row]
         let y = rowTops[row] - h
-        drawCell(label: a.0, value: a.1, rect: CGRect(x: x, y: y, width: halfCol, height: h), labelColor: a.2, labelSize: labelSize)
+        drawCell(canvas, label: a.0, value: a.1, rect: CGRect(x: x, y: y, width: halfCol, height: h), labelColor: a.2, labelSize: labelSize)
         x += halfCol
-        drawCell(label: b.0, value: b.1, rect: CGRect(x: x, y: y, width: contentWidth - halfCol, height: h), labelColor: b.2, labelSize: labelSize)
+        drawCell(canvas, label: b.0, value: b.1, rect: CGRect(x: x, y: y, width: contentWidth - halfCol, height: h), labelColor: b.2, labelSize: labelSize)
     }
 
     private static func drawThreeUp(
+        _ canvas: PDFCanvas,
         row: Int, rowTops: [CGFloat], rowHeights: [CGFloat], margin: CGFloat, contentWidth: CGFloat,
-        a: (String, String, NSColor), b: (String, String, NSColor), c: (String, String, NSColor),
+        a: (String, String, CGColor), b: (String, String, CGColor), c: (String, String, CGColor),
         labelSize: CGFloat = 10.0
     ) {
         let thirdCol = contentWidth / 3
         var x = margin
         let h = rowHeights[row]
         let y = rowTops[row] - h
-        drawCell(label: a.0, value: a.1, rect: CGRect(x: x, y: y, width: thirdCol, height: h), labelColor: a.2, labelSize: labelSize)
+        drawCell(canvas, label: a.0, value: a.1, rect: CGRect(x: x, y: y, width: thirdCol, height: h), labelColor: a.2, labelSize: labelSize)
         x += thirdCol
-        drawCell(label: b.0, value: b.1, rect: CGRect(x: x, y: y, width: thirdCol, height: h), labelColor: b.2, labelSize: labelSize)
+        drawCell(canvas, label: b.0, value: b.1, rect: CGRect(x: x, y: y, width: thirdCol, height: h), labelColor: b.2, labelSize: labelSize)
         x += thirdCol
-        drawCell(label: c.0, value: c.1, rect: CGRect(x: x, y: y, width: contentWidth - 2 * thirdCol, height: h), labelColor: c.2, labelSize: labelSize)
+        drawCell(canvas, label: c.0, value: c.1, rect: CGRect(x: x, y: y, width: contentWidth - 2 * thirdCol, height: h), labelColor: c.2, labelSize: labelSize)
     }
 
     /// Draws one bordered cell with colored department header and dynamic auto-scaling text.
     private static func drawCell(
+        _ canvas: PDFCanvas,
         label: String, value: String, rect: CGRect,
         valueSize: CGFloat = 9.0, valueBold: Bool = false, centered: Bool = false,
-        labelColor: NSColor = defaultColor, labelSize: CGFloat = 10.0
+        labelColor: CGColor = defaultColor, labelSize: CGFloat = 10.0
     ) {
-        NSColor.black.setStroke()
-        let border = NSBezierPath(rect: rect)
-        border.lineWidth = 1
-        border.stroke()
+        canvas.stroke(rect, color: .pdfBlack, lineWidth: 1)
 
-        NSGraphicsContext.saveGraphicsState()
-        NSBezierPath(rect: rect).addClip()
+        canvas.clipped(to: rect) {
+            let padH: CGFloat = 6
+            let padV: CGFloat = 4
+            let alignment: PDFCanvas.Alignment = centered ? .center : .leading
+            var textTop = rect.maxY - padV
 
-        let padH: CGFloat = 6
-        let padV: CGFloat = 4
-        var textTop = rect.maxY - padV
-
-        if !label.isEmpty {
-            let labelStyle = NSMutableParagraphStyle()
-            labelStyle.lineBreakMode = .byWordWrapping
-            labelStyle.alignment = centered ? .center : .left
-
-            let labelAttr = NSAttributedString(string: label, attributes: [
-                .font: NSFont.boldSystemFont(ofSize: labelSize),
-                .foregroundColor: labelColor,
-                .paragraphStyle: labelStyle
-            ])
-            
-            let labelAvailWidth = max(rect.width - 2 * padH, 1)
-            let labelHeight = labelSize + 5
-            let labelRect = CGRect(x: rect.minX + padH, y: textTop - labelHeight, width: labelAvailWidth, height: labelHeight)
-            labelAttr.draw(in: labelRect)
-            textTop -= (labelHeight + 3)
-        }
-
-        let cleanValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !cleanValue.isEmpty && textTop > rect.minY + padV {
-            let availWidth  = max(rect.width - 2 * padH, 1)
-            let availHeight = max(textTop - rect.minY - padV, 1)
-
-            // Dynamic Font Auto-scaling to guarantee that text is large and never clipped
-            var currentSize = valueSize
-            let minSize: CGFloat = 7.0
-            var finalAttr: NSAttributedString = NSAttributedString()
-
-            while currentSize >= minSize {
-                let style = NSMutableParagraphStyle()
-                style.lineBreakMode = .byWordWrapping
-                style.alignment = centered ? .center : .left
-                style.lineSpacing = max(1.5, currentSize * 0.18)
-
-                let font = valueBold ? NSFont.boldSystemFont(ofSize: currentSize) : NSFont.systemFont(ofSize: currentSize)
-                let attr = NSAttributedString(string: cleanValue, attributes: [
-                    .font: font,
-                    .foregroundColor: NSColor.black,
-                    .paragraphStyle: style
-                ])
-
-                let requiredHeight = attr.boundingRect(
-                    with: CGSize(width: availWidth, height: CGFloat.greatestFiniteMagnitude),
-                    options: [.usesLineFragmentOrigin, .usesFontLeading]
-                ).height
-
-                finalAttr = attr
-                if requiredHeight <= availHeight || currentSize <= minSize {
-                    break
-                }
-                currentSize -= 0.5
+            if !label.isEmpty {
+                let labelAvailWidth = max(rect.width - 2 * padH, 1)
+                let labelHeight = labelSize + 5
+                let labelRect = CGRect(x: rect.minX + padH, y: textTop - labelHeight, width: labelAvailWidth, height: labelHeight)
+                canvas.draw(label, in: labelRect, font: .boldSystem(size: labelSize), color: labelColor, alignment: alignment)
+                textTop -= (labelHeight + 3)
             }
 
-            let valueRect = CGRect(x: rect.minX + padH, y: rect.minY + padV,
-                                   width: availWidth, height: availHeight)
-            finalAttr.draw(in: valueRect)
-        }
+            let cleanValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !cleanValue.isEmpty && textTop > rect.minY + padV {
+                let availWidth  = max(rect.width - 2 * padH, 1)
+                let availHeight = max(textTop - rect.minY - padV, 1)
 
-        NSGraphicsContext.restoreGraphicsState()
+                // Dynamic Font Auto-scaling to guarantee that text is large and never clipped.
+                // The fit test is `boundingHeight`, the number `boundingRect` reported, which
+                // runs a point short per line of what is then drawn at some sizes; keeping it
+                // keeps every sheet at the size it always picked.
+                func metrics(for size: CGFloat) -> (font: PDFFont, lineSpacing: CGFloat) {
+                    (valueBold ? PDFFont.boldSystem(size: size) : PDFFont.system(size: size), max(1.5, size * 0.18))
+                }
+                let minSize: CGFloat = 7.0
+                var currentSize = valueSize
+                var (font, lineSpacing) = metrics(for: currentSize)
+
+                while currentSize > minSize,
+                      canvas.boundingHeight(of: cleanValue, font: font, width: availWidth, lineSpacing: lineSpacing) > availHeight {
+                    currentSize -= 0.5
+                    (font, lineSpacing) = metrics(for: currentSize)
+                }
+
+                let valueRect = CGRect(x: rect.minX + padH, y: rect.minY + padV,
+                                       width: availWidth, height: availHeight)
+                canvas.draw(cleanValue, in: valueRect, font: font, color: .pdfBlack, alignment: alignment, lineSpacing: lineSpacing)
+            }
+        }
     }
 
     /// Splits "12A. EXT. WOODS" into ("12A", "EXT", "WOODS")
@@ -368,4 +333,3 @@ struct BreakdownExporter {
         return (number, intExt, working)
     }
 }
-#endif

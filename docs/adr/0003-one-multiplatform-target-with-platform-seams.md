@@ -26,7 +26,9 @@ starts with a header comment saying why the seam exists and what the non-Mac sid
 | Semantic backgrounds | `PlatformColors.swift` | `windowBackgroundColor` / `controlBackgroundColor` | UIKit system backgrounds |
 | Window tabbing and root view | `CineSchedApp.swift` | `allowsAutomaticWindowTabbing = false`, `ContentView` | `PlatformPlaceholderView` |
 | Placeholder root | `PlatformPlaceholderView.swift` | Not built | Names the platform as in progress |
-| Exporters (temporary) | `BreakdownExporter`, `DaysOutOfDaysExporter`, `ProjectStore+PDFExports.swift` | The AppKit-drawn PDF generators still to be migrated, and every save action | Gated out; the same entry points raise an alert |
+
+(Until #6 the two AppKit-drawn exporters and `ProjectStore+PDFExports.swift` were a temporary
+seam, gated out of the non-Mac builds; that row is gone.)
 
 Issue #3 also named "the hover modifier" as a seam. None was needed: `.onHover`, `.help`,
 `.keyboardShortcut`, `.commands`, `NSItemProvider` and `DropDelegate` all compile on iOS and
@@ -48,15 +50,16 @@ Rules that follow from this:
 
 - iOS, iPadOS and visionOS build and launch from the same sources as the Mac; the Mac's
   behavior and warning count are unchanged.
-- The Swift Testing suite runs on an iOS simulator as well as the Mac; only the exporter tests
-  are gated with the exporters.
-- The exporter gate is a debt: ADR 0002's "shared in-repo PDF drawing helper" is what removes
-  it. That helper is `PDFCanvas` (#4): CoreGraphics + CoreText with platform-neutral fonts and
-  colors, laying text out the way TextKit did so migrated output stays where it was.
-  `StripboardPDFExporter` and `ShootingSchedulePDFExporter` (#4) and `PDFExporter` and
-  `CallSheetExporter` (#5) are on it and ungated; `BreakdownExporter` and `DaysOutOfDaysExporter`
-  follow per the exporter tickets under #1, and the gate on `ProjectStore+PDFExports.swift`
-  lifts with the last of them.
+- The Swift Testing suite, exporter tests included, runs on the iOS and visionOS simulators
+  as well as the Mac.
+- No exporter is a seam any more. ADR 0002's "shared in-repo PDF drawing helper" is
+  `PDFCanvas` (#4): CoreGraphics + CoreText with platform-neutral fonts and colors, laying
+  text out the way TextKit did so migrated output stays where it was. `StripboardPDFExporter`
+  and `ShootingSchedulePDFExporter` (#4), `PDFExporter` and `CallSheetExporter` (#5), and
+  `BreakdownExporter` and `DaysOutOfDaysExporter` (#6) are on it, every exporter is verified
+  pixel-identical to its AppKit output on the Mac, and `ProjectStore+PDFExports.swift` builds
+  everywhere (its save panel is the `FilePanels` seam). An exporter must not grow an
+  `#if os`; it draws through the helper or the helper grows.
 - `FilePanels` is inert off the Mac by design; the document infrastructure of milestone 2
   replaces it rather than growing an iOS document picker inside it.
 - The hand-written `LSVR CineSched/Info.plist` was deleted: it was never used by the target

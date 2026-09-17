@@ -3,15 +3,12 @@
 // calendar's Export Month button, and the call-sheet / shooting-schedule buttons on the
 // two schedule views. Every exporter call site in the app lives here.
 //
-// Platform seam: the exporters are macOS-only until the shared drawing helper lands
-// (see the gate at the top of each *Exporter.swift and docs/adr/0003), so this file is
-// gated with them. The `#else` branch keeps the same entry points so ContentView and the
-// schedule views compile unchanged on iOS and visionOS; there they only raise an alert.
+// Every exporter draws through PDFCanvas, so this builds on every platform; the save
+// panel it hands the bytes to is the `FilePanels` seam, inert off the Mac until the
+// document infrastructure of milestone 2 (#1) replaces it.
 
 import SwiftUI
 import UniformTypeIdentifiers
-
-#if os(macOS)
 
 extension ContentView {
 
@@ -169,25 +166,3 @@ extension ContentView {
         }
     }
 }
-
-#else
-
-extension ContentView {
-
-    // MARK: - PDF exports (not yet available off the Mac)
-
-    func showSchedulePDFSavePanel()                                    { reportExportUnavailable() }
-    func showStripboardPDFSavePanel()                                  { reportExportUnavailable() }
-    func showDaysOutOfDaysPDFSavePanel()                               { reportExportUnavailable() }
-    func showBreakdownPDFSavePanel()                                   { reportExportUnavailable() }
-    func showCallSheetPDFSavePanel(for day: ShootDay)                  { reportExportUnavailable() }
-    func showShootingSchedulePDFSavePanel(for targetDays: [ShootDay]? = nil) { reportExportUnavailable() }
-    func exportMonthPDF(month: Date, options: MonthPDFOptions)         { reportExportUnavailable() }
-
-    private func reportExportUnavailable() {
-        alertMessage = L("PDF export is not available on this platform yet.")
-        showingAlert = true
-    }
-}
-
-#endif

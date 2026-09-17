@@ -2,10 +2,11 @@
 // The shared PDF drawing helper (ADR 0002's "shared in-repo helper", ADR 0003's exporter
 // seam remover): one PDF context, page lifecycle, rectangles, lines and text, all on
 // CoreGraphics + CoreText so an exporter compiles and runs on every platform. Nothing in
-// this file, or in an exporter built on it, may import AppKit or UIKit.
+// this file, or in an exporter built on it, may import AppKit or UIKit. Every exporter is
+// on it (#4, #5, #6), each verified pixel-identical to its AppKit output on the Mac.
 //
-// Adopting it in an exporter that still draws through AppKit (`BreakdownExporter`,
-// `DaysOutOfDaysExporter`):
+// The AppKit-to-canvas correspondence, kept as the recipe for a new exporter (or for
+// porting drawing code from anywhere else that used `NSAttributedString`):
 //
 // 1. Replace the `CGDataConsumer` / `CGContext` / `NSGraphicsContext` boilerplate with a
 //    `PDFCanvas(pageSize:)`, `beginPage()` / `endPage()` per page and `finish()` at the end.
@@ -18,21 +19,28 @@
 //    (`NSFontManager`'s Helvetica italic) becomes `PDFFont.named("Helvetica-Oblique", size:)`.
 // 3. `NSColor` becomes `CGColor`: `CGColor.gray(0.15)` for `NSColor(white:alpha:)`,
 //    `.pdfGray` / `.pdfLightGray` / `.pdfDarkGray` for `NSColor.gray` / `.lightGray` /
-//    `.darkGray`, `CGColor.srgb(0.94, 0.97, 1)` for `NSColor(red:green:blue:alpha:)` (which
-//    is sRGB), `CGColor.hex("1F2937")` for `NSColor(Color(hex:))` / `NSColor(hexString:)`,
+//    `.darkGray`, `CGColor.calibratedGray(0.35)` for `NSColor(calibratedWhite:alpha:)` (a
+//    different, gamma-1.8 gray), `CGColor.srgb(0.94, 0.97, 1)` for `NSColor(red:green:blue:alpha:)`
+//    (which is sRGB), `CGColor.hex("1F2937")` for `NSColor(Color(hex:))` / `NSColor(hexString:)`,
 //    `CGColor.of(scene.stripColor)` for `NSColor(someSwiftUIColor)`, and `.withAlpha(_:)`
-//    for `withAlphaComponent`. Strip colors still come only from `Scene.stripColor`.
+//    for `withAlphaComponent`. Strip colors still come only from `Scene.stripColor`. A
+//    system color (`NSColor.systemBlue`) has no equivalent: it changed with the app's
+//    appearance, so pin its light-appearance sRGB value with `srgb`.
 // 4. `NSBezierPath(rect:).fill()` / `.stroke()` become `fill(_:color:)` / `stroke(_:color:lineWidth:)`
 //    (both take a `cornerRadius:` for `NSBezierPath(roundedRect:)`), a two-point path becomes
-//    `line(from:to:color:lineWidth:)`, and `NSBezierPath.addClip()` becomes `clipped(to:) { }`.
+//    `line(from:to:color:lineWidth:)`, a path of many segments stroked once becomes
+//    `stroke(lines:color:lineWidth:)`, and `NSBezierPath.addClip()` becomes `clipped(to:) { }`.
 // 5. `NSAttributedString.draw(in:)` becomes `draw(_:in:font:color:alignment:lineBreak:)`. It
 //    lays text out the way TextKit did — first baseline `font.baselineOffset` below the top
 //    of the rect, `lineHeight` per line (plus `lineSpacing`, for a paragraph style that set
-//    one), tail truncation or word wrapping, clipped only when the lines are taller than the
-//    rect — so migrated output stays pixel-for-pixel where it was.
+//    one), tail truncation or word wrapping, only the lines whose top is inside the rect,
+//    clipped only when the lines are taller than the rect — so migrated output stays
+//    pixel-for-pixel where it was.
 //    `NSAttributedString.draw(at:)` becomes `draw(_:lineOrigin:font:color:)`, which takes the
-//    same bottom-left point. `boundingRect(with:options:)` becomes `height(of:font:width:)`
-//    (or `lineCount(of:font:width:)` when the caller caps the lines), and `size().width`
+//    same bottom-left point. `boundingRect(with:options:)` becomes `boundingHeight(of:font:width:)`
+//    when the number is compared against a rect (it was a point short of the drawn height
+//    at some sizes), `height(of:font:width:)` when it is used to place what is drawn (or
+//    `lineCount(of:font:width:)` when the caller caps the lines), and `size().width`
 //    becomes `width(of:font:)`.
 //    Exporters that already used `CTLineDraw` at a baseline keep doing so through
 //    `draw(_:at:font:color:anchor:maxWidth:)`, which also right-aligns, centers and truncates.
@@ -68,13 +76,22 @@ struct PDFFont {
     /// not 12.95).
     let lineHeight: CGFloat
 
+    /// The height `NSAttributedString.boundingRect` / `NSLayoutManager.defaultLineHeight`
+    /// reported per line: the descent rounded to nearest rather than up, so a point less
+    /// than `lineHeight` at sizes where SF's descent falls below the half (7, 9.5, 10, 11,
+    /// 15pt) and equal elsewhere. TextKit measured with this and drew with `lineHeight`,
+    /// so a loop that compared the measurement against a rect (the breakdown sheet's
+    /// auto-scaling) needs this number to pick the same size.
+    let boundingLineHeight: CGFloat
+
     private init(system ctFont: CTFont) {
         self.ctFont = ctFont
         let ascent  = CTFontGetAscent(ctFont)
         let descent = CTFontGetDescent(ctFont)
         let leading = CTFontGetLeading(ctFont)
-        baselineOffset = ascent.rounded()
-        lineHeight     = baselineOffset + descent.rounded(.up) + leading.rounded(.up)
+        baselineOffset     = ascent.rounded()
+        lineHeight         = baselineOffset + descent.rounded(.up) + leading.rounded(.up)
+        boundingLineHeight = baselineOffset + descent.rounded() + leading.rounded()
     }
 
     private init(named ctFont: CTFont) {
@@ -85,8 +102,9 @@ struct PDFFont {
         // The gap stands in for the leading the face does not carry; a face that has its own
         // (Arial, Helvetica Neue) was not measured and is not used by any exporter.
         let gap = leading == 0 ? (0.2 * CTFontGetSize(ctFont)).rounded() : leading.rounded()
-        baselineOffset = ascent.rounded() + gap
-        lineHeight     = baselineOffset + descent.rounded()
+        baselineOffset     = ascent.rounded() + gap
+        lineHeight         = baselineOffset + descent.rounded()
+        boundingLineHeight = lineHeight   // measured the same both ways (learnings.md, #5)
     }
 
     private static func systemFace(_ type: CTFontUIFontType, size: CGFloat, fallback: String) -> CTFont {
@@ -139,6 +157,15 @@ extension CGColor {
 
     static let pdfBlack = CGColor.gray(0)
     static let pdfWhite = CGColor.gray(1)
+
+    /// The legacy generic gray (gamma 1.8) that `NSColor(calibratedWhite:alpha:)` was: a
+    /// different shade from `gray(_:)` at the same number (0.35 is 19/255 apart), and the
+    /// PDF carries its own ICC profile for it. Only for matching output that used it.
+    static func calibratedGray(_ white: CGFloat, alpha: CGFloat = 1) -> CGColor {
+        // `kCGColorSpaceGenericGray` is not exposed to Swift; the name is looked up instead.
+        let space = CGColorSpace(name: "kCGColorSpaceGenericGray" as CFString) ?? CGColorSpace(name: CGColorSpace.genericGrayGamma2_2)!
+        return CGColor(colorSpace: space, components: [white, alpha]) ?? gray(white, alpha: alpha)
+    }
 
     /// `NSColor.gray`, `.lightGray` and `.darkGray`: calibrated whites of 1/2, 2/3 and 1/3.
     static let pdfGray      = CGColor.gray(0.5)
@@ -262,6 +289,19 @@ final class PDFCanvas {
         context.strokePath()
     }
 
+    /// Strokes every segment as one path, the way an `NSBezierPath` of many `move`/`line`
+    /// pairs was stroked once (a grid). Stroking each segment on its own can differ by a
+    /// shade where thin lines cross.
+    func stroke(lines: [(CGPoint, CGPoint)], color: CGColor, lineWidth: CGFloat = 1) {
+        context.setStrokeColor(color)
+        context.setLineWidth(lineWidth)
+        for (start, end) in lines {
+            context.move(to: start)
+            context.addLine(to: end)
+        }
+        context.strokePath()
+    }
+
     /// Runs `body` with drawing clipped to `rect`, restoring the graphics state afterwards.
     func clipped(to rect: CGRect, _ body: () -> Void) {
         context.saveGState()
@@ -281,6 +321,16 @@ final class PDFCanvas {
     /// `NSAttributedString.boundingRect(with:options:)` reported.
     func height(of text: String, font: PDFFont, width: CGFloat, lineSpacing: CGFloat = 0) -> CGFloat {
         Self.height(ofLines: Self.wrappedLines(text, font: font, color: .pdfBlack, width: width).count, font: font, lineSpacing: lineSpacing)
+    }
+
+    /// The height `NSAttributedString.boundingRect(with:options:)` reported for `text`
+    /// word-wrapped into `width`: `boundingLineHeight` per line plus `lineSpacing` between
+    /// lines. Compare this against a rect the way the AppKit code did; place what is
+    /// drawn with `height(of:…)`.
+    func boundingHeight(of text: String, font: PDFFont, width: CGFloat, lineSpacing: CGFloat = 0) -> CGFloat {
+        let count = Self.wrappedLines(text, font: font, color: .pdfBlack, width: width).count
+        guard count > 0 else { return 0 }
+        return CGFloat(count) * font.boundingLineHeight + CGFloat(count - 1) * lineSpacing
     }
 
     /// How many lines `text` word-wraps into at `width` (0 for an empty string).
@@ -317,9 +367,11 @@ final class PDFCanvas {
 
     /// Draws `text` inside `rect` the way `NSAttributedString.draw(in:)` did: top-aligned, the
     /// first baseline `font.baselineOffset` below `rect.maxY`, one `font.lineHeight` (plus
-    /// `lineSpacing`) per further line, aligned within the rect's width. Text taller than the
-    /// rect is clipped to it, as TextKit clipped; text that fits is not (so nothing an
-    /// overhanging glyph does changes). Returns the laid-out height.
+    /// `lineSpacing`) per further line, aligned within the rect's width. Only lines whose
+    /// top edge lies above the rect's bottom are laid out at all (TextKit dropped the rest,
+    /// measured in learnings.md, #6), and text taller than the rect is clipped to it, as
+    /// TextKit clipped; text that fits is not (so nothing an overhanging glyph does
+    /// changes). Returns the height of the whole text, dropped lines included.
     @discardableResult
     func draw(_ text: String, in rect: CGRect, font: PDFFont, color: CGColor, alignment: Alignment = .leading, lineBreak: LineBreak = .wrap, lineSpacing: CGFloat = 0) -> CGFloat {
         let lines: [CTLine]
@@ -332,12 +384,11 @@ final class PDFCanvas {
         let height = Self.height(ofLines: lines.count, font: font, lineSpacing: lineSpacing)
 
         let drawLines = {
-            var baseline = rect.maxY - font.baselineOffset
-            for line in lines {
+            let advance = font.lineHeight + lineSpacing
+            for (index, line) in lines.enumerated() where CGFloat(index) * advance < rect.height {
                 let x = rect.minX + CGFloat(CTLineGetPenOffsetForFlush(line, alignment.flush, Double(rect.width)))
-                self.context.textPosition = CGPoint(x: x, y: baseline)
+                self.context.textPosition = CGPoint(x: x, y: rect.maxY - font.baselineOffset - CGFloat(index) * advance)
                 CTLineDraw(line, self.context)
-                baseline -= font.lineHeight + lineSpacing
             }
         }
         if height > rect.height {

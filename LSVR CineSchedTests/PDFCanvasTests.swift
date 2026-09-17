@@ -17,14 +17,12 @@ import PDFKit
 @MainActor
 struct PDFCanvasTests {
 
-    /// The TextKit numbers below were measured against the Mac's system face (18pt ascent
-    /// 17.40234375). iOS and visionOS ship a differently-hinted SF, so there the literal
-    /// table has nothing to compare against and the rounding rule is checked on its own.
-    nonisolated private static var hasMacSystemFace: Bool {
-        CTFontCreateUIFontForLanguage(.system, 18, nil).map { CTFontGetAscent($0) == 17.40234375 } ?? false
-    }
+    // The TextKit numbers below were measured against the Mac's system face. iOS and
+    // visionOS ship a differently-hinted SF (`PDFFixture.hasMacSystemFace`), so there the
+    // literal tables have nothing to compare against and the rounding rules are checked on
+    // their own.
 
-    @Test(.enabled(if: hasMacSystemFace, "TextKit reference values are from the Mac's SF face"))
+    @Test(.enabled(if: PDFFixture.hasMacSystemFace, "TextKit reference values are from the Mac's SF face"))
     func lineMetricsMatchTextKit() {
         // (size, TextKit line height, TextKit baseline offset from the top of the line)
         let expected: [(CGFloat, CGFloat, CGFloat)] = [
@@ -57,6 +55,74 @@ struct PDFCanvasTests {
         }
     }
 
+    /// `NSAttributedString.boundingRect` measured a line as `round(ascent) + round(descent)`
+    /// (what `NSLayoutManager.defaultLineHeight` gives), one point shorter than the line
+    /// `draw(in:)` then advanced by wherever SF's descent rounds down: 11pt measured 13
+    /// but drew 14 to the line. The breakdown sheet's auto-scaling loop compares the
+    /// measured number against its cell, so both numbers are kept.
+    @Test(.enabled(if: PDFFixture.hasMacSystemFace, "TextKit reference values are from the Mac's SF face"))
+    func boundingLineHeightMatchesTextKitBoundingRect() {
+        // (size, boundingRect line height, draw(in:) line height)
+        let expected: [(CGFloat, CGFloat, CGFloat)] = [
+            (7, 8, 9), (8, 10, 10), (9, 11, 11), (9.5, 11, 12), (10, 12, 13), (11, 13, 14),
+            (11.5, 13, 14), (13, 16, 16), (15, 18, 19), (18, 21, 21),
+        ]
+        let canvas = PDFCanvas(pageSize: CGSize(width: 612, height: 792))!
+        for (size, bounding, drawn) in expected {
+            let font = PDFFont.system(size: size)
+            #expect(font.boundingLineHeight == bounding, "\(size)pt bounding line height")
+            #expect(font.lineHeight == drawn, "\(size)pt drawn line height")
+            #expect(PDFFont.boldSystem(size: size).boundingLineHeight == bounding, "\(size)pt bold")
+            // Three lines with the breakdown sheet's spacing: boundingRect measured
+            // 3 × line + 2 × spacing (36.42 at 9.5pt, 42.96 at 11pt).
+            let spacing = max(1.5, size * 0.18)
+            #expect(canvas.boundingHeight(of: "One\nTwo\nThree", font: font, width: 500, lineSpacing: spacing) == 3 * bounding + 2 * spacing, "\(size)pt")
+        }
+        #expect(canvas.boundingHeight(of: "", font: .system(size: 11), width: 500) == 0)
+    }
+
+    /// A named face measured the same either way (its rounded descent is what the line
+    /// carries), so the two heights agree.
+    @Test func namedFaceBoundingLineHeightIsItsLineHeight() {
+        for size: CGFloat in [7, 8.5, 12] {
+            let font = PDFFont.named("Helvetica-Oblique", size: size)
+            #expect(font.boundingLineHeight == font.lineHeight)
+        }
+    }
+
+    /// TextKit laid a line out only if its top edge was above the rect's bottom, and it
+    /// drew every line it laid out whole (clipped to the rect when the text overran it):
+    /// three 9pt lines (11pt each) in an 11pt rect gave one line, in a 12pt rect two,
+    /// with 1.62pt of spacing the second needed 12.62.
+    @Test func linesWhoseTopIsBelowTheRectAreNotDrawn() {
+        let font = PDFFont.system(size: 9)
+        func drawnLines(height: CGFloat, spacing: CGFloat = 0) -> [String] {
+            let canvas = PDFCanvas(pageSize: CGSize(width: 612, height: 792))!
+            canvas.beginPage()
+            canvas.draw("One\nTwo\nThree", in: CGRect(x: 100, y: 700 - height, width: 200, height: height), font: font, color: .pdfBlack, lineSpacing: spacing)
+            let text = PDFDocument(data: canvas.finish())?.page(at: 0)?.string ?? ""
+            return text.components(separatedBy: .newlines).filter { !$0.isEmpty }
+        }
+        let line = font.lineHeight
+        #expect(drawnLines(height: line) == ["One"])
+        #expect(drawnLines(height: line + 0.25) == ["One", "Two"])
+        #expect(drawnLines(height: 2 * line) == ["One", "Two"])
+        #expect(drawnLines(height: 2 * line + 0.25) == ["One", "Two", "Three"])
+        #expect(drawnLines(height: 100) == ["One", "Two", "Three"])
+        #expect(drawnLines(height: line + 1.62, spacing: 1.62) == ["One"])
+        #expect(drawnLines(height: line + 1.62 + 0.25, spacing: 1.62) == ["One", "Two"])
+    }
+
+    /// `NSColor(calibratedWhite:)` was the generic gamma-1.8 gray, a visibly different
+    /// shade from `NSColor(white:)`'s gamma-2.2 space at the same number.
+    @Test func calibratedGrayIsTheGenericGraySpace() {
+        let calibrated = CGColor.calibratedGray(0.35)
+        #expect(calibrated.colorSpace?.name == "kCGColorSpaceGenericGray" as CFString)
+        #expect(calibrated.components == [0.35, 1])
+        #expect(CGColor.gray(0.35).colorSpace?.name == CGColorSpace.genericGrayGamma2_2)
+        #expect(CGColor.calibratedGray(0.9, alpha: 0.5).alpha == 0.5)
+    }
+
     @Test func wrappedHeightIsWholeLines() {
         let canvas = PDFCanvas(pageSize: CGSize(width: 612, height: 792))!
         let font = PDFFont.boldSystem(size: 18)
@@ -68,7 +134,7 @@ struct PDFCanvasTests {
         #expect(canvas.height(of: "", font: font, width: 300) == 0)
     }
 
-    @Test(.enabled(if: hasMacSystemFace, "TextKit reference values are from the Mac's SF face"))
+    @Test(.enabled(if: PDFFixture.hasMacSystemFace, "TextKit reference values are from the Mac's SF face"))
     func wrappedHeightMatchesTextKitBoundingRect() {
         let canvas = PDFCanvas(pageSize: CGSize(width: 612, height: 792))!
         let font = PDFFont.boldSystem(size: 18)
@@ -86,7 +152,7 @@ struct PDFCanvasTests {
     /// of the size, rounded) and rounds its descent, so Helvetica sits lower in its line than
     /// SF does. Measured with `NSLayoutManager.defaultBaselineOffset(for:)` / `defaultLineHeight(for:)`
     /// and `NSAttributedString.size()` on the Mac (all three agree for these faces).
-    @Test(.enabled(if: hasMacSystemFace, "TextKit reference values are from the Mac"))
+    @Test(.enabled(if: PDFFixture.hasMacSystemFace, "TextKit reference values are from the Mac"))
     func namedFaceMetricsMatchTextKit() {
         // (size, TextKit line height, TextKit baseline offset)
         let expected: [(CGFloat, CGFloat, CGFloat)] = [
@@ -124,7 +190,7 @@ struct PDFCanvasTests {
         #expect(two == 2 * font.lineHeight + 3)
         #expect(three == 3 * font.lineHeight + 6)
         #expect(canvas.height(of: "", font: font, width: 500, lineSpacing: 3) == 0)
-        if Self.hasMacSystemFace {
+        if PDFFixture.hasMacSystemFace {
             #expect(two == 23)
         }
     }
@@ -157,6 +223,7 @@ struct PDFCanvasTests {
             canvas.fill(CGRect(x: 40, y: 40, width: 100, height: 20), color: .hex("FEF3C7"))
             canvas.stroke(CGRect(x: 40, y: 40, width: 100, height: 20), cornerRadius: 3, color: .gray(0.5), lineWidth: 0.5)
             canvas.line(from: CGPoint(x: 40, y: 700), to: CGPoint(x: 572, y: 700), color: .pdfBlack)
+            canvas.stroke(lines: [(CGPoint(x: 40, y: 690), CGPoint(x: 572, y: 690)), (CGPoint(x: 40, y: 680), CGPoint(x: 40, y: 700))], color: .pdfLightGray, lineWidth: 0.4)
             canvas.draw("Page \(n)", in: CGRect(x: 40, y: 720, width: 532, height: 14), font: .system(size: 11), color: .pdfBlack, alignment: .center)
         }
         let doc = PDFDocument(data: canvas.finish())

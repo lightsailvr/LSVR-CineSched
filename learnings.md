@@ -9,6 +9,55 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-16 — Breakdown and DOOD off AppKit: `boundingRect` is a point short of `draw(in:)`, TextKit drops lines by their top edge, `calibratedWhite` is a different gray, system colors follow the theme (#6)
+
+The last two exporters, same method as #4 and #5 (dump every fixture PDF before and after,
+rasterize, pixel-diff). Every fixture — the two migrated and the four already on the helper —
+came out identical at 288 dpi. The measuring was done up front with scratch AppKit scripts
+(`NSAttributedString` into a `CGContext` PDF, then reading the `Tm` operators back out of the
+inflated content stream), which is much faster than fixing pixel diffs one at a time:
+
+- **`NSAttributedString.boundingRect(with:options:)` measures a line as `round(ascent) +
+  round(descent)` but `draw(in:)` advances `round(ascent) + ceil(descent)`.** They only agree
+  where SF's descent rounds up; at 7, 9.5, 10, 11, 11.5 and 15pt the measurement is one
+  point per line short of what is drawn (11pt: 13 vs 14; three 9.5pt lines with 1.71pt
+  spacing measure 36.42 but occupy 39.42). `boundingRect` equals
+  `NSLayoutManager.defaultLineHeight`; `size().height` equals the drawn height. The #4 note
+  that `boundingRect` "reports the same whole numbers" was only true at the sizes it checked.
+  The breakdown sheet's auto-scaling loop compares `boundingRect` against its cell, so
+  `PDFFont.boundingLineHeight` / `PDFCanvas.boundingHeight(of:)` carry the smaller number for
+  that comparison and `height(of:)` keeps the drawn one. `PDFCanvasTests` pins both tables.
+- **TextKit lays out a line only if its top edge is above the rect's bottom, and clips only
+  when the text overran.** Line *i* (0-based) is drawn iff `rect.height > i × (lineHeight +
+  lineSpacing)`, whole and unclipped-at-the-line; if the text as a whole is taller than the
+  rect a `re W n` clip to the rect is emitted (so the "#" of the breakdown sheet's
+  "BREAKDOWN SHEET #" label, which wraps, shows as a sliver, #33). `draw(_:in:)` now does
+  exactly this; it made no difference to the four earlier exporters' fixtures, which never
+  overflow, and is what a wrapped name in a one-line DOOD cell needs.
+- **`NSColor(calibratedWhite:alpha:)` is the legacy generic gray (gamma 1.8), not the
+  gamma-2.2 gray that `NSColor(white:alpha:)`, `.gray`, `.lightGray` and `.darkGray` are.**
+  The PDF carries a separate ICC profile for it and 0.35 renders 19/255 lighter than
+  `gray(0.35)`. `CGColor.calibratedGray` keeps the space; `kCGColorSpaceGenericGray` is
+  `nonswift` in the API notes, so it is looked up by name.
+- **`NSColor.systemBlue` / `.systemYellow` / `.systemRed` resolve against the current
+  appearance even when drawing into a PDF context**, so the DOOD's status cells came out a
+  shade lighter when the app (or, in tests, the machine) was in dark mode. Pinned to the
+  light values (sRGB 0/136/255, 255/204/0, 255/56/60); noted in the changelog. The baseline
+  for the pixel diff was dumped with the old code wrapped in
+  `NSAppearance(named: .aqua).performAsCurrentDrawingAppearance`.
+- **`NSAttributedString.size().height` matches `PDFFont.lineHeight` at 7, 8 and 9pt** (9,
+  10, 11), which is all the DOOD centres with; the ≥ 26pt mismatch from #5 still stands.
+- **iOS's narrower SF fits "BREAKDOWN SHEET #" on one line**, so the wrap is pinned only
+  under `PDFFixture.hasMacSystemFace` (moved to `PDFTestSupport` for every suite to use).
+- **`Scene.scriptOrderKey` ties for unnumbered scenes** (events, banners, the untitled
+  company-move line), and `sort` is not stable, so a test must not assume which of them
+  comes last.
+- **Test-target warnings from `#expect((x ?? "").contains(…))`**: the macro's rewrite
+  complains about the `??`. Hoist the string into a `let` first.
+- The scratch tools (a PDF→bitmap pixel differ on PDFKit + CoreGraphics, a PDF→PNG
+  rasterizer, a text dumper) are a few dozen lines each; `learnings.md` #4 and #5 describe
+  the same ones. There is still no ImageMagick on the machine.
+
 ## 2026-09-16 — Month calendar and call sheet off AppKit: named fonts get a synthetic gap, `draw(at:)` is a line box, emoji change nothing (#5)
 
 Same method as #4 (dump the fixture PDFs before and after, rasterize, pixel-diff — the
