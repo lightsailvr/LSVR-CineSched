@@ -29,7 +29,7 @@ extension Color {
 
 // MARK: - DayNightType
 
-enum DayNightType: String, Codable, CaseIterable {
+enum DayNightType: String, nonisolated Codable, CaseIterable {
     case day       = "DAY"
     case night     = "NIGHT"
     case dawn      = "DAWN"
@@ -85,7 +85,7 @@ enum DayNightType: String, Codable, CaseIterable {
 
 // MARK: - Banner & Meal Types
 
-enum BannerType: String, CaseIterable, Codable {
+enum BannerType: String, CaseIterable, nonisolated Codable {
     case companyMove = "Company Move"
     case mealBreak   = "Meal Break"
     case notice      = "Notice"
@@ -109,7 +109,7 @@ enum BannerType: String, CaseIterable, Codable {
         }
     }
 
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let raw = (try? container.decode(String.self)) ?? ""
         switch raw {
@@ -127,7 +127,7 @@ enum BannerType: String, CaseIterable, Codable {
     }
 }
 
-enum MealKind: String, CaseIterable, Codable {
+enum MealKind: String, CaseIterable, nonisolated Codable {
     case generalCall  = "General Call"
     case readyToShoot = "Ready to Shoot"
     case lunch        = "Lunch"
@@ -160,7 +160,7 @@ enum MealKind: String, CaseIterable, Codable {
 
 // MARK: - Scene
 
-struct Scene: Identifiable, Codable, Hashable {
+struct Scene: Identifiable, nonisolated Codable, Hashable {
     var id: UUID
     var title: String
     var sceneNumber: String
@@ -376,7 +376,7 @@ struct Scene: Identifiable, Codable, Hashable {
         case isCompleted
     }
 
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         let c         = try decoder.container(keyedBy: CodingKeys.self)
         id            = try c.decode(UUID.self,         forKey: .id)
         title         = try c.decode(String.self,       forKey: .title)
@@ -558,7 +558,7 @@ struct Scene: Identifiable, Codable, Hashable {
 
 // MARK: - Location
 
-struct Location: Identifiable, Codable, Hashable {
+struct Location: Identifiable, nonisolated Codable, Hashable {
     let id: UUID
     var name:    String
     var address: String
@@ -572,7 +572,7 @@ struct Location: Identifiable, Codable, Hashable {
 
 // MARK: - CastCallEntry
 
-struct CastCallEntry: Identifiable, Codable, Hashable {
+struct CastCallEntry: Identifiable, nonisolated Codable, Hashable {
     let id: UUID
     var characterName: String
     var actorName: String
@@ -612,7 +612,7 @@ struct CastCallEntry: Identifiable, Codable, Hashable {
         case id, characterName, actorName, sceneNumbers, ecdt, pickupTime, hmuWardrobeTime, onSetTime, wrapTime, locationIndex
     }
 
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id              = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         characterName   = try c.decodeIfPresent(String.self, forKey: .characterName) ?? ""
@@ -629,7 +629,7 @@ struct CastCallEntry: Identifiable, Codable, Hashable {
 
 // MARK: - CrewCallEntry
 
-struct CrewCallEntry: Identifiable, Codable, Hashable {
+struct CrewCallEntry: Identifiable, nonisolated Codable, Hashable {
     let id: UUID
     var role: String
     var name: String
@@ -653,7 +653,7 @@ struct CrewCallEntry: Identifiable, Codable, Hashable {
 
 // MARK: - CallSheetData
 
-struct CallSheetData: Codable {
+struct CallSheetData: nonisolated Codable, Equatable {
     var generalCallTime: String
     var workDaySchedule: String       // e.g. "Schedule: 07:30 AM to 09:30 PM"
     var readyToShootTime: String      // e.g. "08:00 AM"
@@ -740,7 +740,7 @@ struct CallSheetData: Codable {
         case castCallEntries, crewCallEntries, productionNotes, locations, castOverride, crewOverride, crewIDOverride, crewOneOffs, notes
     }
 
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         let c              = try decoder.container(keyedBy: CodingKeys.self)
         generalCallTime    = try c.decodeIfPresent(String.self, forKey: .generalCallTime) ?? ""
         workDaySchedule    = try c.decodeIfPresent(String.self, forKey: .workDaySchedule) ?? ""
@@ -814,7 +814,7 @@ struct CallSheetData: Codable {
 
 // MARK: - CrewMember
 
-struct CrewMember: Identifiable, Codable, Hashable {
+struct CrewMember: Identifiable, nonisolated Codable, Hashable {
     let id: UUID
     var name:           String
     var role:           String
@@ -833,7 +833,7 @@ struct CrewMember: Identifiable, Codable, Hashable {
         case id, name, role, phone, isDailyDefault
     }
 
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         let c          = try decoder.container(keyedBy: CodingKeys.self)
         id             = try c.decode(UUID.self,   forKey: .id)
         name           = try c.decode(String.self, forKey: .name)
@@ -849,7 +849,7 @@ struct CrewMember: Identifiable, Codable, Hashable {
 
 // MARK: - DateRange (actor unavailability)
 
-struct DateRange: Identifiable, Codable, Hashable {
+struct DateRange: Identifiable, nonisolated Codable, Hashable {
     let id: UUID
     var start: Date
     var end: Date
@@ -869,7 +869,7 @@ struct DateRange: Identifiable, Codable, Hashable {
 
 // MARK: - CastMember
 
-struct CastMember: Identifiable, Codable, Hashable {
+struct CastMember: Identifiable, nonisolated Codable, Hashable {
     let id: UUID
     var actorName:     String
     var characterName: String
@@ -886,7 +886,7 @@ struct CastMember: Identifiable, Codable, Hashable {
         case id, actorName, characterName, unavailableRanges
     }
 
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id                = try c.decode(UUID.self,   forKey: .id)
         actorName         = try c.decode(String.self, forKey: .actorName)
@@ -941,7 +941,7 @@ extension Scene {
 
 // MARK: - ProductionInfo
 
-struct ProductionInfo: Codable, Equatable {
+struct ProductionInfo: nonisolated Codable, Equatable {
     var companyName:   String
     var directorName:  String
     var directorPhone: String
@@ -990,7 +990,7 @@ struct ProductionInfo: Codable, Equatable {
         case companyName, directorName, directorPhone, producerName, producerPhone, adName, adPhone, contactNumber, defaultLunchTime, crew, castList, locationRoster, scheduleLock
     }
 
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         companyName      = try c.decode(String.self, forKey: .companyName)
         directorName     = try c.decode(String.self, forKey: .directorName)
@@ -1010,7 +1010,7 @@ struct ProductionInfo: Codable, Equatable {
 
 // MARK: - ScheduleLock
 
-struct ScheduleLock: Codable, Equatable {
+struct ScheduleLock: nonisolated Codable, Equatable {
     var lockedAt: Date
     var workingDays: [String: [Date]]
 }
@@ -1025,7 +1025,7 @@ struct ScheduleLock: Codable, Equatable {
 ///
 /// This replaces the old `ShootDay.isBlackout` boolean: `.unavailable` is that flag, and
 /// project files keep writing `isBlackout` so older builds still see unavailable days.
-enum DayType: String, CaseIterable, Codable {
+enum DayType: String, CaseIterable, nonisolated Codable {
     case shoot
     case travel
     case scout
@@ -1085,7 +1085,7 @@ enum DayType: String, CaseIterable, Codable {
 
     /// Unknown raw values (from a newer build) fall back to `.shoot` rather than failing
     /// the whole project load. Mirrors `BannerType`'s lenient decoder.
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         let raw = (try? decoder.singleValueContainer().decode(String.self)) ?? ""
         self = DayType(rawValue: raw) ?? .shoot
     }
@@ -1093,7 +1093,7 @@ enum DayType: String, CaseIterable, Codable {
 
 // MARK: - ShootDay
 
-struct ShootDay: Identifiable, Codable {
+struct ShootDay: Identifiable, nonisolated Codable, Equatable {
     let id:        UUID
     var date:      Date
     var scenes:    [Scene]       = []
@@ -1103,7 +1103,8 @@ struct ShootDay: Identifiable, Codable {
     var dayNote:   String        = ""
 
     /// Legacy name for `dayType == .unavailable`. Read-only; set `dayType` instead.
-    var isBlackout: Bool { dayType == .unavailable }
+    /// Nonisolated because the (nonisolated) encoder still writes it for older builds.
+    nonisolated var isBlackout: Bool { dayType == .unavailable }
 
     init(date: Date, scenes: [Scene] = [], callSheet: CallSheetData = CallSheetData(),
          dayType: DayType = .shoot, dayNote: String = "", isBlackout: Bool = false) {
@@ -1119,7 +1120,7 @@ struct ShootDay: Identifiable, Codable {
         case id, date, scenes, callSheet, isBlackout, dayType, dayNote
     }
 
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id         = try c.decode(UUID.self, forKey: .id)
         date       = try c.decode(Date.self, forKey: .date)
@@ -1136,7 +1137,7 @@ struct ShootDay: Identifiable, Codable {
         }
     }
 
-    func encode(to encoder: Encoder) throws {
+    nonisolated func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id,        forKey: .id)
         try c.encode(date,      forKey: .date)
@@ -1179,7 +1180,7 @@ struct ShootDay: Identifiable, Codable {
 
 // MARK: - ProjectData
 
-struct ProjectData: Codable {
+struct ProjectData: nonisolated Codable, Equatable {
     var allScenes:          [Scene]
     var shootDays:          [ShootDay]
     var projectTitle:       String
@@ -1187,7 +1188,8 @@ struct ProjectData: Codable {
     var isShiftModeEnabled: Bool?
     var productionInfo:     ProductionInfo?
 
-    init(
+    /// Nonisolated so `ProjectCodec` can build one off the main actor.
+    nonisolated init(
         allScenes:          [Scene],
         shootDays:          [ShootDay],
         projectTitle:       String = "Untitled Movie",
@@ -1206,7 +1208,7 @@ struct ProjectData: Codable {
 
 // MARK: - Legacy Support
 
-struct LegacyProjectData: Codable {
+struct LegacyProjectData: nonisolated Codable {
     var allScenes: [Scene]
     var shootDays: [ShootDay]
 }

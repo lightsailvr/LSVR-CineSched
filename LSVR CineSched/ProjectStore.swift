@@ -1,72 +1,12 @@
 // ProjectStore.swift
-// Handles all project persistence: auto-save, manual save/load, script import, and the
-// FileDocument wrapper used by the native file importer/exporter. File choosing goes
-// through FilePanels (the platform seam); the PDF export actions live in
-// ProjectStore+PDFExports.swift because the exporters are Mac-only for now.
+// Handles all project persistence: auto-save, manual save/load and script import. The
+// bytes themselves come from ProjectCodec (the one encoder/decoder, shared with the
+// project document); file choosing goes through FilePanels (the platform seam); the PDF
+// export actions live in ProjectStore+PDFExports.swift.
 
 import SwiftUI
 import Foundation
 import UniformTypeIdentifiers
-
-// MARK: - ProjectFile (FileDocument for JSON import/export)
-
-struct ProjectFile: FileDocument {
-    static var readableContentTypes: [UTType] = [.json]
-    var projectData: ProjectData
-
-    init(allScenes: [Scene], shootDays: [ShootDay], projectTitle: String = "Untitled Movie") {
-        self.projectData = ProjectData(
-            allScenes: allScenes,
-            shootDays: shootDays,
-            projectTitle: projectTitle
-        )
-    }
-
-    init(configuration: ReadConfiguration) throws {
-        guard let data = configuration.file.regularFileContents else {
-            throw CocoaError(.fileReadCorruptFile)
-        }
-        // Try current format first, fall back to legacy
-        do {
-            self.projectData = try Self.decode(data)
-        } catch {
-            let legacy = try JSONDecoder().decode(LegacyProjectData.self, from: data)
-            self.projectData = ProjectData(
-                allScenes: legacy.allScenes,
-                shootDays: legacy.shootDays,
-                projectTitle: "Imported Project"
-            )
-        }
-    }
-
-    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        let data = try Self.encode(projectData)
-        return FileWrapper(regularFileWithContents: data)
-    }
-
-    // MARK: - Shared encode/decode helpers
-
-    static func encode(_ projectData: ProjectData) throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = .prettyPrinted
-        encoder.dateEncodingStrategy = .formatted(isoDateFormatter)
-        return try encoder.encode(projectData)
-    }
-
-    /// Tries formatted-date decoder first, then plain decoder for backwards compatibility.
-    static func decode(_ data: Data) throws -> ProjectData {
-        let formattedDecoder = JSONDecoder()
-        formattedDecoder.dateDecodingStrategy = .formatted(isoDateFormatter)
-        if let result = try? formattedDecoder.decode(ProjectData.self, from: data) { return result }
-        return try JSONDecoder().decode(ProjectData.self, from: data)
-    }
-
-    private static var isoDateFormatter: DateFormatter {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ"
-        return f
-    }
-}
 
 // MARK: - Auto-save / UserDefaults persistence
 
@@ -87,7 +27,7 @@ extension ContentView {
             productionInfo: productionInfo
         )
         do {
-            let data = try ProjectFile.encode(projectData)
+            let data = try ProjectCodec.encode(projectData)
             UserDefaults.standard.set(data, forKey: "SavedProject")
             print("Auto-saved project to UserDefaults")
         } catch {
@@ -172,7 +112,7 @@ extension ContentView {
             productionInfo: productionInfo
         )
         do {
-            let data = try ProjectFile.encode(projectData)
+            let data = try ProjectCodec.encode(projectData)
             try data.write(to: url)
             setCurrentFileURL(url)
             recentFiles.record(url)
@@ -220,20 +160,9 @@ extension ContentView {
             print("Loaded project '\(loaded.projectTitle)' from \(source)")
         }
 
-        if let loaded = try? ProjectFile.decode(data) {
+        // The codec also reads the legacy scenes-and-days shape (titled "Loaded Project").
+        if let loaded = try? ProjectCodec.decode(data) {
             apply(loaded)
-            return
-        }
-        if let legacy = try? JSONDecoder().decode(LegacyProjectData.self, from: data) {
-            allScenes    = legacy.allScenes
-            shootDays    = legacy.shootDays
-            projectTitle = "Loaded Project"
-            isShiftModeEnabled = false
-            if let first = shootDays.first?.date, let last = shootDays.last?.date {
-                startDate = first
-                endDate   = last
-            }
-            print("Loaded legacy project from \(source)")
             return
         }
         alertMessage = "Failed to decode project file."
