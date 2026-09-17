@@ -43,8 +43,15 @@ struct CineSchedApp: App {
         // own document scenes land (#1, M2 #12 and M3/M4).
         #if os(macOS)
         DocumentGroup(editor: { document in
-            ContentView(document: document)
-                .accentColor(currentTheme.primaryAccent(isDarkMode: isDarkMode))
+            // A legacy .json is never edited in place: its contents move to an untitled
+            // .cinesched document (see LegacyProjectHandoff). The URL is read live because
+            // the configuration receives it after the document is made.
+            if ProjectDocument.isLegacySource(document.fileURL) {
+                LegacyProjectHandoff(document: document)
+            } else {
+                ContentView(document: document)
+                    .accentColor(currentTheme.primaryAccent(isDarkMode: isDarkMode))
+            }
         }, makeDocument: { configuration, _ in
             // Called for New and for Open alike; an opened file's contents arrive through
             // the reader and `apply` straight after, replacing the blank month.

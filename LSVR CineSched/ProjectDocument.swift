@@ -70,6 +70,21 @@ final class ProjectDocument: Document {
     /// untitled window. Only read for conveniences such as where a PDF export panel opens.
     var fileURL: URL? { configuration?.fileURL }
 
+    /// True once the file's contents have arrived through `apply`; false for a document
+    /// still showing its construction-time project.
+    var hasLoadedSnapshot: Bool { restoreCount > 0 }
+
+    /// Whether an opened file is a legacy `.json` rather than the native type. The document
+    /// infrastructure autosaves an opened file in place within seconds of an edit and does
+    /// not treat a readable-but-unwritable type as read-only, so the Mac never edits such a
+    /// file: `LegacyProjectHandoff` hands its contents to a fresh untitled document and
+    /// closes the window (story 13 of #1: the original is left untouched, the first Save
+    /// asks for a `.cinesched` destination).
+    nonisolated static func isLegacySource(_ url: URL?) -> Bool {
+        guard let url else { return false }
+        return url.pathExtension.lowercased() != (UTType.cineschedProject.preferredFilenameExtension ?? "cinesched")
+    }
+
     /// The file URL and coordinator the document infrastructure hands `DocumentGroup`'s
     /// `makeDocument`; nil for a document built in a test or in memory.
     private let configuration: URLDocumentConfiguration?
@@ -83,6 +98,14 @@ final class ProjectDocument: Document {
     init(_ project: ProjectData = ProjectData(allScenes: [], shootDays: []), configuration: URLDocumentConfiguration? = nil) {
         self.project       = project
         self.configuration = configuration
+    }
+
+    /// For the system's new-document action, whose factory closure runs off the main
+    /// actor: an untitled document holding `project` (the legacy handoff uses it).
+    nonisolated init(untitled project: ProjectData) {
+        // The Observation macro's backing storage: the tracked setter is main-actor-only.
+        self._project      = project
+        self.configuration = nil
     }
 
     // MARK: - Reading
@@ -190,12 +213,20 @@ nonisolated struct ProjectDocumentReader: DocumentReader {
     }
 }
 
-/// Writes a `ProjectData` as the codec's JSON, atomically, off the main actor.
+/// Writes a `ProjectData` as the codec's JSON, atomically, off the main actor. Never to a
+/// legacy `.json`: that file is opened in a viewer role and must stay byte-identical, and
+/// the writer is the last line of defence should any path try (see `isLegacySource`).
 nonisolated struct ProjectDocumentWriter: DocumentWriter {
     @concurrent
     func write(snapshot: ProjectData, to destination: URL, previous: ProjectData?, progress: consuming Subprogress) async throws {
         let manager = progress.start(totalCount: 1)
         defer { manager.complete(count: 1) }
+        guard !ProjectDocument.isLegacySource(destination) else {
+            throw CocoaError(.fileWriteNoPermission, userInfo: [
+                NSURLErrorKey: destination,
+                NSLocalizedDescriptionKey: "CineSched does not write legacy .json project files. Save the project as a .cinesched file instead.",
+            ])
+        }
         try ProjectCodec.encode(snapshot).write(to: destination, options: .atomic)
     }
 }

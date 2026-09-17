@@ -93,6 +93,39 @@ struct ProjectDocumentTests {
         }
     }
 
+    /// The document infrastructure autosaves an opened file in place within seconds of an
+    /// edit and does not treat a readable-but-unwritable type as read-only, so the writer is
+    /// the last line of defence for "the .json is byte-identical afterward" (#8): a legacy
+    /// file is never a write destination, whatever asked.
+    @Test func writerRefusesALegacyJSONDestination() async throws {
+        try await withTemporaryDirectory { dir in
+            let url      = dir.appendingPathComponent("legacy.json")
+            let original = Data(ProjectCodecTests.legacyJSON.utf8)
+            try original.write(to: url)
+
+            await #expect(throws: CocoaError.self) {
+                try await ProjectDocumentWriter().write(snapshot: project, to: url, previous: nil, progress: subprogress())
+            }
+            #expect(try Data(contentsOf: url) == original)
+        }
+    }
+
+    /// Which opened files the Mac hands off to a fresh untitled document instead of editing
+    /// in place: anything that is not the native type. An untitled document has no URL.
+    @Test func onlyNonNativeSourcesAreLegacy() {
+        #expect(ProjectDocument.isLegacySource(URL(fileURLWithPath: "/tmp/Old Project.json")))
+        #expect(ProjectDocument.isLegacySource(URL(fileURLWithPath: "/tmp/Old Project.JSON")))
+        #expect(!ProjectDocument.isLegacySource(URL(fileURLWithPath: "/tmp/New Project.cinesched")))
+        #expect(!ProjectDocument.isLegacySource(nil))
+    }
+
+    @Test func anUntitledDocumentHoldsTheHandedOffProjectAndHasNoURL() {
+        let document = ProjectDocument(untitled: project)
+        #expect(document.project == project)
+        #expect(document.fileURL == nil)
+        #expect(!document.hasLoadedSnapshot)
+    }
+
     @Test func readerOpensCurrentAndLegacyJSONFixtures() async throws {
         try await withTemporaryDirectory { dir in
             let current = dir.appendingPathComponent("current.json")

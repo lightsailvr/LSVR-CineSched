@@ -63,7 +63,7 @@ Film-production terms first, then app-specific ones.
 | **Project document** | `ProjectDocument`: the one observable document every platform reads, writes and edits (ADR 0004). Its snapshot is `ProjectData`; its reader and writer go through `ProjectCodec`; every edit goes through `perform`, which registers the undo action. On the Mac, `DocumentGroup` makes one per window and `ContentView` edits it. |
 | **Edit gesture** | An `EditGesture` token passed to every `perform` of one user gesture (a drag, a typing burst) so the gesture undoes as one step. |
 | **Native file type** | `com.lsvr.cinesched.project`, extension `.cinesched`, conforming to JSON (ADR 0005). Same bytes as the `.json` the app has always written; declared in `Config/Info.plist` as the exported type and the only document type. |
-| **Viewer role** | How a legacy `.json` opens on the Mac: readable by the document but not writable, so it shows and edits, and the first Save asks for a `.cinesched` destination. The `.json` is never modified. |
+| **Viewer role** | How a legacy `.json` opens on the Mac: it is a readable type, so File ▸ Open lists it, but the document infrastructure would autosave it in place, so `LegacyProjectHandoff` moves its contents into an untitled document and closes the `.json` window. The first Save asks for a `.cinesched` destination; the `.json` is never modified (the writer refuses it). |
 | **Project commands** | `ProjectCommands`: the closure slots a `ContentView` publishes as a focused scene value so the app-wide menus act on the frontmost window. |
 | **Pure core** | The platform-free part of the code: models, parsers and importers, scanners, formatting, row logic, palette settings. Compiles on every platform with no `#if os`. |
 | **Platform seam** | A file that exists to hold a platform difference (`FilePanels`, `ModifierKeys`, `PlatformControlStyles`, …). The only places `#if os(...)` may appear; each starts with a comment saying why. See ADR 0003. |
@@ -97,7 +97,7 @@ ConflictScanner.swift, ScheduleLockScanner.swift                       Pure anal
 Localization.swift, ThemeManager.swift, SceneColorSettings.swift       Cross-cutting settings.
 HoverTooltip.swift, LocationAutocompleteField.swift                            UI utilities.
 FilePanels, SelectAllTextField, WindowAccessor, ModifierKeys, PlatformControlStyles,
-PlatformColors, PlatformPlaceholderView                                        Platform seams (ADR 0003).
+PlatformColors, PlatformPlaceholderView, LegacyProjectHandoff                  Platform seams (ADR 0003).
 ```
 
 ### Data flow

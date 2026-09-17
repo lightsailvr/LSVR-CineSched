@@ -85,7 +85,9 @@ All Swift sources are flat in `LSVR CineSched/`, one responsibility per file (th
   reader/writer, the `perform` undo funnel, `ProjectData.newProject` (the File ▸ New template) and
   `UTType.cineschedProject` (ADR 0005). Project open, save, autosave, Open Recent, Duplicate,
   Rename, Move To and Revert To are the document infrastructure's; nothing in the app implements
-  them.
+  them. A legacy `.json` is never edited in place: `LegacyProjectHandoff` (a Mac seam) moves its
+  contents to an untitled document and the writer refuses `.json` destinations, because the
+  infrastructure autosaves an opened file within seconds and ignores the readable/writable split.
 - `Models.swift`: all value types. `Scene` doubles as banner, auto-meal, and calendar event via flags.
 - `CalendarView.swift`, `StripboardView.swift`: the two schedule views.
 - `*Sheet.swift`: modal editors. `*Exporter.swift`: PDF generators; every call site is in
@@ -95,8 +97,9 @@ All Swift sources are flat in `LSVR CineSched/`, one responsibility per file (th
   `DaysOutOfDaysExporter`) draw on it and build everywhere (its header comment is the recipe
   for writing one). `Fountain*`, `FinalDraftParser`, `HighlandArchiveReader`: importers.
 - Platform seams (ADR 0003): `FilePanels`, `SelectAllTextField`, `WindowAccessor`, `ModifierKeys`,
-  `PlatformControlStyles`, `PlatformColors`, `PlatformPlaceholderView`, plus the root/tabbing
-  choice in `CineSchedApp`. These are the only files allowed to contain `#if os(...)`.
+  `PlatformControlStyles`, `PlatformColors`, `PlatformPlaceholderView`, `LegacyProjectHandoff`,
+  plus the root/tabbing choice in `CineSchedApp`. These are the only files allowed to contain
+  `#if os(...)`.
 
 ## Conventions
 

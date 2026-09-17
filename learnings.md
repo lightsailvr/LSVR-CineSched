@@ -44,6 +44,30 @@ mutation in `ContentView` onto `perform`:
   'subsystem == "cinesched.trace"'`. `print` is block-buffered off a tty and `NSLog` payloads
   show as `<private>`; and `log` is a zsh builtin, so spell out `/usr/bin/log`. What this
   cannot check is Save/autosave/undo through the menus; that stays a human step.
+- **The infrastructure autosaves an opened file within seconds of the first edit and does
+  not honour the readable/writable split as a viewer role.** A `.json` opened through
+  `readableContentTypes` was rewritten in place by the writer (checksum changed, no panel)
+  after one scripted edit, and File ▸ Save did the same; `configuration.fileURL = nil` from
+  `apply` changed nothing. NSDocument's "Save As for an unwritable type" does not exist
+  here. The fix is the spec's own design: `LegacyProjectHandoff` hands the contents to
+  `newDocument(ProjectDocument(untitled:))` and `dismiss()`es the `.json` window; the Save
+  panel then opens with `currentContentType: com.lsvr.cinesched.project`, and the writer
+  throws on any `.json` destination as a backstop. `newDocument`'s factory closure is
+  `@Sendable`, hence the `nonisolated init(untitled:)` that writes the Observation backing
+  store (`_project`) directly. Also: the "Edited" title state clears as soon as autosave
+  has written, which is Lion-style behaviour, not a missing dirty flag.
+- **What a headless harness could and could not reproduce from the human test.** With a
+  temporary env-gated script in `onAppear` (edit through `edit`, `undoManager.undo()`, then
+  `menu.delegate?.menuNeedsUpdate?(menu)` + `performActionForItem(at:)` on the real Edit ▸
+  Undo and Production ▸ Production Setup… items): undo and redo revert through the window's
+  undo manager whether the first responder is the window or a SwiftUI field editor; the
+  focused scene value reaches the `Commands` body once the window is key and routes to
+  whichever of two windows is key. Reading `NSMenuItem.isEnabled` / `action` without
+  `menuNeedsUpdate` shows stale (disabled, nil) items — SwiftUI refreshes them when the menu
+  opens — so do not judge command enablement from a raw item snapshot. Launching with a file
+  path as argv in the sandboxed build makes the file unwritable ("You don't own the file…
+  Duplicate?"); use `ENABLE_APP_SANDBOX=NO` for the harness build. And `pkill -f "LSVR
+  CineSched"` also hits a copy the human is running from Xcode; kill by PID.
 - **`onBeforeSceneChange` cannot be a strict undo bracket.** Several calendar paths call it and
   then finish through `assign`/`removeScene` without `onSceneChanged`, so an `EditGesture`
   opened there is also closed at the end of the run-loop turn (`DispatchQueue.main.async`);
