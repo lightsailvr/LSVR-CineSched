@@ -11,17 +11,6 @@ import UniformTypeIdentifiers
 
 extension ContentView {
 
-    /// The folder to default file panels to: beside the project, when it has been saved.
-    var defaultPanelDirectory: URL? {
-        document.fileURL?.deletingLastPathComponent()
-    }
-
-    func sanitizeFilename(_ name: String) -> String {
-        name.components(separatedBy: .init(charactersIn: "/\\:*?\"<>|"))
-            .joined(separator: "_")
-            .replacingOccurrences(of: " ", with: "_")
-    }
-
     // MARK: - Script import
 
     /// Single "Import Script…" entry point for every supported screenplay format —

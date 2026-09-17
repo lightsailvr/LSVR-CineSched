@@ -1107,12 +1107,12 @@ struct CompactMonthCalendarView: View {
               editingSceneIndex < shootDays[editingDayIndex].scenes.count else { return }
         onBeforeSceneChange()
         // SceneEditSheet already wrote every edited field directly into shootDays via its
-        // own live Binding by the time this fires — this call exists purely to trigger
-        // updateScene's markDirty() side effect (not exposed directly to this file), so it
-        // must use the scene as it now stands, not the `editingScene` snapshot captured
-        // back when the sheet was first opened. Passing that stale snapshot was the actual
-        // bug: it silently reverted every field — including a changed scene type — right
-        // back to whatever it was before the user opened the editor, immediately after
+        // own live Binding by the time this fires — this call exists purely to run
+        // updateScene's write-back (today a no-op edit through the funnel), so it must use
+        // the scene as it now stands, not the `editingScene` snapshot captured back when the
+        // sheet was first opened. Passing that stale snapshot was the actual bug: it
+        // silently reverted every field — including a changed scene type — right back to
+        // whatever it was before the user opened the editor, immediately after
         // SceneEditSheet had just correctly saved the real change.
         let currentScene = shootDays[editingDayIndex].scenes[editingSceneIndex]
         updateScene(currentScene, editingDayId)

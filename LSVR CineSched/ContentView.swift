@@ -45,16 +45,25 @@ struct ContentView: View {
     var isShiftModeEnabled: Bool           { document.project.isShiftModeEnabled ?? false }
 
     /// The range picker's pending dates: what the user is choosing before pressing Update
-    /// Calendar, so UI state rather than project state. Seeded from the shoot days and
-    /// re-seeded whenever the project is replaced under the view (undo, redo, reload).
+    /// Calendar, so UI state rather than project state. Seeded from the shoot days' bounds,
+    /// and re-seeded only when the project is replaced under the view (undo, redo, reload)
+    /// *and* those bounds changed, so an unrelated Undo leaves a half-typed range alone.
     @State var startDate: Date
     @State var endDate:   Date
+    /// The bounds the pickers were last seeded from.
+    @State private var seededRange: ClosedRange<Date>?
 
     init(document: ProjectDocument) {
         self.document = document
-        let days = document.project.shootDays
-        _startDate = State(initialValue: days.first?.date ?? Date())
-        _endDate   = State(initialValue: days.last?.date  ?? Date())
+        let range   = Self.dateRange(of: document.project.shootDays)
+        _startDate   = State(initialValue: range?.lowerBound ?? Date())
+        _endDate     = State(initialValue: range?.upperBound ?? Date())
+        _seededRange = State(initialValue: range)
+    }
+
+    private static func dateRange(of days: [ShootDay]) -> ClosedRange<Date>? {
+        guard let first = days.first?.date, let last = days.last?.date, first <= last else { return nil }
+        return first...last
     }
 
     // MARK: UI / sheet state
@@ -105,7 +114,7 @@ struct ContentView: View {
     @State private var breakdownBrowserScenes: [Scene] = []
     @State private var breakdownBrowserIndex: Int = 0
 
-    // MARK: - Edit funnel
+    // MARK: - Edit gesture state
 
     /// The gesture opened by a child view's `onBeforeSceneChange`, so the several binding
     /// writes one calendar or Stripboard action makes fold into one undo step. Closed by
@@ -126,6 +135,7 @@ struct ContentView: View {
         var id: Self { self }
     }
     @State private var activeSheet: ActiveSheet? = nil
+    @State private var showingColorLegend = false
 
     private var isPresentedUnscheduledEdit: Binding<Bool> {
         Binding(get: { activeSheet == .unscheduledEdit }, set: { if !$0 { activeSheet = nil } })
@@ -397,10 +407,10 @@ struct ContentView: View {
     }
 
     private func seedRangePickers() {
-        if let first = shootDays.first?.date, let last = shootDays.last?.date {
-            startDate = first
-            endDate   = last
-        }
+        guard let range = Self.dateRange(of: shootDays), range != seededRange else { return }
+        startDate   = range.lowerBound
+        endDate     = range.upperBound
+        seededRange = range
     }
 
     private func recomputeDerivedState() {
@@ -409,8 +419,6 @@ struct ContentView: View {
         recomputeConflicts()
         recomputeScheduleLockChanges()
     }
-
-    @State private var showingColorLegend = false
 
     // MARK: - Sidebar
 
@@ -1265,8 +1273,7 @@ struct ContentView: View {
         let cal          = Calendar.current
         let normNewStart = cal.startOfDay(for: newStart)
         let normNewEnd   = cal.startOfDay(for: newEnd)
-        let shootDays    = data.shootDays
-        let isShiftModeEnabled = data.isShiftModeEnabled ?? false
+        let shiftEnabled = data.isShiftModeEnabled ?? false
 
         // 1. Bucket everything by date: script scenes, calendar events, call sheets, and day
         //    types/notes. In shift mode all of it slides by the same offset, so a travel day
@@ -1280,7 +1287,7 @@ struct ContentView: View {
         var dayMetaByDate: [Date: (type: DayType, note: String)] = [:]
         var allExistingScriptScenes: [UUID: Scene] = [:]
 
-        for day in shootDays {
+        for day in data.shootDays {
             let dayNorm = cal.startOfDay(for: day.date)
             let events = day.scenes.filter { $0.isCalendarEvent }
             let scripts = day.scenes.filter { !$0.isCalendarEvent }
@@ -1306,7 +1313,7 @@ struct ContentView: View {
 
         // Re-key a per-date map by the shift offset. Identity when shift mode is off.
         func shifted<T>(_ map: [Date: T]) -> [Date: T] {
-            guard isShiftModeEnabled, dayOffset != 0 else { return map }
+            guard shiftEnabled, dayOffset != 0 else { return map }
             var out: [Date: T] = [:]
             for (date, value) in map {
                 if let moved = cal.date(byAdding: .day, value: dayOffset, to: date) {
