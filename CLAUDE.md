@@ -52,9 +52,10 @@ to `/Applications`, commits, tags `v<version>`, pushes, and publishes a GitHub R
 the zipped app. `scripts/install.sh` just builds and refreshes `/Applications` (no version,
 no tag). Version and build number live only in build settings; keep the changelog's newest
 section in sync with `MARKETING_VERSION`. A clean build
-on 2026-09-16 with Xcode 27.0 (27A266a) at the 27.0 floor succeeds with exactly 11 warnings in the
-app target (7 deprecated one-argument `onChange`, 4 main-actor-isolated `Codable` conformances in
-`ProjectStore.swift`); do not add new ones. The test targets add 5 more of the same kinds.
+on 2026-09-16 with Xcode 27.0 (27A266a) at the 27.0 floor succeeds with exactly 7 warnings in the
+app target (all deprecated one-argument `onChange`); do not add new ones. (The 4 main-actor-isolated
+`Codable` warnings went with #7: the model's `Codable` conformances are `nonisolated`.) The test
+targets add 5 more of the same kinds.
 
 Project facts: single scheme `LSVR CineSched`; Swift 5 language mode with
 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` and approachable concurrency on; deployment target
@@ -72,6 +73,11 @@ All sources are flat in `LSVR CineSched/`, one responsibility per file:
 - `CineSchedApp.swift`: `@main`, menus. Menu items post `Notification.Name`s.
 - `ContentView.swift`: root view that also owns all project state as `@State`. There is no view model.
 - `ProjectStore.swift`: an `extension ContentView` with load/save/autosave/import and the PDF save panels.
+- `ProjectCodec.swift`: the one encoder/decoder for project files (pretty JSON, ISO dates, legacy
+  shapes). Every save and load path uses it; nothing else constructs a `JSONEncoder` for a project.
+- `ProjectDocument.swift`: the project document (ADR 0004) on the 27 `Document` protocol, its URL
+  reader/writer, the `perform` undo funnel, and `UTType.cineschedProject` (ADR 0005). Not yet
+  wired to the Mac window.
 - `RecentFilesStore.swift`: recent-file bookmarks and every `Notification.Name` used by menus.
 - `Models.swift`: all value types. `Scene` doubles as banner, auto-meal, and calendar event via flags.
 - `CalendarView.swift`, `StripboardView.swift`: the two schedule views.
@@ -98,7 +104,12 @@ All sources are flat in `LSVR CineSched/`, one responsibility per file:
   makes the edit non-undoable.
 - **Model changes**: every new `Codable` field gets a `CodingKeys` entry and a
   `decodeIfPresent(...) ?? default` line in the hand-written `init(from:)`. Old project files must
-  still open. There is no schema version.
+  still open. There is no schema version. Model `Codable` conformances are `nonisolated` (and so
+  are their hand-written `init(from:)` / `encode(to:)`) because `ProjectCodec` runs off the main
+  actor; a new model type follows suit, and a decoder must not touch main-actor state.
+- **Mutating the project document**: only through `ProjectDocument.perform`, which registers the
+  undo action the document infrastructure autosaves from. Pass one `EditGesture` token for every
+  edit of a drag or typing burst so it undoes as one step.
 - **Colors**: resolve scene colors only via `Scene.stripColor`. Exporters must not hardcode strip colors.
 - **PDF drawing**: new or migrated exporters draw through `PDFCanvas` (`PDFFont`, `CGColor`
   helpers, `draw(_:in:)` / `draw(_:at:)`), never through `NSFont` / `NSColor` /
@@ -122,7 +133,9 @@ All sources are flat in `LSVR CineSched/`, one responsibility per file:
 The test targets are Xcode template stubs. `LSVR CineSchedTests` uses Swift Testing (`@Test`,
 `#expect`). Pure, testable units: `FountainParser`, `FountainPaginator`, `FractionParser`,
 `TimeParser`, `Formatting.swift` free functions, `ConflictScanner`, `ScheduleLockScanner`,
-`DaysOutOfDaysExporter.buildRows`, `PDFCanvas`, and all six exporters (rendered from the shared
+`DaysOutOfDaysExporter.buildRows`, `PDFCanvas`, `ProjectCodec` (`ProjectCodecTests`),
+`ProjectDocument` with its reader, writer, type and undo funnel (`ProjectDocumentTests`, against a
+real `UndoManager` with `groupsByEvent` off), and all six exporters (rendered from the shared
 fixture in `PDFTestSupport.swift` and read back through PDFKit in `SchedulePDFExporterTests`,
 `MonthPDFExporterTests`, `CallSheetPDFExporterTests`, `BreakdownPDFExporterTests` and
 `DaysOutOfDaysPDFExporterTests`; set `CINESCHED_PDF_DUMP_DIR` to keep the PDFs for a visual
@@ -136,8 +149,10 @@ metrics or wrapping are guarded by `PDFFixture.hasMacSystemFace`.
 - Log anything non-obvious you learn in `learnings.md` (newest first). Promote durable rules here or to an ADR.
 - Update `LSVR CineSched/CHANGELOG.md` under `[Unreleased]` for user-visible changes.
 - Keep the `.app.zip` bundles, `1024.png`, and other non-source files out of `LSVR CineSched/`; they get copied into the app.
-- There is no hand-written `Info.plist` (`GENERATE_INFOPLIST_FILE = YES`); do not add one to the source folder, it would be
-  bundled as a resource and collide with the generated plist in the flat iOS bundle. Version and document-type settings live in build settings.
+- The `Info.plist` is generated from build settings (`GENERATE_INFOPLIST_FILE = YES`) and merged with the partial
+  `Config/Info.plist`, which holds only keys that cannot be `INFOPLIST_KEY_` settings (today the exported
+  `.cinesched` type, ADR 0005). Never put a plist in the source folder: it would be bundled as a resource and
+  collide with the generated plist in the flat iOS bundle. Version and bundle identifier live in build settings.
 
 ## Agent skills
 

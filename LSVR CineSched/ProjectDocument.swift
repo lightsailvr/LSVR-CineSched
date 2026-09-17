@@ -1,0 +1,157 @@
+// ProjectDocument.swift
+// The one project document every platform reads, writes and edits (#7, ADR 0004). An
+// observable reference type on the 27 `Document` protocol whose snapshot is `ProjectData`
+// itself, so reading, writing, undo and (later) conflict decisions all speak one value
+// type. Nothing in the UI uses it yet: the Mac keeps its `@State` ownership in
+// ContentView until the next ticket wires the document lifecycle.
+//
+// Three seams, each testable on its own:
+//   - `ProjectDocumentReader` / `ProjectDocumentWriter`: URL in, `ProjectData` out (and
+//     back) through `ProjectCodec`, off the main actor. The only writable type is the
+//     native `.cinesched`; `.json` is readable so legacy files still open.
+//   - `perform(_:coalescing:undoManager:_:)`: the single edit funnel. Every mutation of the
+//     project goes through it, which is what registers the undo action holding the previous
+//     snapshot; the document infrastructure autosaves only from registered undo actions.
+//   - `UTType.cineschedProject`: the exported type declared in Config/Info.plist (ADR 0005).
+
+import Foundation
+import Observation
+import SwiftUI
+import UniformTypeIdentifiers
+
+// MARK: - Content type
+
+extension UTType {
+    /// `com.lsvr.cinesched.project`, extension `.cinesched`, conforming to JSON. Declared
+    /// in Config/Info.plist so the system resolves it; the fallback here only matters if
+    /// a host has not registered the bundle.
+    nonisolated static let cineschedProject = UTType(exportedAs: "com.lsvr.cinesched.project", conformingTo: .json)
+}
+
+// MARK: - Edit gesture
+
+/// A token that groups the edits of one user gesture (a drag, a typing burst) into a
+/// single undo step. Make one when the gesture starts and pass it to every `perform`
+/// the gesture makes; the first edit registers the undo action and the rest ride on it.
+struct EditGesture: Hashable {
+    private let id = UUID()
+    init() {}
+}
+
+// MARK: - Document
+
+@Observable
+final class ProjectDocument: Document {
+
+    /// The whole project: Boneyard scenes, shoot days, title, created date, shift mode
+    /// and production info. Read freely; change it only through `perform`.
+    private(set) var project: ProjectData
+
+    /// The gesture whose undo action is currently open, so a further edit with the same
+    /// token merges into it instead of registering another. Closed by an edit with a
+    /// different (or no) token, by undo or redo, and by a snapshot arriving from disk.
+    private var openGesture: EditGesture?
+
+    init(_ project: ProjectData = ProjectData(allScenes: [], shootDays: [])) {
+        self.project = project
+    }
+
+    // MARK: Reading
+
+    nonisolated static var readableContentTypes: [UTType] { [.cineschedProject, .json] }
+
+    func reader(configuration: ReadConfiguration) -> ProjectDocumentReader {
+        ProjectDocumentReader()
+    }
+
+    /// Replaces the model wholesale: correctness first, incrementality later (#1).
+    func apply(snapshot: ProjectData, previous: ProjectData?) async throws {
+        openGesture = nil
+        project     = snapshot
+    }
+
+    // MARK: Writing
+
+    nonisolated static var writableContentTypes: [UTType] { [.cineschedProject] }
+
+    func writer(configuration: WriteConfiguration) -> ProjectDocumentWriter {
+        ProjectDocumentWriter()
+    }
+
+    func snapshot(contentType: UTType) async throws -> ProjectData {
+        project
+    }
+
+    // MARK: Edit funnel
+
+    /// Applies `edit` to the project and registers an undo action that restores the
+    /// snapshot from before it (redo re-registers the same way). Passing the same
+    /// `gesture` token as the previous call folds this edit into that call's undo step.
+    /// `actionName` labels the Undo menu item. With no undo manager the edit still
+    /// happens, just without a way back.
+    func perform(
+        _ actionName: String? = nil,
+        coalescing gesture: EditGesture? = nil,
+        undoManager: UndoManager?,
+        _ edit: (inout ProjectData) -> Void
+    ) {
+        if let gesture, gesture == openGesture {
+            edit(&project)
+            return
+        }
+        let before = project
+        edit(&project)
+        guard let undoManager else {
+            openGesture = nil
+            return
+        }
+        // One explicit group per edit, so a step is a step whether or not the manager
+        // groups by run-loop event (it does in the app; the tests turn that off).
+        undoManager.beginUndoGrouping()
+        registerUndo(restoring: before, with: undoManager)
+        if let actionName { undoManager.setActionName(actionName) }
+        undoManager.endUndoGrouping()
+        openGesture = gesture
+    }
+
+    /// Undo swaps the whole snapshot back and registers the reverse, which is the redo;
+    /// registering while the manager is undoing lands on the redo stack by itself.
+    private func registerUndo(restoring snapshot: ProjectData, with undoManager: UndoManager) {
+        undoManager.registerUndo(withTarget: self) { document in
+            let current = document.project
+            document.openGesture = nil
+            document.project     = snapshot
+            document.registerUndo(restoring: current, with: undoManager)
+        }
+    }
+}
+
+// MARK: - Reader and writer
+
+/// Reads a `.cinesched` or legacy `.json` file into a `ProjectData` off the main actor.
+nonisolated struct ProjectDocumentReader: DocumentReader {
+    @concurrent
+    func read(from source: URL, progress: consuming Subprogress) async throws -> sending ProjectData {
+        let manager = progress.start(totalCount: 1)
+        defer { manager.complete(count: 1) }
+        let data = try Data(contentsOf: source)
+        do {
+            return try ProjectCodec.decode(data)
+        } catch {
+            throw CocoaError(.fileReadCorruptFile, userInfo: [
+                NSURLErrorKey:        source,
+                NSUnderlyingErrorKey: error,
+            ])
+        }
+    }
+}
+
+/// Writes a `ProjectData` as the codec's JSON, atomically, off the main actor.
+nonisolated struct ProjectDocumentWriter: DocumentWriter {
+    @concurrent
+    func write(snapshot: ProjectData, to destination: URL, previous: ProjectData?, progress: consuming Subprogress) async throws {
+        let manager = progress.start(totalCount: 1)
+        defer { manager.complete(count: 1) }
+        try ProjectCodec.encode(snapshot).write(to: destination, options: .atomic)
+    }
+}

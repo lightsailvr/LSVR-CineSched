@@ -9,6 +9,54 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-16 — The project document: `nonisolated Codable` is a two-word fix, UndoManager needs a run loop or a group, a partial Info.plist merges (#7)
+
+Building `ProjectDocument` on the 27 `Document` protocol and extracting `ProjectCodec`:
+
+- **The 27 document protocols are `Document = ReadableDocument & WritableDocument`, with
+  `DocumentReader` / `DocumentWriter` as separate `@concurrent` types** whose `read` /
+  `write` take a `consuming Subprogress` (the new `ProgressManager` API: `progress.start(
+  totalCount:)` gives the manager to `complete(count:)` on). `DocumentReadConfiguration`
+  and `DocumentWriteConfiguration` have no public initializer, so a test cannot call
+  `document.reader(configuration:)`; it constructs `ProjectDocumentReader()` directly.
+  `DocumentGroup(editor:makeDocument:)` hands the document a `URLDocumentConfiguration`
+  (file URL, modification date, file coordinator) — for the next ticket.
+- **A main-actor-isolated `Codable` conformance is a one-line change to make nonisolated:**
+  `struct Scene: Identifiable, nonisolated Codable, Hashable`, plus `nonisolated` on any
+  hand-written `init(from:)` / `encode(to:)` and on anything they touch (`ShootDay.
+  isBlackout`, `ProjectData.init`). Synthesized witnesses follow the conformance. Under
+  `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` every conformance is inferred `@MainActor`,
+  which is why the baseline had 4 "isolated conformance cannot be used in nonisolated
+  context" warnings at the old `ProjectFile` call sites; the codec would have carried them
+  over. Scratch-checking the syntax with `swiftc -typecheck -Xfrontend -default-isolation
+  -Xfrontend MainActor -enable-upcoming-feature InferIsolatedConformances` took a minute
+  and saved a build cycle.
+- **`UndoManager.registerUndo` with `groupsByEvent` on and no run loop folds every
+  registration into one step**, so a test that performs two edits and undoes gets both back.
+  With `groupsByEvent = false` and no open group it throws (`must begin a group before
+  registering undo`). `perform` therefore opens and closes an explicit group around each
+  registration — invisible in the app, where it nests inside the event group — and the tests
+  turn `groupsByEvent` off. Re-registering inside the undo handler (the redo) needs no
+  group of its own: `undo()` opens one.
+- **`GENERATE_INFOPLIST_FILE = YES` plus `INFOPLIST_FILE = Config/Info.plist` merges**: the
+  built `Info.plist` carries the generated keys (bundle id, version, the iOS scene manifest)
+  and the file's `UTExportedTypeDeclarations`. Keep the file outside the synchronized
+  folder. The exported type resolves at runtime in the test host on the Mac and on both
+  simulators (`UTType("com.lsvr.cinesched.project")` is non-nil, `preferredFilenameExtension`
+  is `cinesched`), so the plist really is registered when the host launches.
+- **The date formatter writes the machine's zone and locale.** `yyyy-MM-dd'T'HH:mm:ssZ` on
+  a default `DateFormatter` produces `-0700` here and `+0000` on a UTC machine, and a
+  non-Gregorian device calendar would write a different year. Left as is for byte-for-byte
+  compatibility (ADR 0005), the test pins the shape only; worth fixing to `en_US_POSIX` +
+  UTC before two devices with different locales share a file (M2 sync).
+- **The fixtures mint fresh UUIDs on every access.** `PDFFixture.days` is a computed
+  property, so a test comparing "the project" against itself must store the fixture once
+  (`let project = ProjectCodecTests.project`), or two reads never compare equal.
+- `-only-testing:"LSVR CineSchedTests/ProjectDocumentTests"` works at suite level without
+  parentheses; the #5 note about needing them applies to individual test functions.
+
+---
+
 ## 2026-09-16 — Breakdown and DOOD off AppKit: `boundingRect` is a point short of `draw(in:)`, TextKit drops lines by their top edge, `calibratedWhite` is a different gray, system colors follow the theme (#6)
 
 The last two exporters, same method as #4 and #5 (dump every fixture PDF before and after,

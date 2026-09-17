@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!--
+  The app target generates its Info.plist from build settings (GENERATE_INFOPLIST_FILE);
+  Xcode merges this partial plist into it (INFOPLIST_FILE). Only keys that cannot be
+  expressed as an INFOPLIST_KEY_ build setting belong here, which today is the exported
+  document type. Version, bundle identifier and the iOS scene/launch keys stay in build
+  settings. This file lives outside "LSVR CineSched/" on purpose: that folder is a
+  synchronized group and anything in it is copied into the bundle as a resource, which
+  collides with the generated plist in the flat iOS bundle (see CLAUDE.md).
+-->
+<dict>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.lsvr.cinesched.project</string>
+			<key>UTTypeDescription</key>
+			<string>CineSched Project</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.json</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>cinesched</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+</dict>
+</plist>

@@ -60,6 +60,9 @@ Film-production terms first, then app-specific ones.
 | **Project file** | A `.json` document holding `ProjectData`: all scenes, shoot days, call sheets, production info, and schedule lock. Human-readable and portable. |
 | **Autosave** | The whole project blob written to `UserDefaults` two seconds after the last change. Distinct from the manual Save to a `.json` file. |
 | **Fountain / FDX / Highland** | Supported screenplay import formats: plain-text Fountain, Final Draft XML, and Highland's zipped TextBundle. |
+| **Project document** | `ProjectDocument`: the one observable document every platform reads, writes and edits (ADR 0004). Its snapshot is `ProjectData`; its reader and writer go through `ProjectCodec`; every edit goes through `perform`, which registers the undo action. Not yet wired to the Mac window. |
+| **Edit gesture** | An `EditGesture` token passed to every `perform` of one user gesture (a drag, a typing burst) so the gesture undoes as one step. |
+| **Native file type** | `com.lsvr.cinesched.project`, extension `.cinesched`, conforming to JSON (ADR 0005). Same bytes as the `.json` the app has always written; declared in `Config/Info.plist`. |
 | **Pure core** | The platform-free part of the code: models, parsers and importers, scanners, formatting, row logic, palette settings. Compiles on every platform with no `#if os`. |
 | **Platform seam** | A file that exists to hold a platform difference (`FilePanels`, `ModifierKeys`, `PlatformControlStyles`, …). The only places `#if os(...)` may appear; each starts with a comment saying why. See ADR 0003. |
 
@@ -71,6 +74,9 @@ Everything lives flat in `LSVR CineSched/`. One responsibility per file; no thir
 CineSchedApp.swift        @main, WindowGroup, all menus. Menu items post NotificationCenter names.
 ContentView.swift         Root view AND the owner of all project state (@State). No view model.
   ProjectStore.swift      extension ContentView: load/save/autosave/import/export panels.
+  ProjectCodec.swift      The one project encoder/decoder (pretty JSON, ISO dates, legacy shapes).
+  ProjectDocument.swift   The project document (27 Document protocol), URL reader/writer, perform undo funnel,
+                          UTType.cineschedProject. Built in #7; the Mac window adopts it in the next ticket.
   RecentFilesStore.swift  Recent-file bookmarks + every Notification.Name the menus use.
 Models.swift              All value types (Scene, ShootDay, ProjectData, CallSheetData, ...). Hand-written Codable.
 CalendarView.swift        Month grid / full-schedule scroll, drag & drop, day cells.
@@ -100,7 +106,9 @@ PlatformColors, PlatformPlaceholderView                                        P
 3. Every mutation calls `markDirty()`; a debounced task autosaves to `UserDefaults` two seconds later.
    Manual Save writes the same JSON to the current file URL via a security-scoped bookmark.
 4. Undo is a manual 30-deep snapshot stack of `(allScenes, shootDays)` in `ContentView`, not `UndoManager`.
-   It does not cover call sheets, production info, or the title.
+   It does not cover call sheets, production info, or the title. `ProjectDocument.perform` is the
+   replacement (whole-snapshot undo through a real `UndoManager`, per-gesture coalescing); the Mac
+   switches to it when it adopts the document.
 5. Exporters are pure functions from model values to `Data` (PDF). The save-panel actions around them
    live in `ProjectStore+PDFExports.swift`; the panels themselves come from `FilePanels`.
 

@@ -1,6 +1,7 @@
 # 0001 — Project files are plain JSON, evolved by additive optional fields
 
-Status: Accepted (inherited, recorded 2026-09-02)
+Status: Accepted (inherited, recorded 2026-09-02). Amended by 0005 (2026-09-16): the format
+stands; the "no custom UTI" clause is reversed by the native `.cinesched` type.
 
 ## Context
 
