@@ -153,3 +153,32 @@ func pdfDocument(from data: Data?, dumpAs name: String? = nil) -> PDFDocument {
 func pdfFullText(_ doc: PDFDocument) -> String {
     (0..<doc.pageCount).compactMap { doc.page(at: $0)?.string }.joined(separator: "\n")
 }
+
+/// Whether any pixel of page `index` is exactly the sRGB color `hex` (a strip's fill,
+/// which the exporters draw as a flat rectangle, so its interior pixels are exact). The
+/// page is rasterized at 1 pt per pixel through CoreGraphics alone, so it works on every
+/// platform the exporters build for. False for a page that does not exist.
+func pdfPage(_ doc: PDFDocument, _ index: Int, containsColorHex hex: String) -> Bool {
+    guard let page = doc.page(at: index)?.pageRef else { return false }
+    let box    = page.getBoxRect(.mediaBox)
+    let width  = Int(box.width.rounded()), height = Int(box.height.rounded())
+    guard width > 0, height > 0,
+          let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)
+    else { return false }
+    context.setFillColor(CGColor(gray: 1, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    context.setShouldAntialias(false)
+    context.drawPDFPage(page)
+    guard let pixels = context.data?.assumingMemoryBound(to: UInt8.self) else { return false }
+
+    let value = UInt32(hex, radix: 16) ?? 0
+    let (r, g, b) = (UInt8(value >> 16 & 0xFF), UInt8(value >> 8 & 0xFF), UInt8(value & 0xFF))
+    for i in stride(from: 0, to: width * height * 4, by: 4)
+    where pixels[i] == r && pixels[i + 1] == g && pixels[i + 2] == b {
+        return true
+    }
+    return false
+}

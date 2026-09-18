@@ -50,7 +50,8 @@ extension ContentView {
         guard let pdfData = StripboardPDFExporter.generatePDF(
             shootDays: shootDays,
             projectTitle: projectTitle,
-            productionInfo: productionInfo
+            productionInfo: productionInfo,
+            palette: palette
         ) else {
             alertMessage = "Couldn't generate a strip schedule PDF — schedule at least one scene first."
             showingAlert = true
@@ -121,7 +122,8 @@ extension ContentView {
         let pdfData = ShootingSchedulePDFExporter.generatePDF(
             shootDays: daysToExport,
             projectTitle: projectTitle,
-            productionInfo: productionInfo
+            productionInfo: productionInfo,
+            palette: palette
         )
         let baseName = projectTitle.isEmpty ? "Shooting_Schedule" : projectTitle.replacingOccurrences(of: " ", with: "_")
         FilePanels.chooseSaveLocation(
@@ -146,6 +148,7 @@ extension ContentView {
             shootDays: shootDays,
             projectTitle: projectTitle,
             productionInfo: productionInfo,
+            palette: palette,
             options: options
         ) else { return }
 

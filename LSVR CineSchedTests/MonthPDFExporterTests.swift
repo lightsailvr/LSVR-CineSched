@@ -49,6 +49,7 @@ struct MonthPDFExporterTests {
         options: MonthPDFOptions = .default,
         projectTitle: String = "Test Project",
         productionInfo: ProductionInfo = ProductionInfo(),
+        palette: ScenePalette = .standard,
         dumpAs name: String? = nil
     ) -> PDFDocument {
         let data = PDFExporter.generateMonthPDF(
@@ -56,6 +57,7 @@ struct MonthPDFExporterTests {
             shootDays: days,
             projectTitle: projectTitle,
             productionInfo: productionInfo,
+            palette: palette,
             options: options
         )
         return pdfDocument(from: data, dumpAs: name)
@@ -79,6 +81,17 @@ struct MonthPDFExporterTests {
         // Continuation pages are labelled.
         #expect(text.contains("(cont.)"))
         #expect(text.contains("Page 2"))
+    }
+
+    /// The breakdown pages' swatches take the project's palette (#11); the grid page
+    /// draws no strip colors, so the check is on page 2.
+    @Test func breakdownSwatchesDrawTheProjectPalette() {
+        var palette = ScenePalette.standard
+        palette.setHex("C71585", for: .intDay)   // a color no standard slot uses
+        let custom = render(fixtureDays, palette: palette)
+        #expect(custom.pageCount >= 2)
+        #expect(pdfPage(custom, 1, containsColorHex: "C71585"))
+        #expect(!pdfPage(render(fixtureDays), 1, containsColorHex: "C71585"))
     }
 
     @Test func englishExportHasNoSpanishAbbreviations() {

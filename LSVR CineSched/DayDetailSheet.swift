@@ -5,6 +5,7 @@ import SwiftUI
 
 struct DayDetailSheet: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.scenePalette) private var palette
     @AppStorage("CineSchedTheme") private var currentTheme: AppTheme = .blue
     @ObservedObject private var l10n = LocalizationManager.shared
 
@@ -469,7 +470,7 @@ struct DayDetailSheet: View {
             }
         }
         .padding(12)
-        .background(scene.stripColor)
+        .background(scene.stripColor(in: palette))
         .cornerRadius(8)
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.12), lineWidth: 1))
     }

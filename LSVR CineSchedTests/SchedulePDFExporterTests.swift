@@ -24,7 +24,8 @@ struct SchedulePDFExporterTests {
             from: StripboardPDFExporter.generatePDF(
                 shootDays: PDFFixture.days,
                 projectTitle: PDFFixture.title,
-                productionInfo: PDFFixture.productionInfo
+                productionInfo: PDFFixture.productionInfo,
+                palette: .standard
             ),
             dumpAs: "StripSchedule.pdf"
         )
@@ -45,9 +46,36 @@ struct SchedulePDFExporterTests {
         #expect(!text.contains("TRAVEL"))
     }
 
+    /// The palette is the project's (#11): a customized slot colors the strips of every
+    /// exporter that draws them, and the standard color is gone from the page.
+    @Test func stripSchedulesDrawTheProjectPalette() {
+        var palette = ScenePalette.standard
+        palette.setHex("C71585", for: .intDay)   // a color no standard slot uses
+        let standardIntDay = SceneColorSlot.intDay.defaultHex
+
+        let strip = pdfDocument(from: StripboardPDFExporter.generatePDF(
+            shootDays: PDFFixture.days, projectTitle: PDFFixture.title,
+            productionInfo: PDFFixture.productionInfo, palette: palette))
+        #expect(pdfPage(strip, 0, containsColorHex: "C71585"))
+        #expect(!pdfPage(strip, 0, containsColorHex: standardIntDay))
+
+        let shooting = pdfDocument(from: ShootingSchedulePDFExporter.generatePDF(
+            shootDays: PDFFixture.days, projectTitle: PDFFixture.title,
+            productionInfo: PDFFixture.productionInfo, palette: palette))
+        #expect(pdfPage(shooting, 0, containsColorHex: "C71585"))
+        #expect(!pdfPage(shooting, 0, containsColorHex: standardIntDay))
+
+        // And the standard palette still draws the standard color, so the check is real.
+        let standard = pdfDocument(from: StripboardPDFExporter.generatePDF(
+            shootDays: PDFFixture.days, projectTitle: PDFFixture.title,
+            productionInfo: PDFFixture.productionInfo, palette: .standard))
+        #expect(pdfPage(standard, 0, containsColorHex: standardIntDay))
+        #expect(!pdfPage(standard, 0, containsColorHex: "C71585"))
+    }
+
     @Test func stripScheduleRefusesAnEmptySchedule() {
         let empty = [ShootDay(date: PDFFixture.novemberDate(day: 3))]
-        #expect(StripboardPDFExporter.generatePDF(shootDays: empty, projectTitle: "Nothing", productionInfo: ProductionInfo()) == nil)
+        #expect(StripboardPDFExporter.generatePDF(shootDays: empty, projectTitle: "Nothing", productionInfo: ProductionInfo(), palette: .standard) == nil)
     }
 
     // MARK: - Shooting schedule
@@ -57,7 +85,8 @@ struct SchedulePDFExporterTests {
             from: ShootingSchedulePDFExporter.generatePDF(
                 shootDays: PDFFixture.days,
                 projectTitle: PDFFixture.title,
-                productionInfo: PDFFixture.productionInfo
+                productionInfo: PDFFixture.productionInfo,
+                palette: .standard
             ),
             dumpAs: "ShootingSchedule.pdf"
         )

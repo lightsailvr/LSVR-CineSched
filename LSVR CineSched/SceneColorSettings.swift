@@ -1,14 +1,22 @@
 // SceneColorSettings.swift
-// User-customizable scene strip colors. Scene.stripColor is the single source of truth
-// for every scene color in the app — the calendar, Stripboard, and both PDF exporters all
-// derive from it — so making it read from here covers all of them automatically.
+// The scene strip color palette (#11): the eleven color slots, `ScenePalette` (the
+// production's colors, an optional field of the project file), and the reader for the
+// per-device overrides the pre-#11 builds kept in UserDefaults, which a project without a
+// palette adopts once (see `ProjectDocument`). `Scene.stripColor(in:)` is the single
+// resolver for every scene color in the app — the calendar, Stripboard, and the exporters
+// all go through it — so the palette it is handed is the only thing that decides a color.
+//
+// Pure core: no platform types, nonisolated so `ProjectCodec` can encode a palette off
+// the main actor.
 
 import SwiftUI
 
-/// Every distinct color slot Scene.stripColor's (interior/exterior × time-of-day) matrix
-/// can produce, plus Custom. Matches that matrix exactly so customizing a slot here changes
-/// the same cell everywhere it's used.
-enum SceneColorSlot: String, CaseIterable, Identifiable {
+// MARK: - Slots
+
+/// Every distinct color slot `Scene.stripColor(in:)`'s (interior/exterior × time-of-day)
+/// matrix can produce, plus Custom. Matches that matrix exactly so customizing a slot here changes
+/// the same cell everywhere it's used. The raw value is the key in the project file.
+nonisolated enum SceneColorSlot: String, CaseIterable, Identifiable {
     case intDay, extDay, intNight, extNight, intDawn, extDawn, intDusk, extDusk, intAfternoon, extAfternoon, custom
 
     var id: String { rawValue }
@@ -29,8 +37,8 @@ enum SceneColorSlot: String, CaseIterable, Identifiable {
         }
     }
 
-    /// The original hardcoded values Scene.stripColor always used — unchanged, just moved
-    /// here so a non-customized slot still looks exactly like it did before.
+    /// The original hardcoded values the strip color resolver always used — unchanged, just
+    /// moved here so a non-customized slot still looks exactly like it did before.
     var defaultHex: String {
         switch self {
         case .intDay:       return "F3F4F6"
@@ -48,30 +56,108 @@ enum SceneColorSlot: String, CaseIterable, Identifiable {
     }
 }
 
-/// Reads/writes overrides directly via UserDefaults rather than @AppStorage — stripColor is
-/// a plain computed property on Scene, not a SwiftUI View, so it can't use a property wrapper.
-enum SceneColorSettings {
-    private static func key(for slot: SceneColorSlot) -> String {
-        "CineSchedSceneColor_\(slot.rawValue)"
+// MARK: - Palette
+
+/// The production's strip colors: a hex string per slot. Travels in the project file as a
+/// flat object keyed by slot name (`"palette" : { "intDay" : "F3F4F6", … }`), so it reads
+/// the same on every device. A slot the file leaves out resolves to the slot's default
+/// and is not written back, so a hand-edited or partial palette round-trips as written;
+/// the palettes the app itself makes (`standard`, an adoption, the editor's writes)
+/// carry every slot.
+nonisolated struct ScenePalette: Codable, Equatable {
+    private var hexBySlot: [SceneColorSlot: String]
+
+    /// The industry code with no customization, every slot written out.
+    static let standard = ScenePalette(hexBySlot: Dictionary(uniqueKeysWithValues: SceneColorSlot.allCases.map { ($0, $0.defaultHex) }))
+
+    init(hexBySlot: [SceneColorSlot: String]) {
+        self.hexBySlot = hexBySlot
     }
 
-    static func hex(for slot: SceneColorSlot) -> String {
-        UserDefaults.standard.string(forKey: key(for: slot)) ?? slot.defaultHex
+    func hex(for slot: SceneColorSlot) -> String {
+        hexBySlot[slot] ?? slot.defaultHex
     }
 
-    static func color(for slot: SceneColorSlot) -> Color {
+    /// For the views and the color pickers; `Color(hex:)` is main-actor, and nothing off
+    /// it needs a `Color` (the exporters convert through `CGColor.of` on the main actor).
+    @MainActor func color(for slot: SceneColorSlot) -> Color {
         Color(hex: hex(for: slot))
     }
 
-    static func setHex(_ hex: String, for slot: SceneColorSlot) {
-        UserDefaults.standard.set(hex, forKey: key(for: slot))
+    mutating func setHex(_ hex: String, for slot: SceneColorSlot) {
+        hexBySlot[slot] = hex
     }
 
-    static func resetToDefaults() {
+    // MARK: Codable
+
+    /// Slot names as keys, so the file reads `"intDay" : "F3F4F6"`.
+    private struct SlotKey: CodingKey {
+        let stringValue: String
+        var intValue: Int? { nil }
+        init(_ slot: SceneColorSlot) { stringValue = slot.rawValue }
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: SlotKey.self)
+        var hexBySlot: [SceneColorSlot: String] = [:]
         for slot in SceneColorSlot.allCases {
-            UserDefaults.standard.removeObject(forKey: key(for: slot))
+            // A key from a later build's slot, or a stray one, is dropped rather than an error.
+            if let hex = try c.decodeIfPresent(String.self, forKey: SlotKey(slot)) {
+                hexBySlot[slot] = hex
+            }
+        }
+        self.hexBySlot = hexBySlot
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: SlotKey.self)
+        // Walked in slot order; the encoder orders the keys its own way, as it does the
+        // rest of the file (ProjectCodec sets no `sortedKeys`).
+        for slot in SceneColorSlot.allCases {
+            if let hex = hexBySlot[slot] {
+                try c.encode(hex, forKey: SlotKey(slot))
+            }
         }
     }
+}
+
+// MARK: - Legacy device overrides
+
+/// The per-device overrides the pre-#11 builds wrote to UserDefaults, one key per slot.
+/// Nothing writes them any more: the editor edits the project's palette. They are read
+/// once, when a project without a palette opens on a device that has them, and adopted
+/// into that project (story 19 of #1); afterward the keys are ignored. Nonisolated because
+/// the legacy handoff reads them inside the system's off-main-actor document factory.
+nonisolated enum SceneColorSettings {
+    static func key(for slot: SceneColorSlot) -> String {
+        "CineSchedSceneColor_\(slot.rawValue)"
+    }
+
+    /// The device's overrides as a complete palette (the overridden slots plus the
+    /// defaults for the rest), or nil when the device never customized a color, so a
+    /// project opened here keeps waiting for a device that did.
+    static func deviceOverrides(in defaults: UserDefaults = .standard) -> ScenePalette? {
+        var palette = ScenePalette.standard
+        var found   = false
+        for slot in SceneColorSlot.allCases {
+            if let hex = defaults.string(forKey: key(for: slot)) {
+                palette.setHex(hex, for: slot)
+                found = true
+            }
+        }
+        return found ? palette : nil
+    }
+}
+
+// MARK: - Environment
+
+/// The palette of the document a view belongs to, set once at the editor's root so every
+/// strip, card and sheet below it resolves colors from the same project (#11). Defaults
+/// to the standard code for a view shown outside a document.
+extension EnvironmentValues {
+    @Entry var scenePalette: ScenePalette = .standard
 }
 
 extension Color {

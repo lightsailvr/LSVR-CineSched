@@ -258,6 +258,7 @@ class PDFExporter {
         shootDays: [ShootDay],
         projectTitle: String,
         productionInfo: ProductionInfo,
+        palette: ScenePalette,
         options: MonthPDFOptions = .default
     ) -> Data? {
         let pageWidth:  CGFloat = 792   // US Letter landscape
@@ -415,7 +416,8 @@ class PDFExporter {
                 activeDays: activeDays,
                 dayNumbers: dayNumbers,
                 isSpanish: isSpanish,
-                options: options
+                options: options,
+                palette: palette
             )
         }
 
@@ -606,6 +608,7 @@ class PDFExporter {
         on canvas: PDFCanvas,
         for scene: Scene,
         options: MonthPDFOptions,
+        palette: ScenePalette,
         width: CGFloat
     ) -> [BreakdownItem] {
         var items: [BreakdownItem] = []
@@ -627,7 +630,7 @@ class PDFExporter {
         let headingLineHeight = headingFont.lineHeight
         let headingLines = max(1, min(2, canvas.lineCount(of: headingStr, font: headingFont, width: headingTextWidth)))
         let headingHeight = headingLineHeight * CGFloat(headingLines)
-        let swatchColor = CGColor.of(scene.stripColor)   // convention: colors only via stripColor
+        let swatchColor = CGColor.of(scene.stripColor(in: palette))   // convention: colors only via stripColor
         items.append(BreakdownItem(height: headingHeight, draw: { rect in
             let swatch = CGRect(x: rect.minX, y: rect.maxY - 8.5, width: 7, height: 7)
             canvas.fill(swatch, cornerRadius: 2, color: swatchColor)
@@ -682,6 +685,7 @@ class PDFExporter {
         isShoot: Bool,
         isSpanish: Bool,
         options: MonthPDFOptions,
+        palette: ScenePalette,
         width: CGFloat
     ) -> (fixed: [BreakdownItem], sceneGroups: [[BreakdownItem]]) {
         var fixed: [BreakdownItem] = []
@@ -718,7 +722,7 @@ class PDFExporter {
 
         var sceneGroups: [[BreakdownItem]] = []
         for scene in day.scenes where !scene.isCalendarEvent && !scene.isBanner {
-            var group = sceneItems(on: canvas, for: scene, options: options, width: width)
+            var group = sceneItems(on: canvas, for: scene, options: options, palette: palette, width: width)
             group.append(BreakdownItem(height: 2, draw: { _ in }))   // breathing room between scenes
             sceneGroups.append(group)
         }
@@ -764,7 +768,8 @@ class PDFExporter {
         activeDays: [ShootDay],
         dayNumbers: [UUID: Int],
         isSpanish: Bool,
-        options: MonthPDFOptions
+        options: MonthPDFOptions,
+        palette: ScenePalette
     ) {
         let df = DateFormatter()
         df.locale = isSpanish ? Locale(identifier: "es_ES") : Locale(identifier: "en_US")
@@ -805,7 +810,7 @@ class PDFExporter {
             let totalEighths = scriptScenes.reduce(0) { $0 + $1.duration }
             let totalMins = scriptScenes.reduce(0) { $0 + $1.estimatedTime }
 
-            let content = breakdownContent(on: canvas, for: day, isShoot: isShoot, isSpanish: isSpanish, options: options, width: lineWidth)
+            let content = breakdownContent(on: canvas, for: day, isShoot: isShoot, isSpanish: isSpanish, options: options, palette: palette, width: lineWidth)
             var sceneGroups = content.sceneGroups
 
             // 22pt header row + measured items + bottom padding; 44 keeps a bare

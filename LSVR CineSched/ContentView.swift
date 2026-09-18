@@ -43,6 +43,8 @@ struct ContentView: View {
     var projectTitle:       String         { document.project.projectTitle }
     var productionInfo:     ProductionInfo { document.project.productionInfo ?? ProductionInfo() }
     var isShiftModeEnabled: Bool           { document.project.isShiftModeEnabled ?? false }
+    /// The strip colors every view below and every export draws with (#11).
+    var palette:            ScenePalette   { document.project.resolvedPalette }
 
     /// The range picker's pending dates: what the user is choosing before pressing Update
     /// Calendar, so UI state rather than project state. Seeded from the shoot days' bounds,
@@ -135,6 +137,10 @@ struct ContentView: View {
     /// the binding, and without a token each would be its own undo step.
     @State private var titleGesture = EditGesture()
     @FocusState private var titleFieldFocused: Bool
+    /// The color editor's open step: a ColorPicker writes on every movement of the wheel,
+    /// so the token stays while one slot is being edited and changes with the slot (see
+    /// `setPaletteColor`). Cleared when the sheet closes.
+    @State private var paletteGesture: (slot: SceneColorSlot, token: EditGesture)?
 
     // MARK: - Sheet presentation
     private enum ActiveSheet: Identifiable, Hashable {
@@ -260,7 +266,12 @@ struct ContentView: View {
                 case .breakdownBrowser:
                     breakdownBrowserEditSheet
                 case .sceneColorSettings:
-                    SceneColorSettingsSheet(onDismiss: { activeSheet = nil })
+                    SceneColorSettingsSheet(
+                        palette: palette,
+                        onSetColor: setPaletteColor,
+                        onReset: resetPalette,
+                        onDismiss: { activeSheet = nil }
+                    )
                 case .stripboardFields:
                     StripboardFieldsSheet(selectedFields: stripboardFields, onDismiss: { activeSheet = nil })
                 }
@@ -268,6 +279,9 @@ struct ContentView: View {
             .onChange(of: activeSheet) { _, newValue in
                 if newValue != .unscheduledEdit {
                     clearUnscheduledEditingState()
+                }
+                if newValue != .sceneColorSettings {
+                    paletteGesture = nil
                 }
             }
     }
@@ -307,6 +321,9 @@ struct ContentView: View {
     private func applyLifecycle<Content: View>(_ content: Content) -> some View {
         content
             .focusedSceneValue(\.projectCommands, projectCommands)
+            // The one place the palette enters the view tree; every strip, card and sheet
+            // below reads it from the environment rather than from the device.
+            .environment(\.scenePalette, palette)
             .onAppear {
                 columnVisibility = sidebarCollapsedPreference ? .detailOnly : .all
             }
@@ -404,6 +421,30 @@ struct ContentView: View {
         Binding(get: { projectTitle }, set: { new in
             document.perform(L("Rename Project"), coalescing: titleGesture, undoManager: undoManager) { $0.projectTitle = new }
         })
+    }
+
+    // MARK: - Scene colors
+
+    /// The color editor's write: one slot's hex into the project's palette (#11), one
+    /// undo step per slot edited in a row.
+    private func setPaletteColor(_ slot: SceneColorSlot, _ hex: String) {
+        let token: EditGesture
+        if let open = paletteGesture, open.slot == slot {
+            token = open.token
+        } else {
+            token = EditGesture()
+            paletteGesture = (slot, token)
+        }
+        document.perform(L("Change Scene Color"), coalescing: token, undoManager: undoManager) {
+            $0.setStripColor(hex, for: slot)
+        }
+    }
+
+    /// Reset All to Defaults: the standard code, written out in full so the project keeps
+    /// a palette (a nil one would adopt this device's legacy overrides on the next open).
+    private func resetPalette() {
+        paletteGesture = nil
+        edit(L("Reset Scene Colors")) { $0.palette = .standard }
     }
 
     private func seedRangePickers() {
@@ -646,7 +687,7 @@ struct ContentView: View {
                     }
                     .padding(.vertical, 4).padding(.horizontal, 8)
                     .contentShape(Rectangle())
-                    .background(item.scene.stripColor)
+                    .background(item.scene.stripColor(in: palette))
                     .cornerRadius(3)
                     .overlay(
                         RoundedRectangle(cornerRadius: 3)

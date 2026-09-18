@@ -148,6 +148,104 @@ struct ProjectDocumentTests {
         #expect(document.project == project)
     }
 
+    // MARK: - Palette adoption (#11)
+
+    /// A device's pre-#11 overrides, as `SceneColorSettings.deviceOverrides` reports them.
+    private func overrides(_ hex: String, for slot: SceneColorSlot = .extDay) -> ScenePalette {
+        var palette = ScenePalette.standard
+        palette.setHex(hex, for: slot)
+        return palette
+    }
+
+    /// Story 19 of #1: a project written before palettes existed opens on the Mac whose
+    /// overrides colored it, and takes those colors as its own.
+    @Test func aProjectWithoutAPaletteAdoptsTheDeviceOverridesOnOpen() async throws {
+        let device   = overrides("FF00AA")
+        let document = ProjectDocument(deviceOverrides: device)
+        var opened   = project
+        opened.palette = nil
+
+        try await document.apply(snapshot: opened, previous: nil)
+        #expect(document.project.palette == device)
+        var expected = opened
+        expected.palette = device
+        #expect(document.project == expected)
+    }
+
+    @Test func aProjectWithAPaletteKeepsItWhateverTheDeviceOverrides() async throws {
+        let own      = overrides("123456", for: .intNight)
+        let document = ProjectDocument(deviceOverrides: overrides("FF00AA"))
+        var opened   = project
+        opened.palette = own
+
+        try await document.apply(snapshot: opened, previous: nil)
+        #expect(document.project.palette == own)
+    }
+
+    @Test func aDeviceWithoutOverridesAdoptsNothing() async throws {
+        let document = ProjectDocument(deviceOverrides: nil)
+        var opened   = project
+        opened.palette = nil
+
+        try await document.apply(snapshot: opened, previous: nil)
+        #expect(document.project.palette == nil)
+        #expect(document.project == opened)
+    }
+
+    /// Adoption happens once: the palette the first device wrote into the file is what a
+    /// second device with different overrides reads, and its own keys are ignored.
+    @Test func adoptionHappensOnceAndASecondDeviceRendersTheProjectsColors() async throws {
+        try await withTemporaryDirectory { dir in
+            let url   = dir.appendingPathComponent("Adopted.cinesched")
+            let first = ProjectDocument(deviceOverrides: overrides("FF00AA"))
+            var opened = project
+            opened.palette = nil
+            try await first.apply(snapshot: opened, previous: nil)
+            let snapshot = try await first.snapshot(contentType: .cineschedProject)
+            try await ProjectDocumentWriter().write(snapshot: snapshot, to: url, previous: nil, progress: subprogress())
+
+            let second = ProjectDocument(deviceOverrides: overrides("00FF00", for: .intDay))
+            let read   = try await ProjectDocumentReader().read(from: url, progress: subprogress())
+            try await second.apply(snapshot: read, previous: nil)
+            #expect(second.project.palette == overrides("FF00AA"))
+            #expect(second.project.resolvedPalette.hex(for: .intDay) == SceneColorSlot.intDay.defaultHex)
+        }
+    }
+
+    /// File ▸ New and the untitled document a legacy `.json` hands off to are projects
+    /// without a palette too; the Mac's board keeps its colors there as well.
+    @Test func newAndUntitledDocumentsAdoptTheDeviceOverrides() {
+        let device = overrides("FF00AA")
+        #expect(ProjectDocument(.newProject(), deviceOverrides: device).project.palette == device)
+        var legacy = project
+        legacy.palette = nil
+        #expect(ProjectDocument(untitled: legacy, deviceOverrides: device).project.palette == device)
+        #expect(ProjectDocument(.newProject()).project.palette == nil)
+    }
+
+    /// The color editor writes one slot at a time under one token per slot, so a
+    /// ColorPicker drag is one undo step and Reset is another.
+    @Test func paletteEditsUndoPerSlot() {
+        let undoManager = makeUndoManager()
+        let document    = ProjectDocument(project)
+        let original    = document.project
+        let extDay      = EditGesture()
+
+        for hex in ["FF0000", "FF1111", "FF2222"] {
+            document.perform("Change Scene Color", coalescing: extDay, undoManager: undoManager) {
+                $0.setStripColor(hex, for: .extDay)
+            }
+        }
+        document.perform("Reset Scene Colors", undoManager: undoManager) { $0.palette = .standard }
+        #expect(document.project.palette == .standard)
+
+        undoManager.undo()
+        #expect(document.project.resolvedPalette.hex(for: .extDay) == "FF2222")
+        undoManager.undo()
+        #expect(document.project == original)
+        #expect(!undoManager.canUndo)
+    }
+
     // MARK: - Edit funnel
 
     @Test func performUndoAndRedoRestoreTheWholeSnapshot() throws {

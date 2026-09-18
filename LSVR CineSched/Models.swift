@@ -511,33 +511,41 @@ struct Scene: Identifiable, nonisolated Codable, Hashable {
         return hasNoNum && titleHasNoHeading && dayNightType == .custom
     }
 
-    var stripColor: Color {
+    /// The strip's color under `palette`, the project's (`ProjectData.resolvedPalette`).
+    /// The only place a strip color is resolved; views read the palette from the
+    /// `scenePalette` environment and exporters take it with the project (#11).
+    func stripColor(in palette: ScenePalette) -> Color {
         if isCompleted {
             return Color(hex: "9CA3AF")
         }
         if isNoticeStrip {
             return Color(hex: "374151")
         }
+        return palette.color(for: colorSlot)
+    }
+
+    /// Which palette slot this scene's INT/EXT and time of day select.
+    var colorSlot: SceneColorSlot {
         if dayNightType == .custom {
-            return SceneColorSettings.color(for: .custom)
+            return .custom
         }
         switch (intExt, dayNightType) {
-        case (.interior, .day):       return SceneColorSettings.color(for: .intDay)
-        case (.exterior, .day):       return SceneColorSettings.color(for: .extDay)
-        case (.interior, .night):     return SceneColorSettings.color(for: .intNight)
-        case (.exterior, .night):     return SceneColorSettings.color(for: .extNight)
-        case (.interior, .dawn):      return SceneColorSettings.color(for: .intDawn)
-        case (.exterior, .dawn):      return SceneColorSettings.color(for: .extDawn)
-        case (.interior, .dusk):      return SceneColorSettings.color(for: .intDusk)
-        case (.exterior, .dusk):      return SceneColorSettings.color(for: .extDusk)
-        case (.interior, .afternoon): return SceneColorSettings.color(for: .intAfternoon)
-        case (.exterior, .afternoon): return SceneColorSettings.color(for: .extAfternoon)
-        case (.unknown, .day):        return SceneColorSettings.color(for: .intDay)
-        case (.unknown, .night):      return SceneColorSettings.color(for: .extNight)
-        case (.unknown, .dawn):       return SceneColorSettings.color(for: .intDawn)
-        case (.unknown, .dusk):       return SceneColorSettings.color(for: .intDusk)
-        case (.unknown, .afternoon):  return SceneColorSettings.color(for: .extAfternoon)
-        case (_, .custom):            return SceneColorSettings.color(for: .custom)
+        case (.interior, .day):       return .intDay
+        case (.exterior, .day):       return .extDay
+        case (.interior, .night):     return .intNight
+        case (.exterior, .night):     return .extNight
+        case (.interior, .dawn):      return .intDawn
+        case (.exterior, .dawn):      return .extDawn
+        case (.interior, .dusk):      return .intDusk
+        case (.exterior, .dusk):      return .extDusk
+        case (.interior, .afternoon): return .intAfternoon
+        case (.exterior, .afternoon): return .extAfternoon
+        case (.unknown, .day):        return .intDay
+        case (.unknown, .night):      return .extNight
+        case (.unknown, .dawn):       return .intDawn
+        case (.unknown, .dusk):       return .intDusk
+        case (.unknown, .afternoon):  return .extAfternoon
+        case (_, .custom):            return .custom
         }
     }
 
@@ -1187,6 +1195,10 @@ struct ProjectData: nonisolated Codable, Equatable {
     var createdDate:        Date
     var isShiftModeEnabled: Bool?
     var productionInfo:     ProductionInfo?
+    /// The production's strip colors (#11). Nil in every file written before it and in a
+    /// project that has neither adopted a device's overrides nor been edited in the
+    /// color editor; resolve through `resolvedPalette`.
+    var palette:            ScenePalette?
 
     /// Nonisolated so `ProjectCodec` can build one off the main actor.
     nonisolated init(
@@ -1195,7 +1207,8 @@ struct ProjectData: nonisolated Codable, Equatable {
         projectTitle:       String = "Untitled Movie",
         isShiftModeEnabled: Bool?  = false,
         createdDate:        Date   = Date(),
-        productionInfo:     ProductionInfo? = nil
+        productionInfo:     ProductionInfo? = nil,
+        palette:            ScenePalette? = nil
     ) {
         self.allScenes          = allScenes
         self.shootDays          = shootDays
@@ -1203,6 +1216,20 @@ struct ProjectData: nonisolated Codable, Equatable {
         self.createdDate        = createdDate
         self.isShiftModeEnabled = isShiftModeEnabled
         self.productionInfo     = productionInfo
+        self.palette            = palette
+    }
+
+    /// What every view and exporter draws with: the project's palette, or the standard
+    /// code while it has none.
+    nonisolated var resolvedPalette: ScenePalette { palette ?? .standard }
+
+    /// The color editor's write: one slot's hex into the palette. A project that still has
+    /// no palette gets the standard one with this slot changed, so a single pick never
+    /// leaves a one-slot palette behind.
+    mutating func setStripColor(_ hex: String, for slot: SceneColorSlot) {
+        var palette = resolvedPalette
+        palette.setHex(hex, for: slot)
+        self.palette = palette
     }
 }
 

@@ -59,7 +59,13 @@ struct CineSchedApp: App {
             // Called for New and for Open alike; an opened file's contents arrive through
             // the reader and `apply` straight after, replacing the blank month. The one
             // untitled document that starts with a project is the recovered working copy.
-            ProjectDocument(MacAppDelegate.takePendingUntitledProject() ?? .newProject(), configuration: configuration)
+            // The device's legacy color overrides ride along for a project without a
+            // palette to adopt (#11).
+            ProjectDocument(
+                MacAppDelegate.takePendingUntitledProject() ?? .newProject(),
+                configuration: configuration,
+                deviceOverrides: SceneColorSettings.deviceOverrides()
+            )
         })
         .commands { menus }
         #else

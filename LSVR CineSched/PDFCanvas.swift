@@ -22,8 +22,9 @@
 //    `.darkGray`, `CGColor.calibratedGray(0.35)` for `NSColor(calibratedWhite:alpha:)` (a
 //    different, gamma-1.8 gray), `CGColor.srgb(0.94, 0.97, 1)` for `NSColor(red:green:blue:alpha:)`
 //    (which is sRGB), `CGColor.hex("1F2937")` for `NSColor(Color(hex:))` / `NSColor(hexString:)`,
-//    `CGColor.of(scene.stripColor)` for `NSColor(someSwiftUIColor)`, and `.withAlpha(_:)`
-//    for `withAlphaComponent`. Strip colors still come only from `Scene.stripColor`. A
+//    `CGColor.of(scene.stripColor(in: palette))` for `NSColor(someSwiftUIColor)`, and
+//    `.withAlpha(_:)` for `withAlphaComponent`. Strip colors still come only from
+//    `Scene.stripColor(in:)`, with the palette the exporter was handed (#11). A
 //    system color (`NSColor.systemBlue`) has no equivalent: it changed with the app's
 //    appearance, so pin its light-appearance sRGB value with `srgb`.
 // 4. `NSBezierPath(rect:).fill()` / `.stroke()` become `fill(_:color:)` / `stroke(_:color:lineWidth:)`

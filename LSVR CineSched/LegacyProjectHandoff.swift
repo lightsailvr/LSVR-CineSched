@@ -34,7 +34,7 @@ struct LegacyProjectHandoff: View {
         guard !handedOff, document.hasLoadedSnapshot else { return }
         handedOff = true
         let project = document.project
-        newDocument(ProjectDocument(untitled: project))
+        newDocument(ProjectDocument(untitled: project, deviceOverrides: SceneColorSettings.deviceOverrides()))
         dismiss()
     }
 }

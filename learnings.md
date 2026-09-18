@@ -9,6 +9,57 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-18 — The palette in the file: adoption cannot mark the document edited, `JSONEncoder` orders keys its own way, and an environment value is the cheap way to reach every strip (#11)
+
+Moving the strip colors from per-device `UserDefaults` keys into `ProjectData.palette`:
+
+- **A document cannot mark itself edited.** The 27 `Document` protocol has `apply(snapshot:)`
+  and `snapshot(contentType:)` and nothing else; the infrastructure autosaves only from undo
+  actions registered with the window's `UndoManager`, which only `ContentView` has. So the
+  adoption of a device's overrides into a paletteless project (story 19 of #1) happens in the
+  document's constructors and `apply`, in memory, and reaches the file with the project's
+  next `perform`. The alternative, an `edit` from the view on load, would put "Undo Adopt
+  Scene Colors" in the Edit menu the moment a file opens, and could not run in the document
+  tests. Until that next edit, reopening on the same device adopts the same colors again;
+  on another device the file still has no palette. Recorded in the CHANGELOG.
+- **The device overrides are injected, not read, by `ProjectDocument`.** Its default is
+  `nil` (no device overrides); only the app's two constructors (`makeDocument` in
+  CineSchedApp and `LegacyProjectHandoff`) pass `SceneColorSettings.deviceOverrides()`. A
+  default that read `UserDefaults.standard` would have made `applyReplacesTheWholeSnapshot`
+  fail on any Mac whose colors were customized, since the test host is the app.
+- **`JSONEncoder` without `.sortedKeys` writes a keyed container's keys in hash order, not
+  encoding order**, and `ProjectCodec` sets no `sortedKeys` (the whole file has always been
+  ordered that way: `productionInfo` comes first). A test that pinned `"palette" : {
+  "intDay" …, "extDay" …` in slot order failed; pin key presence, not order.
+- **`nonisolated struct` / `nonisolated enum` work for a pure-core type** under
+  `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` (the reader and writer already used it). A
+  member that touches a main-actor API (`Color(hex:)` in ThemeManager.swift) is then a
+  warning ("call to main actor-isolated initializer in a synchronous nonisolated context");
+  mark that one member `@MainActor` rather than the whole type. The reverse trap: a plain
+  `enum` of static functions is main-actor by default, and calling one from the system's
+  off-main-actor document factory (`LegacyProjectHandoff`'s `init(untitled:)` path) is
+  the same warning; `SceneColorSettings` is `nonisolated` for that reason. Grep the
+  whole build log for `warning:` before claiming the count, not just the files touched.
+- **A strip's color can be read back from a PDF without PDFKit's help**: rasterize the
+  page into a `CGBitmapContext` (sRGB, 1 pt per pixel, antialiasing off) with
+  `drawPDFPage` and scan for the exact RGB triple; a flat rectangle fill lands exact
+  pixels on every platform. `pdfPage(_:_:containsColorHex:)` in PDFTestSupport is the
+  helper, and the exporter tests use a magenta no standard slot has so the check cannot
+  pass by accident.
+- **Threading a per-document value to every strip is one `.environment` at the editor's
+  root** (`@Entry var scenePalette`), read with `@Environment` in the four views that call
+  `stripColor(in:)`; the explicit alternative was a new `let` through `CompactMonthCalendarView
+  → DayCellView → SceneCardView` and `StripboardView → SceneStripRow`, plus every preview
+  and sheet. Sheets inherit the presenting view's environment, so the Day Detail sheet gets
+  it for free. Exporters are pure functions and take `palette:` explicitly.
+- **The color editor coalesces per slot**: a `ColorPicker` writes its binding on every
+  movement of the color wheel, so `ContentView` keeps one `EditGesture` per slot being
+  edited (`paletteGesture`), new token when the slot changes, cleared when the sheet closes.
+  One token for the whole sheet session would have made "change two colors, undo" revert
+  both. Reset is untokened, its own step.
+
+---
+
 ## 2026-09-17 — Recovering the UserDefaults working copy: no view exists at launch, `makeDocument` runs after `openUntitledDocumentAndDisplay` returns, and a foreign security-scoped bookmark is "not in the correct format" (#10)
 
 Recovering the pre-document builds' `SavedProject` blob and `CineSchedCurrentFileBookmark`

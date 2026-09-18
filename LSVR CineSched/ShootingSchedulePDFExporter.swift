@@ -65,7 +65,8 @@ struct ShootingSchedulePDFExporter {
     static func generatePDF(
         shootDays: [ShootDay],
         projectTitle: String,
-        productionInfo: ProductionInfo
+        productionInfo: ProductionInfo,
+        palette: ScenePalette
     ) -> Data {
         let isSpanish = LocalizationManager.shared.currentLanguage == .spanish
         let pageRect = CGRect(x: 0, y: 0, width: 612, height: 792) // Standard US Letter Portrait (612 x 792 pt)
@@ -201,6 +202,7 @@ struct ShootingSchedulePDFExporter {
                         margin: margin,
                         width: printableWidth,
                         scene: scene,
+                        palette: palette,
                         timeRange: timeRange,
                         scriptPageNumber: scriptPageNum,
                         isSpanish: isSpanish,
@@ -334,6 +336,7 @@ struct ShootingSchedulePDFExporter {
         margin: CGFloat,
         width: CGFloat,
         scene: Scene,
+        palette: ScenePalette,
         timeRange: String,
         scriptPageNumber: Int,
         isSpanish: Bool,
@@ -344,7 +347,7 @@ struct ShootingSchedulePDFExporter {
         let rect = CGRect(x: margin, y: rowY, width: width, height: rowH)
 
         // Background color matching strip color
-        canvas.fill(rect, color: .of(scene.stripColor))
+        canvas.fill(rect, color: .of(scene.stripColor(in: palette)))
 
         let textColor = CGColor.hex("1F2937")
 

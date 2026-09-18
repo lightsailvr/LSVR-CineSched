@@ -1006,6 +1006,8 @@ struct SceneStripRow: View {
     let onDragEnd:   () -> Void
     let onSelect:    () -> Void
 
+    @Environment(\.scenePalette) private var palette
+
     private var isDragging: Bool { interactingSceneId == scene.id }
     private var isMultiSelected: Bool { isSelected && selectionCount > 1 }
 
@@ -1103,7 +1105,7 @@ struct SceneStripRow: View {
         }
         .padding(.horizontal, 12).padding(.vertical, 5)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(scene.stripColor)
+        .background(scene.stripColor(in: palette))
         .overlay(
             Rectangle()
                 .stroke(isSelected ? Color.accentColor : scene.stripTextColor.opacity(0.2), lineWidth: isSelected ? 2 : 0.5)

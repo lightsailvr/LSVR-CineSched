@@ -85,12 +85,17 @@ All Swift sources are flat in `LSVR CineSched/`, one responsibility per file (th
 - `ProjectCodec.swift`: the one encoder/decoder for project files (pretty JSON, ISO dates, legacy
   shapes). Every save and load path uses it; nothing else constructs a `JSONEncoder` for a project.
 - `ProjectDocument.swift`: the project document (ADR 0004) on the 27 `Document` protocol, its URL
-  reader/writer, the `perform` undo funnel, `ProjectData.newProject` (the File ▸ New template) and
-  `UTType.cineschedProject` (ADR 0005). Project open, save, autosave, Open Recent, Duplicate,
+  reader/writer, the `perform` undo funnel, `ProjectData.newProject` (the File ▸ New template),
+  `UTType.cineschedProject` (ADR 0005) and the palette adoption every project entering a
+  document passes through (#11; the device overrides are injected, so tests are any device).
+  Project open, save, autosave, Open Recent, Duplicate,
   Rename, Move To and Revert To are the document infrastructure's; nothing in the app implements
   them. A legacy `.json` is never edited in place: `LegacyProjectHandoff` (a Mac seam) moves its
   contents to an untitled document and the writer refuses `.json` destinations, because the
   infrastructure autosaves an opened file within seconds and ignores the readable/writable split.
+- `SceneColorSettings.swift`: `SceneColorSlot`, `ScenePalette` (the project's strip colors, an
+  optional field of the file), `SceneColorSettings.deviceOverrides` (the pre-#11 per-device keys,
+  read only for adoption) and the `scenePalette` environment key.
 - `Models.swift`: all value types. `Scene` doubles as banner, auto-meal, and calendar event via flags.
 - `DerivedScheduleState.swift`: everything `ContentView` shows that is computed from the whole
   project (sorted Boneyard, conflict sets, duplicate numbers, lock drift), the `BoneyardSort`
@@ -142,7 +147,11 @@ All Swift sources are flat in `LSVR CineSched/`, one responsibility per file (th
 - **Platform ownership of the document**: `DocumentGroup` is macOS-only for now (CineSchedApp is a
   seam file); the other platforms get their own document scenes in #12. `ContentView` compiles on
   every platform and must stay free of `#if os`.
-- **Colors**: resolve scene colors only via `Scene.stripColor`. Exporters must not hardcode strip colors.
+- **Colors**: resolve scene colors only via `Scene.stripColor(in:)`, with the project's palette
+  (`ProjectData.resolvedPalette`): views read `@Environment(\.scenePalette)`, which `ContentView`
+  sets once at its root; an exporter that draws strips takes `palette:` with the project. Nothing
+  reads `SceneColorSettings.deviceOverrides` except the document constructors (adoption, #11).
+  Exporters must not hardcode strip colors.
 - **PDF drawing**: new or migrated exporters draw through `PDFCanvas` (`PDFFont`, `CGColor`
   helpers, `draw(_:in:)` / `draw(_:at:)`), never through `NSFont` / `NSColor` /
   `NSAttributedString.draw`. Do not add `#if os` to an exporter; migrate it instead.
@@ -175,6 +184,8 @@ The test targets are Xcode template stubs. `LSVR CineSchedTests` uses Swift Test
 `ScheduleLockScanner`, `ProjectData.updateProductionRange` (`ProductionRangeTests`),
 `LegacyWorkingCopyRecovery.decide` (`LegacyWorkingCopyRecoveryTests`),
 `DerivedScheduleState` and its cache (`DerivedScheduleStateTests`),
+`ScenePalette`, `Scene.stripColor(in:)` and the device-overrides reader (`ScenePaletteTests`; adoption
+and per-slot undo are in `ProjectDocumentTests`, the file shape in `ProjectCodecTests`),
 `L(_:)` (`LocalizationTests`),
 `DaysOutOfDaysExporter.buildRows`, `PDFCanvas`, `ProjectCodec` (`ProjectCodecTests`),
 `ProjectDocument` with its reader, writer, type and undo funnel (`ProjectDocumentTests`, against a

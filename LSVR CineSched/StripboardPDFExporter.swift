@@ -44,7 +44,8 @@ class StripboardPDFExporter {
     static func generatePDF(
         shootDays: [ShootDay],
         projectTitle: String,
-        productionInfo: ProductionInfo
+        productionInfo: ProductionInfo,
+        palette: ScenePalette
     ) -> Data? {
         // A printed schedule is a distributable document, not the live planning
         // board — skip days nobody's scheduled anything into yet.
@@ -92,7 +93,7 @@ class StripboardPDFExporter {
             }
             for scene in day.scenes where !scene.isCalendarEvent {
                 ensureRoom(stripHeight)
-                y = drawSceneStrip(on: canvas, y: y, scene: scene)
+                y = drawSceneStrip(on: canvas, y: y, scene: scene, palette: palette)
             }
 
             if dayNumber != nil {
@@ -179,9 +180,9 @@ class StripboardPDFExporter {
 
     // MARK: - Scene strip
 
-    private static func drawSceneStrip(on canvas: PDFCanvas, y: CGFloat, scene: Scene) -> CGFloat {
+    private static func drawSceneStrip(on canvas: PDFCanvas, y: CGFloat, scene: Scene, palette: ScenePalette) -> CGFloat {
         let rect = CGRect(x: margin, y: y - stripHeight, width: contentWidth, height: stripHeight)
-        canvas.fill(rect, color: .of(scene.stripColor))
+        canvas.fill(rect, color: .of(scene.stripColor(in: palette)))
         canvas.stroke(rect, color: CGColor.pdfBlack.withAlpha(0.25), lineWidth: 0.5)
 
         let textColor = CGColor.of(scene.stripTextColor)

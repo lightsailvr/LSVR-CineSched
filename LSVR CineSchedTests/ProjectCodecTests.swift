@@ -124,6 +124,62 @@ struct ProjectCodecTests {
         #expect(decoded.shootDays.first?.dayType == .unavailable)
     }
 
+    // MARK: - Palette (#11)
+
+    /// Every file written before #11 has no `palette` key: it decodes with none, and the
+    /// strip colors resolve to the standard code until the project adopts or edits one.
+    @Test func aFileWithoutAPaletteDecodesWithNone() throws {
+        let decoded = try ProjectCodec.decode(Data(Self.legacyJSON.utf8))
+        #expect(decoded.palette == nil)
+        #expect(decoded.resolvedPalette == .standard)
+
+        var current = Self.project
+        current.palette = nil
+        let data = try ProjectCodec.encode(current)
+        #expect(try #require(String(data: data, encoding: .utf8)).contains("\"palette\"") == false)
+        #expect(try ProjectCodec.decode(data).palette == nil)
+    }
+
+    /// The palette is a flat object of slot name to hex, so a file with one round-trips
+    /// unchanged and reads the same on every device.
+    @Test func aPaletteRoundTripsUnchanged() throws {
+        var original = Self.project
+        var palette  = ScenePalette.standard
+        palette.setHex("FF00AA", for: .extNight)
+        palette.setHex("123456", for: .custom)
+        original.palette = palette
+
+        let data    = try ProjectCodec.encode(original)
+        let decoded = try ProjectCodec.decode(data)
+        #expect(decoded == original)
+        #expect(decoded.palette?.hex(for: .extNight) == "FF00AA")
+        #expect(decoded.palette?.hex(for: .custom)   == "123456")
+        #expect(decoded.palette?.hex(for: .intDay)   == SceneColorSlot.intDay.defaultHex)
+
+        let text = try #require(String(data: data, encoding: .utf8))
+        #expect(text.contains("\"palette\" : {"))
+        #expect(text.contains("\"extNight\" : \"FF00AA\""))
+        #expect(text.contains("\"intDay\" : \"F3F4F6\""))
+    }
+
+    /// A palette hand-edited (or written by a later build) with only some slots keeps
+    /// exactly those slots: the missing ones fall back to the standard code and are not
+    /// written on the next save.
+    @Test func aPartialPaletteKeepsOnlyItsSlots() throws {
+        let json = """
+        { "projectTitle" : "Partial", "createdDate" : "2026-09-16T10:00:00+0000", "allScenes" : [],
+          "shootDays" : [], "palette" : { "intNight" : "00FF00" } }
+        """
+        let decoded = try ProjectCodec.decode(Data(json.utf8))
+        let palette = try #require(decoded.palette)
+        #expect(palette.hex(for: .intNight) == "00FF00")
+        #expect(palette.hex(for: .extNight) == SceneColorSlot.extNight.defaultHex)
+        #expect(palette != .standard)
+
+        let text = try #require(String(data: try ProjectCodec.encode(decoded), encoding: .utf8))
+        #expect(text.contains("\"palette\" : {\n    \"intNight\" : \"00FF00\"\n  }"))
+    }
+
     @Test func garbageThrows() {
         #expect(throws: (any Error).self) {
             try ProjectCodec.decode(Data("not a project".utf8))

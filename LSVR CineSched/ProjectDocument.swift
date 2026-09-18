@@ -13,6 +13,10 @@
 //     project goes through it, which is what registers the undo action holding the previous
 //     snapshot; the document infrastructure autosaves only from registered undo actions.
 //   - `UTType.cineschedProject`: the exported type declared in Config/Info.plist (ADR 0005).
+//
+// It is also where a project without a palette adopts the device's legacy color
+// overrides (#11): every project entering a document, whether made new or read from disk,
+// passes through `adoptingDevicePalette`.
 
 import Foundation
 import Observation
@@ -97,23 +101,48 @@ final class ProjectDocument: Document {
     /// `makeDocument`; nil for a document built in a test or in memory.
     private let configuration: URLDocumentConfiguration?
 
+    /// The pre-#11 per-device strip color overrides (`SceneColorSettings.deviceOverrides`),
+    /// handed in by whoever makes the document so a test can be any device; nil when this
+    /// device never customized a color. A project that arrives without a palette takes
+    /// them as its own, once (story 19 of #1); a project that has one ignores them.
+    private let deviceOverrides: ScenePalette?
+
     /// The gesture whose undo action is currently open, and the manager it was registered
     /// with, so a further edit with the same token and manager merges into it instead of
     /// registering another. Closed by an edit with a different (or no) token or manager,
     /// by undo or redo, and by a snapshot arriving from disk.
     private var openGesture: (token: EditGesture, undoManager: UndoManager)?
 
-    init(_ project: ProjectData = ProjectData(allScenes: [], shootDays: []), configuration: URLDocumentConfiguration? = nil) {
-        self.project       = project
-        self.configuration = configuration
+    init(
+        _ project: ProjectData = ProjectData(allScenes: [], shootDays: []),
+        configuration: URLDocumentConfiguration? = nil,
+        deviceOverrides: ScenePalette? = nil
+    ) {
+        self.deviceOverrides = deviceOverrides
+        self.project         = Self.adoptingDevicePalette(project, from: deviceOverrides)
+        self.configuration   = configuration
     }
 
     /// For the system's new-document action, whose factory closure runs off the main
     /// actor: an untitled document holding `project` (the legacy handoff uses it).
-    nonisolated init(untitled project: ProjectData) {
+    nonisolated init(untitled project: ProjectData, deviceOverrides: ScenePalette? = nil) {
         // The Observation macro's backing storage: the tracked setter is main-actor-only.
-        self._project      = project
-        self.configuration = nil
+        self.deviceOverrides = deviceOverrides
+        self._project        = Self.adoptingDevicePalette(project, from: deviceOverrides)
+        self.configuration   = nil
+    }
+
+    /// `project` with the device's overrides as its palette when it had none and the
+    /// device has some; otherwise `project` as it came. The adoption lives only in the
+    /// document until its next registered edit autosaves it: the document infrastructure
+    /// writes from undo actions, and this is not one (it must not show up as an Undo step
+    /// the moment a file opens). Until then, reopening on this device adopts the same
+    /// colors again, so nothing visible changes.
+    nonisolated private static func adoptingDevicePalette(_ project: ProjectData, from deviceOverrides: ScenePalette?) -> ProjectData {
+        guard project.palette == nil, let deviceOverrides else { return project }
+        var adopted = project
+        adopted.palette = deviceOverrides
+        return adopted
     }
 
     // MARK: - Reading
@@ -124,10 +153,12 @@ final class ProjectDocument: Document {
         ProjectDocumentReader()
     }
 
-    /// Replaces the model wholesale: correctness first, incrementality later (#1).
+    /// Replaces the model wholesale: correctness first, incrementality later (#1). A
+    /// snapshot without a palette (every file from before #11) adopts this device's
+    /// legacy overrides on the way in; see `adoptingDevicePalette`.
     func apply(snapshot: ProjectData, previous: ProjectData?) async throws {
         openGesture   = nil
-        project       = snapshot
+        project       = Self.adoptingDevicePalette(snapshot, from: deviceOverrides)
         changeCount  += 1
         restoreCount += 1
     }

@@ -77,3 +77,13 @@ two-second autosave are retired then, not now.
   test never turns the run loop).
 - `FileDocument` is gone from the codebase. Do not bring it back for a second document
   type; extend `ProjectDocument` or add another `Document`.
+
+## Amendment (2026-09-18, #11)
+
+One write bypasses `perform` by design: a project that arrives without a palette (every
+file from before #11, and File ▸ New) takes the device's legacy strip color overrides as
+its own in the document's constructors and in `apply`. The document has no undo manager
+to register with there, and an adoption must not appear as an Undo step the moment a file
+opens, so it lives in memory until the project's next registered edit autosaves it. The
+rule stands for everything the user does; this is the one seam-owned exception, tested
+in `ProjectDocumentTests`.

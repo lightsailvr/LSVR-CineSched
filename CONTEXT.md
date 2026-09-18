@@ -28,7 +28,9 @@ Film-production terms first, then app-specific ones.
 | **INT / EXT** | Interior or exterior. Derived from the title prefix; anything not starting with `EXT` is treated as interior. |
 | **Time of day** | `DayNightType`: day, night, dawn, dusk, afternoon, or custom. Combined with INT/EXT it selects the strip color. |
 | **Strip** | The colored horizontal bar representing one scene (or banner) on the calendar and the stripboard. Named after the paper strips on a physical production board. |
-| **Strip color** | The industry color code (e.g. white = INT day, yellow = EXT day, blue = INT night, green = EXT night). User-overridable via `SceneColorSettings`; `Scene.stripColor` is the single source of truth for every view and exporter. |
+| **Strip color** | The industry color code (e.g. white = INT day, yellow = EXT day, blue = INT night, green = EXT night). Customizable per project through the **palette**; `Scene.stripColor(in:)` is the single resolver for every view and exporter. |
+| **Palette** | The production's strip colors, `ScenePalette`: a hex per **color slot** (the ten INT/EXT × time-of-day cells plus Custom, `SceneColorSlot`), an optional field of the project file (`ProjectData.palette`, #11). Views read it from the `scenePalette` environment set at the editor's root; exporters take it with the project. Nil in every file from before #11, which resolves to the standard code (`ProjectData.resolvedPalette`) until the project adopts or edits one. |
+| **Palette adoption** | A project without a palette takes the device's legacy color overrides (the pre-#11 `UserDefaults` keys, `SceneColorSettings.deviceOverrides`) as its own the moment it enters a `ProjectDocument`, new or from disk; a project with a palette ignores them, so it happens once. The adoption is not an undo step, so it reaches the file with the project's next edit. |
 | **Stripboard** | The vertical strip-schedule view (`StripboardView`), the digital equivalent of a production board. Shows a time cascade per day. |
 | **Boneyard** | The sidebar list of **unscheduled** scenes. Backed by `ProjectData.allScenes`. A scene is either in the Boneyard or on exactly one shoot day, never both. |
 | **Shoot day** | One calendar date in the production, modelled by `ShootDay`: a date, an ordered list of scenes, an optional call sheet, a day type, and a day note. Every date in the production range has a `ShootDay`, even if empty. |
@@ -98,7 +100,8 @@ ConflictScanner.swift, ScheduleLockScanner.swift                       Pure anal
 ProductionRange.swift                                                  Regenerating the shoot days for a new range (merge or shift), as one edit.
 DerivedScheduleState.swift                                             What the editor derives from the whole project (sorted Boneyard,
                                                                        conflict sets, lock drift) and the per-window cache that memoizes it.
-Localization.swift, ThemeManager.swift, SceneColorSettings.swift       Cross-cutting settings.
+Localization.swift, ThemeManager.swift                                Cross-cutting settings.
+SceneColorSettings.swift                                              The color slots, the project palette, the legacy device-overrides reader and the palette environment key.
 HoverTooltip.swift, LocationAutocompleteField.swift                            UI utilities.
 FilePanels, SelectAllTextField, WindowAccessor, ModifierKeys, PlatformControlStyles,
 PlatformColors, PlatformPlaceholderView, LegacyProjectHandoff, MacAppDelegate  Platform seams (ADR 0003).
@@ -141,7 +144,7 @@ LegacyWorkingCopyRecovery.swift                                       The first-
   `edit` or a binding built on it). Nothing writes `document.project` directly.
 - Project files must stay backward compatible. Every new `Codable` field is optional in the decoder
   with a default (`decodeIfPresent ?? default`). There is no schema version number.
-- `Scene.stripColor` is the only place strip colors are resolved.
+- `Scene.stripColor(in:)` is the only place strip colors are resolved, and the palette it is handed comes from the project (never from the device).
 - Nothing is anchored to a date: scenes, calendar events, call sheets, day types, and day notes all slide together in shift mode, and a day drag swaps all of them between two dates. Script scenes that fall outside a new range go to the Boneyard; everything else is kept on its (shifted) date.
 - `BannerType`'s decoder maps legacy Spanish raw values; keep it.
 

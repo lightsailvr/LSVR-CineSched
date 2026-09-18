@@ -1461,13 +1461,15 @@ struct SceneCardView: View {
     let onSendToDay: () -> Void
     let dragPayload: () -> String
 
+    @Environment(\.scenePalette) private var palette
+
     private var isDragging: Bool { interactingSceneId == scene.id }
     private var isFlagged: Bool { hasConflict || isOnNonShootDay }
     private var displayColor: Color {
         if scene.isCalendarEvent {
             return Color(hex: scene.bannerColorHex.isEmpty ? "6366F1" : scene.bannerColorHex)
         }
-        return isFlagged ? .red : scene.stripColor
+        return isFlagged ? .red : scene.stripColor(in: palette)
     }
 
     var body: some View {
