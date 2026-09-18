@@ -65,15 +65,13 @@ struct BreakdownPDFExporterTests {
         // Script order puts 7A ahead of the fixture's 101…506.
         let first = doc.page(at: 0)?.string ?? ""
         #expect(first.contains("BREAKDOWN SHEET"))
-        // On the Mac the sheet-number label does not fit its column: "#" wraps onto a
-        // second line that the label box clips (#33). iOS's narrower SF fits it.
-        if PDFFixture.hasMacSystemFace {
-            #expect(first.contains("BREAKDOWN SHEET\n#\n1"))
-        } else {
-            #expect(first.contains("BREAKDOWN SHEET #"))
-        }
+        // The sheet-number label is "SHEET #" (the masthead carries the full name): the
+        // old "BREAKDOWN SHEET #" was a point too wide for its column on the Mac, so its
+        // "#" wrapped onto a line the label box clipped (#33). Label, then the number.
+        #expect(first.contains("SHEET #\n1\n"))
+        #expect(!first.contains("SHEET\n#"))
         #expect(first.contains(PDFFixture.title))
-        #expect(first.contains("7A"))
+        #expect(first.contains("SCENE #\n7A"))
         #expect(first.contains("INT./EXT"))
         #expect(first.contains("RANCH HOUSE PORCH - DUSK"))
         #expect(first.contains("DUSK"))
@@ -94,17 +92,40 @@ struct BreakdownPDFExporterTests {
         #expect(first.contains("Est. Time: 1 hr 35 min"))
         #expect(first.contains("Scene 1 of \(sceneCount)"))
 
-        // The second sheet is the first shoot day's first scene. Its number lives in
-        // `sceneNumber`, not in the title, so the SCENE # cell prints "—" today (#33).
+        // The second sheet is the first shoot day's first scene. Its number lives only in
+        // `sceneNumber` (the fixture's titles carry no prefix); the SCENE # cell used to
+        // read the title alone and print "—" for it (#33).
         let second = doc.page(at: 1)?.string ?? ""
         #expect(second.contains("BACKLOT SET 101"))
-        #expect(second.contains("—"))
+        #expect(second.contains("SCENE #\n101"))
+        #expect(!second.contains("—"))
         #expect(second.contains("• Riley Chen"))
         #expect(second.contains("Scene 2 of \(sceneCount)"))
-        // The unnumbered lines (events, the company move) sort last, in no particular order.
+        // The unnumbered lines (events, the company move) sort last, in no particular
+        // order, and are the only sheets whose SCENE # is a dash.
         let last = doc.page(at: sceneCount - 1)?.string ?? ""
-        #expect(last.contains("—"))
+        #expect(last.contains("SCENE #\n—"))
         #expect(last.contains("Scene \(sceneCount) of \(sceneCount)"))
+    }
+
+    /// SCENE # comes from `sceneNumber` first (where imports and the editor keep it) and
+    /// from a numbered title only when the field is empty (projects saved before the
+    /// field existed); a line with neither prints a dash. The pre-#33 exporter read only
+    /// the title.
+    @Test func breakdownPrintsTheSceneNumberFromTheFieldOrTheTitle() {
+        let fieldOnly = Scene(title: "EXT. WOODS - DAY", sceneNumber: "42")
+        let titleOnly = Scene(title: "12A. EXT. WOODS - DAY")
+        let neither   = Scene.createCalendarEvent(title: "Producer visit", time: "3:00 PM")
+        let doc = render(days: [], boneyard: [fieldOnly, titleOnly, neither], dumpAs: "Breakdown-Numbers.pdf")
+        #expect(doc.pageCount == 3)
+
+        // Script order: 12A, then 42, then the unnumbered event.
+        let pages = (0..<3).map { doc.page(at: $0)?.string ?? "" }
+        #expect(pages[0].contains("SCENE #\n12A"))
+        #expect(pages[0].contains("SETTING\nWOODS - DAY"))
+        #expect(pages[1].contains("SCENE #\n42"))
+        #expect(pages[1].contains("SETTING\nWOODS - DAY"))
+        #expect(pages[2].contains("SCENE #\n—"))
     }
 
     @Test func breakdownCountsASceneOnceAndReturnsNilWithNoScenes() {

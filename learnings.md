@@ -9,6 +9,22 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-18 — Checking whether a PDF label fits is a five-line CoreText script, and a taller label box is not a fix (#33)
+
+The breakdown sheet's "BREAKDOWN SHEET #" wrapped because 9pt bold SF measures 104.4pt
+against the cell's 103pt label area; 8.5pt is 99.1pt. `CTLineGetTypographicBounds` on a
+`CTLineCreateWithAttributedString` of `CTFontCreateUIFontForLanguage(.emphasizedSystem, …)`
+gives the width `PDFCanvas` will lay out (tracking included), so a `swift` script answers
+"does this label fit?" without dumping and rasterizing a PDF. Of the three fixes the issue
+offered, the label box cannot simply grow: `drawCell` takes the value's height from what
+the label leaves, so a two-line label in the 44pt top row leaves the 13pt sheet number
+11pt and the auto-scaling loop shrinks it to the 7pt floor. A smaller size changes
+`labelHeight` (`labelSize + 5`) and moves the value half a point; the shorter "SHEET #"
+keeps every metric in the cell where it was, and the masthead already carries the full
+name. The scene number now follows `ShootingSchedulePDFExporter`'s order (`sceneNumber`,
+then the title's prefix); `Scene.extractedSceneNumber` was not used because its "1"
+fallback would number every banner and event.
+
 ## 2026-09-18 — The palette in the file: adoption cannot mark the document edited, `JSONEncoder` orders keys its own way, and an environment value is the cheap way to reach every strip (#11)
 
 Moving the strip colors from per-device `UserDefaults` keys into `ProjectData.palette`:

@@ -51,7 +51,13 @@ struct BreakdownExporter {
         for (index, scene) in scenes.enumerated() {
             canvas.beginPage()
 
-            let (sceneNumber, intExt, setting) = parseSceneHeading(scene.title)
+            // The number lives in `sceneNumber` for every imported and hand-entered scene,
+            // and the title carries it only for projects saved before that field existed;
+            // read the field first and fall back to the title's prefix, as the shooting
+            // schedule does (#33). Banners and events have neither and print "—".
+            let (headingNumber, intExt, setting) = parseSceneHeading(scene.title)
+            let fieldNumber = scene.sceneNumber.trimmingCharacters(in: .whitespaces)
+            let sceneNumber = fieldNumber.isEmpty ? headingNumber : fieldNumber
 
             // Masthead
             let mastheadTop = pageHeight - margin
@@ -73,7 +79,11 @@ struct BreakdownExporter {
             let narrowCol1: CGFloat = 115
             let wideCol1 = contentWidth - 2 * narrowCol1
             var x = margin
-            drawCell(canvas, label: "BREAKDOWN SHEET #", value: "\(index + 1)",
+            // "BREAKDOWN SHEET #" at 9pt bold is 104pt wide on the Mac's SF, a point more
+            // than the 103pt label area, so its "#" wrapped onto a second line that the
+            // 14pt label box clipped to a sliver (#33). The masthead above already says
+            // "BREAKDOWN SHEET"; the short label fits at the size every other label uses.
+            drawCell(canvas, label: "SHEET #", value: "\(index + 1)",
                      rect: CGRect(x: x, y: rowTops[0] - rowHeights[0], width: narrowCol1, height: rowHeights[0]),
                      valueSize: 13, valueBold: true, centered: true, labelSize: 9.0)
             x += narrowCol1
