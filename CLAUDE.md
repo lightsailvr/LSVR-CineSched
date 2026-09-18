@@ -108,6 +108,17 @@ All Swift sources are flat in `LSVR CineSched/`, one responsibility per file (th
   normally, open the bookmarked file, or open the working copy untitled; pure, one test per
   row. `MacAppDelegate` (a seam) reads the keys, resolves the bookmark, opens through
   `NSDocumentController` in `applicationDidFinishLaunching` and removes the keys afterward.
+- `SyncState.swift`: the sync state shown beside the project title (#14): `SyncState` (the
+  five displayed states) and `SyncState.derive(from:networkReachable:conflictResolved:)`, a
+  pure function of `UbiquitousResourceSnapshot` (the document URL's ubiquitous resource
+  values as plain values, with an initializer from `URLResourceValues`); nil for a file
+  outside iCloud. The header lists the precedence. Reading the values, the metadata query,
+  the network monitor and the indicator are the platform scenes' (#12) and not wired yet.
+- `ConflictPolicy.swift`: the conflict decision (#15): `ConflictPolicy.decide(current:others:)`
+  over `ConflictVersion` values (id, modification date, device name, optional snapshot);
+  newest wins, the rest are `resolved`, the loser is `retained` for the notice and the
+  Restore other version action, which the wiring applies through `perform`. Reading and
+  flagging `NSFileVersion`s through the document's coordinator is the wiring's, not wired yet.
 - `CalendarView.swift`, `StripboardView.swift`: the two schedule views.
 - `*Sheet.swift`: modal editors. `*Exporter.swift`: PDF generators; every call site is in
   `ContentView+PDFExports.swift`. `PDFCanvas.swift` is the shared drawing helper (CoreGraphics +
@@ -183,6 +194,8 @@ The test targets are Xcode template stubs. `LSVR CineSchedTests` uses Swift Test
 `TimeParser`, `Formatting.swift` free functions, `ConflictScanner` (`ConflictScannerTests`),
 `ScheduleLockScanner`, `ProjectData.updateProductionRange` (`ProductionRangeTests`),
 `LegacyWorkingCopyRecovery.decide` (`LegacyWorkingCopyRecoveryTests`),
+`SyncState.derive` and the resource snapshot (`SyncStateTests`, one per state and per precedence
+choice), `ConflictPolicy.decide` (`ConflictPolicyTests`, one per row of the decision),
 `DerivedScheduleState` and its cache (`DerivedScheduleStateTests`),
 `ScenePalette`, `Scene.stripColor(in:)` and the device-overrides reader (`ScenePaletteTests`; adoption
 and per-slot undo are in `ProjectDocumentTests`, the file shape in `ProjectCodecTests`),

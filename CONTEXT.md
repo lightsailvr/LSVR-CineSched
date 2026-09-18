@@ -64,6 +64,8 @@ Film-production terms first, then app-specific ones.
 | **Fountain / FDX / Highland** | Supported screenplay import formats: plain-text Fountain, Final Draft XML, and Highland's zipped TextBundle. |
 | **Project document** | `ProjectDocument`: the one observable document every platform reads, writes and edits (ADR 0004). Its snapshot is `ProjectData`; its reader and writer go through `ProjectCodec`; every edit goes through `perform`, which registers the undo action. On the Mac, `DocumentGroup` makes one per window and `ContentView` edits it. |
 | **Edit gesture** | An `EditGesture` token passed to every `perform` of one user gesture (a drag, a typing burst) so the gesture undoes as one step. |
+| **Sync state** | What the indicator beside the project title says about this copy of an iCloud Drive project (#14): up to date, uploading, downloading, waiting for network, or conflict resolved (`SyncState`). Derived by `SyncState.derive` from the document URL's ubiquitous resource values (`UbiquitousResourceSnapshot`), the network and the conflict policy's flag; a file outside iCloud has none, and the indicator draws nothing. Conflict resolved is shown until the next edit. |
+| **Conflict notice** | What the user sees after iCloud reported the same project edited on two devices (#15): the newest version was kept, and the notice names the device and time of the one that lost, with a **Restore other version** action. The decision is `ConflictPolicy.decide` over `ConflictVersion` values: newest wins (the current one on a tie), the rest are resolved, the loser is retained for the session; a single version yields no notice. Restore applies the retained snapshot through `perform`, so it is undoable. Lives in the sync indicator area; dismisses when acted on or after the next edit. |
 | **Native file type** | `com.lsvr.cinesched.project`, extension `.cinesched`, conforming to JSON (ADR 0005). Same bytes as the `.json` the app has always written; declared in `Config/Info.plist` as the exported type and the only document type. |
 | **Viewer role** | How a legacy `.json` opens on the Mac: it is a readable type, so File ▸ Open lists it, but the document infrastructure would autosave it in place, so `LegacyProjectHandoff` moves its contents into an untitled document and closes the `.json` window. The first Save asks for a `.cinesched` destination; the `.json` is never modified (the writer refuses it). |
 | **Project commands** | `ProjectCommands`: the closure slots (and View-menu bindings) a `ContentView` publishes as a focused scene value so the app-wide menus act on the frontmost window. |
@@ -107,6 +109,11 @@ FilePanels, SelectAllTextField, WindowAccessor, ModifierKeys, PlatformControlSty
 PlatformColors, PlatformPlaceholderView, LegacyProjectHandoff, MacAppDelegate  Platform seams (ADR 0003).
 LegacyWorkingCopyRecovery.swift                                       The first-launch decision over the pre-document builds' UserDefaults
                                                                        working copy and file bookmark (#10); MacAppDelegate acts on it.
+SyncState.swift                                                       The sync state beside the title (#14): the five states and the pure
+                                                                       mapping from a URL's ubiquitous resource values, the network and
+                                                                       the conflict flag; nil outside iCloud. The platform scenes wire it.
+ConflictPolicy.swift                                                  The conflict decision (#15): newest version wins, the rest resolved,
+                                                                       the loser retained for the notice and Restore other version.
 ```
 
 ### Data flow

@@ -9,6 +9,33 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-18 — Sync state and conflict policy as pure values: `nonisolated Codable, Equatable` leaves `Equatable` on the main actor, and the warning it causes has no file (#14, #15)
+
+Building `SyncState.derive` and `ConflictPolicy.decide` as `nonisolated` pure-core types:
+
+- **`struct ProjectData: nonisolated Codable, Equatable` makes only `Codable` nonisolated.**
+  The modifier applies to the one conformance it precedes; `Equatable` stays inferred
+  `@MainActor` under `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`. A `nonisolated struct`
+  holding a `ProjectData?` and synthesizing its own `Equatable` then warns "main
+  actor-isolated conformance of 'ProjectData' to 'Equatable' cannot be used in nonisolated
+  context", and the warning is reported at `<unknown>:0:` (synthesized code), so a grep
+  by file name misses it; grep the whole log for `warning:` and count. Making the model's
+  `Equatable` nonisolated would cascade through every type it contains (`ShootDay`,
+  `Scene`'s `Hashable`, `CallSheetData`, `ProductionInfo`, …); `ConflictVersion` instead
+  hand-writes `==` over its identity (id, date, device) and treats the snapshot as payload,
+  which is the comparison the decision wants anyway. Worth doing the cascade once a second
+  nonisolated type needs to compare projects.
+- **The resource values carry no "waiting" state.** `URLResourceValues` says uploading,
+  uploaded, downloading and a downloading status; whether the item is *waiting* is the
+  network's, so the mapping takes reachability as its own input and puts it above every
+  transfer flag (a stale `isUploading` offline is not to be believed). The acceptance test
+  for airplane mode expects "waiting" with nothing pending, which settles the precedence.
+- **`URLUbiquitousItemDownloadingStatus` is a struct of static constants, not an enum**;
+  a `switch` over `.current` / `.downloaded` / `.notDownloaded` needs a `default`. The
+  snapshot's own `DownloadingStatus` enum exists so tests and the mapping never touch it.
+
+---
+
 ## 2026-09-18 — Call sheet pagination: a closure that captures the outer `y` is stale on both sides, and Quartz stamps every PDF with a fresh date and ID (#32)
 
 Fixing the call sheet's blank continuation pages (`ensureRoom` reset an outer `y` that each
@@ -51,6 +78,8 @@ keeps every metric in the cell where it was, and the masthead already carries th
 name. The scene number now follows `ShootingSchedulePDFExporter`'s order (`sceneNumber`,
 then the title's prefix); `Scene.extractedSceneNumber` was not used because its "1"
 fallback would number every banner and event.
+
+---
 
 ## 2026-09-18 — The palette in the file: adoption cannot mark the document edited, `JSONEncoder` orders keys its own way, and an environment value is the cheap way to reach every strip (#11)
 
