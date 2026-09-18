@@ -112,10 +112,12 @@ struct CallSheetPDFExporterTests {
         #expect(text.contains("GENERAL NOTES"))
     }
 
-    /// A day too long for one page. The exporter opens the extra pages, but today it
-    /// draws everything after the first page break off the page (#32): the sections keep
-    /// a local copy of `y` that `ensureRoom` does not reset. Until that is fixed this only
-    /// pins the page count and what page 1 holds; #32 tightens it.
+    /// A day too long for one page: 27 scene rows (24 scenes, the lunch banner, the
+    /// event and the company move) and 15 cast calls. The rows are fixed heights, so the
+    /// split is the same on every platform: 14 scene rows fit under the header on page 1,
+    /// the remaining 13 and the whole cast table go on page 2, and the crew calls and the
+    /// notes on page 3. Every section used to draw everything after the first page break
+    /// below the page (#32), so this checks that the content survives, not just the count.
     @Test func callSheetPaginatesALongDay() {
         var day = PDFFixture.callSheetDay
         day.scenes += (7...24).map { PDFFixture.makeScene(300 + $0) }
@@ -123,10 +125,36 @@ struct CallSheetPDFExporterTests {
             CastCallEntry(characterName: "Extra \($0)", actorName: "Performer \($0)", onSetTime: "8:00 AM")
         }
         let doc = render(day, dayNumber: 3, dumpAs: "CallSheet-Long.pdf")
-        #expect(doc.pageCount == 4)
+        #expect(doc.pageCount == 3)
 
-        let firstPage = doc.page(at: 0)?.string ?? ""
+        let pages = (0..<doc.pageCount).map { doc.page(at: $0)?.string ?? "" }
+        for (index, text) in pages.enumerated() {
+            #expect(!text.isEmpty, "page \(index + 1) is blank")
+        }
+
+        let firstPage = pages.first ?? ""
         #expect(firstPage.contains("301"))
-        #expect(firstPage.contains("313"))   // the last row that fits above the bottom margin
+        #expect(firstPage.contains("311"))     // the last row that fits above the bottom margin
+        #expect(!firstPage.contains("312"))    // the next row starts page 2 instead of overflowing
+        #expect(!firstPage.contains("GENERAL NOTES"))
+
+        // Everything after the first break lands on the pages opened for it.
+        let laterPages = pages.dropFirst().joined(separator: "\n")
+        #expect(laterPages.contains("312"))
+        #expect(laterPages.contains("324"))
+        #expect(laterPages.contains("CHARACTER"))          // the cast table header
+        #expect(laterPages.contains("Taylor Brooks"))
+        #expect(laterPages.contains("Performer 12"))       // the last cast entry
+        #expect(laterPages.contains("CREW CALL TIMES"))
+        #expect(laterPages.contains("GENERAL NOTES"))
+        #expect(laterPages.contains("Wear layers; the backlot gets cold after sunset."))
+
+        // And in order: the scenes and cast on page 2, the crew and notes on page 3.
+        let secondPage = pages.count > 1 ? pages[1] : ""
+        let thirdPage  = pages.count > 2 ? pages[2] : ""
+        #expect(secondPage.contains("324"))
+        #expect(secondPage.contains("Performer 12"))
+        #expect(thirdPage.contains("CREW CALL TIMES"))
+        #expect(thirdPage.contains("GENERAL NOTES"))
     }
 }

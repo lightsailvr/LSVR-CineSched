@@ -54,23 +54,21 @@ class CallSheetExporter {
 
         var y: CGFloat = pageHeight - margin
 
-        func beginPage() {
-            canvas.beginPage()
-            y = pageHeight - margin
-        }
-
-        func endPage() {
-            canvas.endPage()
-        }
-
-        func ensureRoom(_ height: CGFloat) {
+        /// Starts a new page when `height` points will not fit above the bottom margin at
+        /// `y`, and moves `y` to the top of it. `y` is the caller's running position, passed
+        /// `inout` so a section's own `y` is both what is checked and what the page break
+        /// resets: the closure used to capture this function's `y` instead, which the
+        /// sections never updated, so a table never broke where it should and everything
+        /// after the first break was drawn below the page (#32).
+        func ensureRoom(_ height: CGFloat, _ y: inout CGFloat) {
             if y - height < margin + 10 {
-                endPage()
-                beginPage()
+                canvas.endPage()
+                canvas.beginPage()
+                y = pageHeight - margin
             }
         }
 
-        beginPage()
+        canvas.beginPage()
 
         // 1. Top Header Banner
         y = drawTopBanner(on: canvas, y: y, shootDay: shootDay, dayNumber: dayNumber, lang: language)
@@ -99,7 +97,7 @@ class CallSheetExporter {
         // 9. General Notes (Unified in one single block)
         y = drawProductionNotes(on: canvas, y: y, callSheet: shootDay.callSheet, lang: language, ensureRoom: ensureRoom)
 
-        endPage()
+        canvas.endPage()
         return canvas.finish()
     }
 
@@ -323,7 +321,7 @@ class CallSheetExporter {
 
     // MARK: - 6. Scenes Table
 
-    private static func drawScenesTable(on canvas: PDFCanvas, y: CGFloat, shootDay: ShootDay, lang: AppLanguage, ensureRoom: (CGFloat) -> Void) -> CGFloat {
+    private static func drawScenesTable(on canvas: PDFCanvas, y: CGFloat, shootDay: ShootDay, lang: AppLanguage, ensureRoom: (CGFloat, inout CGFloat) -> Void) -> CGFloat {
         var y = y
         let headerH: CGFloat = 16
         let cols: [(title: String, width: CGFloat)] = [
@@ -335,7 +333,7 @@ class CallSheetExporter {
             (lang == .spanish ? "DIRECCIÓN" : "ADDRESS",     contentWidth - 65 - 180 - 95 - 55 - 35)
         ]
 
-        ensureRoom(headerH + 30)
+        ensureRoom(headerH + 30, &y)
 
         // Draw Table Header
         drawTableHeader(on: canvas, cols: cols, y: y, height: headerH)
@@ -346,7 +344,7 @@ class CallSheetExporter {
         // Draw Scenes
         for scene in shootDay.scenes {
             let rowH: CGFloat = 34
-            ensureRoom(rowH)
+            ensureRoom(rowH, &y)
 
             var x = margin
 
@@ -417,7 +415,7 @@ class CallSheetExporter {
 
     // MARK: - 7. Cast Table (with SCENES column)
 
-    private static func drawCastTable(on canvas: PDFCanvas, y: CGFloat, shootDay: ShootDay, productionInfo: ProductionInfo, lang: AppLanguage, ensureRoom: (CGFloat) -> Void) -> CGFloat {
+    private static func drawCastTable(on canvas: PDFCanvas, y: CGFloat, shootDay: ShootDay, productionInfo: ProductionInfo, lang: AppLanguage, ensureRoom: (CGFloat, inout CGFloat) -> Void) -> CGFloat {
         var y = y
         let headerH: CGFloat = 16
         let cols: [(title: String, width: CGFloat)] = [
@@ -432,7 +430,7 @@ class CallSheetExporter {
             ("LOC",             contentWidth - 75 - 105 - 55 - 32 - 48 - 62 - 48 - 48)
         ]
 
-        ensureRoom(headerH + 20)
+        ensureRoom(headerH + 20, &y)
 
         // Draw Table Header
         drawTableHeader(on: canvas, cols: cols, y: y, height: headerH)
@@ -441,7 +439,7 @@ class CallSheetExporter {
         let entries = shootDay.callSheet.castCallEntries
         for entry in entries {
             let rowH: CGFloat = 16
-            ensureRoom(rowH)
+            ensureRoom(rowH, &y)
 
             var x = margin
 
@@ -484,10 +482,10 @@ class CallSheetExporter {
 
     // MARK: - 8. Crew Call Table
 
-    private static func drawCrewTable(on canvas: PDFCanvas, y: CGFloat, shootDay: ShootDay, productionInfo: ProductionInfo, lang: AppLanguage, ensureRoom: (CGFloat) -> Void) -> CGFloat {
+    private static func drawCrewTable(on canvas: PDFCanvas, y: CGFloat, shootDay: ShootDay, productionInfo: ProductionInfo, lang: AppLanguage, ensureRoom: (CGFloat, inout CGFloat) -> Void) -> CGFloat {
         var y = y
         let bannerH: CGFloat = 16
-        ensureRoom(bannerH + 30)
+        ensureRoom(bannerH + 30, &y)
 
         // Banner Header
         let crewTitle = lang == .spanish ? "CITACIÓN ESPECÍFICA DEL EQUIPO TÉCNICO" : "CREW CALL TIMES"
@@ -506,7 +504,7 @@ class CallSheetExporter {
         }
 
         for chunk in chunks {
-            ensureRoom(rowH)
+            ensureRoom(rowH, &y)
             for (cIdx, member) in chunk.enumerated() {
                 let cRect = CGRect(x: margin + CGFloat(cIdx) * colWidth3, y: y - rowH, width: colWidth3, height: rowH)
                 drawCellBorder(on: canvas, cRect)
@@ -547,10 +545,10 @@ class CallSheetExporter {
 
     // MARK: - 9. General Notes
 
-    private static func drawProductionNotes(on canvas: PDFCanvas, y: CGFloat, callSheet: CallSheetData, lang: AppLanguage, ensureRoom: (CGFloat) -> Void) -> CGFloat {
+    private static func drawProductionNotes(on canvas: PDFCanvas, y: CGFloat, callSheet: CallSheetData, lang: AppLanguage, ensureRoom: (CGFloat, inout CGFloat) -> Void) -> CGFloat {
         var y = y
         let bannerH: CGFloat = 16
-        ensureRoom(bannerH + 30)
+        ensureRoom(bannerH + 30, &y)
 
         let notesTitle = lang == .spanish ? "OBSERVACIONES GENERALES" : "GENERAL NOTES"
         drawSectionBanner(on: canvas, notesTitle, y: y, height: bannerH)
@@ -565,7 +563,7 @@ class CallSheetExporter {
             let textHeight = canvas.height(of: notesText, font: fontBoldBody, width: contentWidth - 16, lineSpacing: 3)
             let boxHeight = max(30, textHeight + 14)
 
-            ensureRoom(boxHeight)
+            ensureRoom(boxHeight, &y)
             let rRect = CGRect(x: margin, y: y - boxHeight, width: contentWidth, height: boxHeight)
             drawCellBorder(on: canvas, rRect)
 
@@ -574,7 +572,7 @@ class CallSheetExporter {
             y -= boxHeight
         } else {
             let emptyH: CGFloat = 30
-            ensureRoom(emptyH)
+            ensureRoom(emptyH, &y)
             let rRect = CGRect(x: margin, y: y - emptyH, width: contentWidth, height: emptyH)
             drawCellBorder(on: canvas, rRect)
             y -= emptyH

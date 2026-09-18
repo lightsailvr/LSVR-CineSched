@@ -9,6 +9,33 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-18 — Call sheet pagination: a closure that captures the outer `y` is stale on both sides, and Quartz stamps every PDF with a fresh date and ID (#32)
+
+Fixing the call sheet's blank continuation pages (`ensureRoom` reset an outer `y` that each
+section shadowed with its own `var y = y`):
+
+- **The stale capture broke the check as well as the reset.** `ensureRoom` compared the
+  *outer* `y`, frozen at the section's starting position, against the bottom margin, so the
+  scenes table never broke at all: all 27 rows of the long fixture went onto page 1, the last
+  eleven below the margin and off the media box, and the three extra pages were opened only
+  because the following sections were handed a negative `y`. The issue's first suggestion —
+  return the current `y` from the closure — would have fixed the reset and left the check
+  stale. The section's running `y` has to reach the closure, hence `inout`
+  (`ensureRoom(rowH, &y)`, the closure typed `(CGFloat, inout CGFloat) -> Void`; the shooting
+  schedule already passes `yPosition: inout`). With the check honest the fixture is 3 pages,
+  not 4, and page 1 ends at scene 311, not 313.
+- **"Byte-for-byte" needs a mask.** Two exports of the same call sheet seconds apart differ in
+  74 bytes: the `CreationDate` / `ModDate` digits in the Info dictionary and the 32-byte
+  trailer `/ID`, which Quartz derives from the time. Every object and the xref table were
+  identical (same size, same `startxref`), so `cmp -l` plus a look at the offsets settles it;
+  the pixel diff (#4–#6's scratch tool, rebuilt in a few dozen lines on PDFKit + CoreGraphics)
+  is the cleaner statement and is what the report should quote.
+- **The general-call banner overdraws itself when both a quote and a schedule line are set**:
+  the 26pt call time sits on the italic "Schedule:" line (see the long fixture's page 1, and
+  `CallSheet.pdf`). Pre-existing, pixel-identical before and after; not #32's.
+
+---
+
 ## 2026-09-18 — Checking whether a PDF label fits is a five-line CoreText script, and a taller label box is not a fix (#33)
 
 The breakdown sheet's "BREAKDOWN SHEET #" wrapped because 9pt bold SF measures 104.4pt
