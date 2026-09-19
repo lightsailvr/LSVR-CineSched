@@ -1,6 +1,6 @@
 # CineSched — Film Production Scheduling & One-Line Schedule App
 
-A macOS application for scheduling film shoots — visual calendar and stripboard scheduling, scene breakdown tagging, actor availability and conflict tracking, call sheets, vector PDF exports, and Final Draft script import.
+A macOS application for scheduling film shoots — visual calendar and stripboard scheduling, scene breakdown tagging, actor availability and conflict tracking, call sheets, vector PDF exports, and Final Draft script import. The same project also builds for iPhone, iPad and Apple Vision Pro, where the app is a work in progress (see [Platforms](#platforms)).
 
 ![Platform](https://img.shields.io/badge/platform-macOS-blue)
 ![Swift](https://img.shields.io/badge/Swift-5.0-orange)
@@ -98,6 +98,13 @@ If you're comparing notes with either of their versions: the project-file format
 - Undo/Redo in the Edit menu for scene and day edits (and, through the same funnel, the title, production setup and call sheets)
 - Multiple app color themes, plus the scene-color customization above
 - Legacy `.json` projects open as they always did; the first Save asks for a `.cinesched` destination and leaves the `.json` untouched
+- For a project in iCloud Drive, a small cloud symbol beside the title says whether this copy is up to date, uploading, downloading or waiting for the network, and a conflict notice with Restore Other Version appears when a version from another device replaced local edits (see Platforms for the iCloud folder)
+
+## Platforms
+
+- **Mac** — the shipping app; everything above.
+- **iPhone, iPad and Apple Vision Pro** — in progress, built from the same project. What works today: the system's document launch screen (New Project, Import Script…, Import Project…, recents and the document browser), creating, opening and autosaving `.cinesched` projects in a **CineSched** folder in iCloud Drive that every device on the account sees (the Mac included, in Finder), opening a `.cinesched` in place from anywhere in Files, the sync indicator and the conflict notice. The editor there is deliberately minimal for now (the project title and the shoot days with their scene counts); the full iPad, iPhone and Vision Pro editors are the next milestones. Legacy `.json` projects do not open in place on these platforms; Import Project… creates a `.cinesched` from one instead.
+- The Mac app has no iCloud entitlement of its own: it reaches the CineSched folder like any other folder through the Open and Save panels (which start there the first time the folder exists), so building the Mac app from source needs no paid developer membership.
 
 ## A note on language
 
@@ -107,22 +114,17 @@ alucardGonza's original fork included full bilingual English/Español support, r
 
 ### Requirements
 
-- macOS 13.0 (Ventura) or later
-- Xcode 14.0 or later
+- macOS 27 or later, on an Apple silicon Mac (the release build is arm64 only; Xcode 27's standard architectures for macOS 27 are `arm64` alone)
+- For the iPhone, iPad and Vision Pro builds: iOS 27, iPadOS 27 or visionOS 27
+- Xcode 27 to build
 
 ### Setup
 
-This repository is distributed as loose source files rather than an `.xcodeproj`. To build it:
-
-1. Create a new macOS App project in Xcode (SwiftUI).
-2. **Delete Xcode's own auto-generated app-entry and content-view files.** This project brings its own `CineSchedApp.swift` and `ContentView.swift`, and having two `@main` types in one target will fail to build. Double-check afterward, too — if you ever see "1 Alternate" when using Xcode's Open Quickly (⌘⇧O) to search for `CineSchedApp`, that's very likely just Xcode showing the struct itself as a separate symbol match, not a real duplicate file; don't assume it's a problem without actually checking each result's file location first.
-3. Add every `.swift` file from this repository to the target, along with `Info.plist` and `CineSched.entitlements`.
-4. In **Signing & Capabilities**, under **App Sandbox → File Access**, set **User Selected File** to **Read/Write** — this is required for Save As, Open, and script import to work; Xcode's default new-project entitlements don't include it.
-5. Build once before making any changes, to confirm a clean baseline.
+Open `LSVR CineSched.xcodeproj` and build the `LSVR CineSched` scheme; one target builds every platform. The Mac app signs with an Apple Development certificate and no provisioning profile: it keeps only the sandbox and user-selected file access, with no iCloud entitlement, so building it needs no paid developer membership (add `CODE_SIGNING_ALLOWED=NO` for a headless build). The iOS and visionOS builds run unsigned in the simulators; a device build needs an App ID with the iCloud capability and the `iCloud.com.lsvr.LSVR-CineSched` container (`docs/adr/0006-icloud-folder-owned-by-the-ios-app.md`). `CLAUDE.md` has the exact `xcodebuild` invocations for each destination, and `scripts/install.sh` builds Release and refreshes `/Applications`.
 
 ### First Launch (Unsigned App)
 
-Since this isn't distributed through the Mac App Store or signed with a Developer certificate, macOS Gatekeeper will likely refuse to open a built copy the first time:
+Since this isn't distributed through the Mac App Store or notarized, macOS Gatekeeper will likely refuse to open a built copy the first time:
 
 1. Drag `CineSched.app` into Applications.
 2. In Terminal: `xattr -c /Applications/CineSched.app`
@@ -153,7 +155,7 @@ The app icon is generated from a single 1024×1024 PNG. To update it:
 - Schedule PDF exports are landscape US Letter only; call sheet and breakdown sheet exports are portrait US Letter only
 - ⇧-click range selection on the calendar only works within a single day
 - A conflict or blackout flag only applies to characters matched to a named cast member in Production Setup
-- View-mode and sidebar preferences are remembered app-wide, not per-project
+- View-mode and sidebar preferences are per window and remembered app-wide, not saved in the project
 - Cast members appearing only inside a DualDialogue exchange aren't automatically added to that scene's cast list (see Script Import above)
 
 ## File Formats
@@ -163,7 +165,10 @@ The app icon is generated from a single 1024×1024 PNG. To update it:
 All scenes, calendar days, call sheets, production info, and any active schedule lock, as
 portable, human-readable JSON. New projects save as `.cinesched` (kind "CineSched Project");
 the contents are the same JSON as before, so an older build opens a `.cinesched` after
-renaming it to `.json`, and this build opens any `.json` from any CineSched lineage.
+renaming it to `.json`, and this build opens any `.json` from any CineSched lineage (on the Mac in place;
+on iPhone, iPad and Vision Pro through Import Project…, which creates a `.cinesched` from it). Projects the
+other platforms create live in the CineSched folder in iCloud Drive; the Mac opens and saves them there
+like any other file.
 
 ### Script Imports
 
@@ -190,4 +195,4 @@ For issues or questions, please open a GitHub issue.
 
 ---
 
-**Compatible With**: macOS 13.0+, Final Draft 12+
+**Compatible With**: macOS 27+ (iOS, iPadOS and visionOS 27+ for the in-progress builds), Final Draft 12+

@@ -77,8 +77,10 @@ has to be expressed per SDK inside that target. The same goes for the iOS-only
 
 - A source build of the Mac app needs no team membership and no App ID change; a device
   build of the iOS app needs the App ID `com.lsvr.LSVR-CineSched` to have the iCloud
-  capability with this container (Xcode's automatic signing adds it once, from a
-  logged-in account, or the developer portal does).
+  capability with this container. Automatic signing turns the capability on but never
+  creates the container: it has to exist in the developer portal and be ticked on the App
+  ID, and Xcode's capabilities tab edits the Mac's entitlements file, not the iOS one
+  (learnings.md, 2026-09-19 #12).
 - The simulators run the iOS and visionOS builds unsigned (`CODE_SIGNING_ALLOWED=NO`);
   there the launch screen, the editor, open-in-place and autosave work against local
   documents and the container is unavailable. Signing in to iCloud in a simulator is a

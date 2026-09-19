@@ -9,6 +9,35 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-19 — Signing the iOS build for a device: automatic signing never creates the iCloud container, and Xcode's capabilities tab edits the Mac's entitlements file (#12)
+
+Getting the first device build of the iPhone/iPad app to sign, with the per-SDK entitlements
+of ADR 0006 in place:
+
+- **Automatic signing turns the iCloud capability on for the App ID but never creates an
+  iCloud container.** So a device build fails with "Provisioning profile … doesn't match the
+  entitlements file's values for the com.apple.developer.icloud-container-identifiers and
+  com.apple.developer.ubiquity-container-identifiers entitlements" until the container
+  `iCloud.com.lsvr.LSVR-CineSched` exists in the developer portal *and* is ticked on the
+  App ID `com.lsvr.LSVR-CineSched`. Nothing in the repo can do that step.
+- **Xcode's Signing & Capabilities tab edits the base `CODE_SIGN_ENTITLEMENTS` file**, the
+  Mac's `LSVR CineSched/CineSched.entitlements`, not the per-SDK
+  `Config/CineSched-iOS.entitlements`. Ticking the container there wrote the iCloud keys into
+  the Mac's file (twice, once per tick), which would have given the Mac build the entitlement
+  ADR 0006 keeps it free of; reverted with `git checkout -- "LSVR CineSched/CineSched.entitlements"`.
+- **What worked**: tick the container in the tab's iCloud section anyway, because that is what
+  creates it in the portal and assigns it to the App ID; rebuild for the device; then revert
+  the Mac's entitlements file as above. The iOS file already named the container and needs no
+  edit. Check the Mac build afterwards (`codesign -d --entitlements - --xml`, no `icloud` or
+  `ubiquity` key).
+- **Reading what a profile actually grants**: `security cms -D -i <profile> | plutil -p -`
+  prints its plist, `Entitlements` included; the profiles Xcode downloaded live in
+  `~/Library/Developer/Xcode/UserData/Provisioning Profiles`. That is how to tell "the App ID
+  lacks the capability" (the 2026-09-18 #12 entry) from "the capability is on but the
+  container is not" (this one) without another build.
+
+---
+
 ## 2026-09-19 — Launch-screen imports: the creation source reaches `makeDocument`, `prepareDocumentURL` never runs, a throwing `makeDocument` is a silent no-op, and a sheet presents from the launch scene's actions (#13)
 
 Adding Import Script… and Import Project… to the iOS/visionOS `DocumentGroupLaunchScene`:

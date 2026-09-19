@@ -1,9 +1,12 @@
 # CLAUDE.md
 
 CineSched: a SwiftUI app for film production scheduling. The Mac app is the shipping product;
-iOS, iPadOS and visionOS build from the same target and open, create and autosave projects
-from the CineSched folder in iCloud Drive through a deliberately minimal editor (#12, ADR 0006)
-until their real editors land (#1).
+iOS, iPadOS and visionOS build from the same target and today have the system's document
+launch screen (New Project, Import Script…, Import Project…, recents, the document browser),
+open, create and autosave `.cinesched` projects from the CineSched folder in iCloud Drive, and
+show the sync indicator and the conflict notice, all through a deliberately minimal editor
+(#12–#15, ADR 0006). The full iPad editor and the iPhone and Vision Pro editors are milestones
+3 and 4 of #1 (M3, M4); nothing else about those platforms is placeholder.
 Read `CONTEXT.md` for the glossary and system map before touching the code, and `learnings.md`
 for things that have already cost time.
 
@@ -54,10 +57,13 @@ to `/Applications`, commits, tags `v<version>`, pushes, and publishes a GitHub R
 the zipped app. `scripts/install.sh` just builds and refreshes `/Applications` (no version,
 no tag). Version and build number live only in build settings; keep the changelog's newest
 section in sync with `MARKETING_VERSION`. A clean build
-on 2026-09-16 with Xcode 27.0 (27A266a) at the 27.0 floor succeeds with exactly 7 warnings in the
-app target (all deprecated one-argument `onChange`); do not add new ones. (The 4 main-actor-isolated
-`Codable` warnings went with #7: the model's `Codable` conformances are `nonisolated`.) The test
-targets add 5 more of the same kinds.
+with Xcode 27.0 (27A266a) at the 27.0 floor succeeds with exactly 7 warnings in the app target
+(all deprecated one-argument `onChange`; the compiler echoes each once more as a source excerpt),
+on macOS, the iPhone 17 simulator and the Apple Vision Pro simulator alike (last checked
+2026-09-19); do not add new ones. (The 4 main-actor-isolated `Codable` warnings went with #7:
+the model's `Codable` conformances are `nonisolated`.) The test target adds 3 more, all
+main-actor isolation (`MonthPDFExporterTests` twice, echoed, and a `@Test(arguments:)` macro
+expansion in `ProjectDocumentTests`): 5 warning lines in the log.
 
 Project facts: single scheme `LSVR CineSched`; Swift 5 language mode with
 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` and approachable concurrency on; deployment target
@@ -298,7 +304,9 @@ metrics or wrapping are guarded by `PDFFixture.hasMacSystemFace`.
   setting. Entitlements are per platform: `LSVR CineSched/CineSched.entitlements` for the Mac (sandbox and
   user-selected files, no iCloud) and `Config/CineSched-iOS.entitlements` for the four non-Mac SDKs (iCloud
   Documents in `iCloud.com.lsvr.LSVR-CineSched`). Any edit to the container keys needs a `CURRENT_PROJECT_VERSION`
-  bump before iCloud rereads them.
+  bump before iCloud rereads them. A device build signs only once that container exists on the App ID in the
+  developer portal, and Xcode's Signing & Capabilities tab edits the Mac's file, not the iOS one (learnings.md,
+  2026-09-19 #12).
 
 ## Agent skills
 
