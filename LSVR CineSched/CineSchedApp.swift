@@ -4,11 +4,14 @@
 //
 //  Created by Christopher Tempel on 7/15/25.
 //
-//  On the Mac the app is document-based (#8, ADR 0004): `DocumentGroup` opens one window
-//  per `ProjectDocument`, and the system supplies New, Open, Open Recent, Save, Duplicate,
-//  Rename, Move To, Revert To, Close, the edited indicator, autosave in place, and the
-//  Edit menu's Undo and Redo. The menus below add only what is CineSched's own, and each
-//  item reaches the frontmost window through `ProjectCommands` (a focused scene value).
+//  The app is document-based on every platform (ADR 0004). On the Mac (#8) `DocumentGroup`
+//  opens one window per `ProjectDocument`, and the system supplies New, Open, Open Recent,
+//  Save, Duplicate, Rename, Move To, Revert To, Close, the edited indicator, autosave in
+//  place, and the Edit menu's Undo and Redo. The menus below add only what is CineSched's
+//  own, and each item reaches the frontmost window through `ProjectCommands` (a focused
+//  scene value). On iOS, iPadOS and visionOS (#12, ADR 0006) the same `DocumentGroup`
+//  opens one file at a time from the system's launch screen (title, New Project, recents,
+//  the document browser), which starts in the CineSched folder in iCloud Drive.
 
 import SwiftUI
 #if os(macOS)
@@ -42,8 +45,11 @@ struct CineSchedApp: App {
 
     var body: some SwiftUI.Scene {
         // Platform seam: the Mac runs the document lifecycle with its full editor as the
-        // window content; the other platforms show the in-progress placeholder until their
-        // own document scenes land (#1, M2 #12 and M3/M4).
+        // window content and the app-wide menus; the other platforms run it with the
+        // minimal editor and the system's launch screen until their own editors land
+        // (#1, M3/M4). Both halves make the document the same way, and only through
+        // `ProjectDocument`, so the file, the undo funnel and the palette adoption are one
+        // code path.
         #if os(macOS)
         DocumentGroup(editor: { document in
             // A legacy .json is never edited in place: its contents move to an untitled
@@ -69,8 +75,39 @@ struct CineSchedApp: App {
         })
         .commands { menus }
         #else
-        WindowGroup {
-            PlatformPlaceholderView()
+        DocumentGroup(editor: { document in
+            MinimalProjectEditor(document: document)
+                .accentColor(currentTheme.primaryAccent(isDarkMode: isDarkMode))
+        }, makeDocument: { configuration, _ in
+            // New Project and an opened file alike: an opened file's contents arrive
+            // through the reader and `apply` straight after. The device's legacy color
+            // overrides ride along for a project without a palette to adopt (#11); on
+            // these platforms no device ever had any, so a file from before #11 keeps the
+            // standard code until a Mac adopts into it.
+            //
+            // #13 (Import Script…, Import Project…): a launch-screen `NewDocumentButton`
+            // made with `source: DocumentCreationSource(id:)` lands here with that source
+            // in the second parameter (`context.creationSource`); this closure is async,
+            // so it may present the picker, parse the file and hand the resulting
+            // `ProjectData` to `ProjectDocument(_:configuration:deviceOverrides:)` in
+            // place of `.newProject()`.
+            ProjectDocument(
+                .newProject(),
+                configuration: configuration,
+                deviceOverrides: SceneColorSettings.deviceOverrides()
+            )
+        })
+
+        // The system's launch screen: title, the actions below, the recents grid and a
+        // Browse button into the document browser, which starts in the CineSched folder
+        // (`NSUbiquitousContainers` in Config/Info.plist, ADR 0006).
+        DocumentGroupLaunchScene(L("CineSched")) {
+            NewDocumentButton(L("New Project"))
+            // #13 adds the two import actions here:
+            //   NewDocumentButton(L("Import Script…"),  source: DocumentCreationSource(id: "importScript"))
+            //   NewDocumentButton(L("Import Project…"), source: DocumentCreationSource(id: "importProject"))
+        } background: {
+            ProjectLaunchBackground()
         }
         #endif
     }

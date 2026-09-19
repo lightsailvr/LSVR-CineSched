@@ -9,6 +9,81 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-18 — The CineSched iCloud folder: per-SDK entitlements, a merged plist that will not take NO, the panels' remembered directory, and a simulator that autosaves a minute later (#12)
+
+Giving iOS and visionOS the document lifecycle with iCloud Documents while the Mac stays
+entitlement-free:
+
+- **The Mac had no `CODE_SIGN_ENTITLEMENTS` at all.** `LSVR CineSched/CineSched.entitlements`
+  sat in the synchronized folder unreferenced (Xcode does not bundle `.entitlements` as a
+  resource, so it did no harm); the Mac's sandbox entitlements came from `ENABLE_APP_SANDBOX`
+  and `ENABLE_USER_SELECTED_FILES`. Wiring the file unconditionally and the iOS one per SDK
+  (`"CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]"`, `iphonesimulator`, `xros`, `xrsimulator`)
+  gives the Mac exactly what it had (`app-sandbox`, `files.user-selected.read-write`,
+  `get-task-allow` in Debug), checked with `codesign -d --entitlements - --xml`.
+- **A per-SDK boolean `INFOPLIST_KEY_` lands in the other SDKs' plists as `false`, and a
+  per-SDK string as `""`**, not as an absent key: the Mac's plist got
+  `UISupportsDocumentBrowser = false` (harmless) and `CFBundleDisplayName = ""` (not
+  harmless; Finder would show an empty name), so the unconditional display name is set to
+  the Mac's existing "LSVR CineSched". And `INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace`
+  set per SDK fails the *Mac* build ("'LSSupportsOpeningDocumentsInPlace = NO' is not
+  supported on macOS"); it is unconditional YES. The three keys are typed in
+  `CoreBuildSystem.xcspec` (grep the spec under `SharedFrameworks/SwiftBuild.framework`
+  before inventing an `INFOPLIST_KEY_`); an unknown key would be emitted as a string.
+- **`NSUbiquitousContainers` in the shared partial plist reaches the Mac's plist too.** It
+  grants nothing without the entitlement, and a per-SDK `INFOPLIST_FILE` would mean two
+  copies of the type declarations, so it stays shared and the Mac carries an inert key.
+- **A simulator build with signing on embeds the iCloud entitlements as a `__TEXT,
+  __entitlements` section (`…-Simulated.xcent`), and `codesign -d --entitlements` shows
+  `{}`.** Read the `.xcent` in `Intermediates.noindex/…/LSVR CineSched.build/` to check
+  them. The device build (`generic/platform=iOS`, no `-allowProvisioningUpdates`) fails
+  with "Provisioning profile … doesn't include the iCloud capability" and "doesn't support
+  the iCloud.com.lsvr.LSVR-CineSched iCloud Identifier": the App ID needs the capability
+  from a logged-in Xcode or the portal; nothing in the repo can do that.
+- **The 27 SDK spellings** (from `SwiftUI.swiftmodule/arm64e-apple-ios.swiftinterface`;
+  there is no `arm64-apple-ios` file, and the XROS one matches):
+  `DocumentGroupLaunchScene(_ title: LocalizedStringKey, _ actions:, background:)` (plus
+  `backgroundAccessoryView:` / `overlayAccessoryView:` taking a `DocumentLaunchGeometryProxy`),
+  `NewDocumentButton(_ title:, contentType: UTType? = nil)` and, for #13,
+  `NewDocumentButton(_:contentType:source: DocumentCreationSource(id:))`, which arrives in
+  `DocumentGroup(editor:makeDocument:)`'s second parameter as `context.creationSource` (also
+  on `configuration.creationSource`). `makeDocument` is `@MainActor async throws`. The
+  environment's `newDocument(_:)` for a `ReadableDocument` is **macOS-only**; on iOS a
+  creation source is the way to hand a `ProjectData` to a new document.
+- **The system's Open/Save panels start in `NSNavLastRootDirectory`** (a plain path string
+  in the app's defaults), and honour it only when the process has a bundle identifier (a
+  bare `swiftc` binary always got `~/Documents`). Verified with a sandboxed throwaway
+  bundle: an existing folder under `~/Library/Mobile Documents` outside the container is
+  honoured (the panel runs out of process), a nonexistent one falls back to `~/Documents`,
+  `~`-relative forms are not expanded, and each confirmed panel rewrites the key. The app
+  may `stat` that folder from inside the sandbox (`fileExists` true, `access(R_OK)` false).
+  `NSHomeDirectory()` in a sandboxed app is the container; `getpwuid` gives the real home.
+  The panel's own `directoryURL` on the app side never reflects what the remote panel
+  shows, and `NSSavePanel.ok(nil)` is "not implemented" for the remote panel, so read the
+  panel service's log (`Open Sync Started` / `OpenSync: Begin` lines from
+  `com.apple.appkit.xpc.openAndSavePanelService`) or `panel.urls` after `cancel`.
+- **`getpwuid` in the simulator is the host's password database**, so a test on it is a
+  test of the Mac; `realHomeDirectoryIsAnAbsoluteDirectory` is `#if os(macOS)`.
+- **The iOS document infrastructure autosaves about a minute after the edit** (the Mac
+  writes within seconds): the file's mtime moved 65 s after the typed title, with the app
+  in the foreground. Kill the app before that and the edit is gone; the human check for
+  "survives killing and relaunching" has to wait it out or background the app first.
+- **Checking the iOS document lifecycle without tapping**: `simctl openurl <device>
+  file://<the app's data container>/Documents/X.cinesched` opens the document in the app
+  on a cold launch (a warm `openurl` on the launch screen did nothing), and a throwaway
+  XCUITest that calls `XCUIApplication().activate()` (not `launch()`, which would relaunch
+  to the launch screen) can then type into the title field and read it back. A tap on the
+  launch screen's New Project from XCUITest registered but opened nothing, twice; the
+  document browser runs in a remote view service (`DocumentManagerUICore.Service`) that
+  the automation touch reaches but the creation never follows. `app.buttons["New Project"]`
+  also matches the button *and* its label (use `.matching(identifier:).firstMatch`), and
+  `-parallel-testing-enabled NO` keeps the test on the real device, whose log survives.
+- **Nothing in the app's data container is `.cinesched` before the first save**, and with
+  no iCloud account in the simulator the launch screen's Browse shows "On My iPhone"; the
+  CineSched folder itself needs a signed-in simulator or a device.
+
+---
+
 ## 2026-09-18 — Sync state and conflict policy as pure values: `nonisolated Codable, Equatable` leaves `Equatable` on the main actor, and the warning it causes has no file (#14, #15)
 
 Building `SyncState.derive` and `ConflictPolicy.decide` as `nonisolated` pure-core types:

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!--
+  The iOS, iPadOS and visionOS entitlements (ADR 0006, #12): iCloud Documents in the
+  container "iCloud.com.lsvr.LSVR-CineSched", which is the CineSched folder in iCloud
+  Drive. Wired per SDK through CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*] and friends; the
+  Mac signs with "LSVR CineSched/CineSched.entitlements" (sandbox plus user-selected files,
+  no iCloud) so that a source build of the Mac app needs no team membership. Lives in
+  Config/ because "LSVR CineSched/" is a synchronized group whose non-source files are
+  bundled as resources.
+-->
+<dict>
+	<key>com.apple.developer.icloud-container-identifiers</key>
+	<array>
+		<string>iCloud.com.lsvr.LSVR-CineSched</string>
+	</array>
+	<key>com.apple.developer.icloud-services</key>
+	<array>
+		<string>CloudDocuments</string>
+	</array>
+	<key>com.apple.developer.ubiquity-container-identifiers</key>
+	<array>
+		<string>iCloud.com.lsvr.LSVR-CineSched</string>
+	</array>
+</dict>
+</plist>

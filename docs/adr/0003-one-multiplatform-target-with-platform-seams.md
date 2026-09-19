@@ -24,8 +24,10 @@ starts with a header comment saying why the seam exists and what the non-Mac sid
 | Modifier-key polling | `ModifierKeys.swift` | `NSEvent.modifierFlags` as `EventModifiers` | Always empty |
 | Mac-only control styles | `PlatformControlStyles.swift` | `.checkbox`, `.radioGroup`, `.borderlessButton` | Platform defaults |
 | Semantic backgrounds | `PlatformColors.swift` | `windowBackgroundColor` / `controlBackgroundColor` | UIKit system backgrounds |
-| Window tabbing and root view | `CineSchedApp.swift` | `allowsAutomaticWindowTabbing = false`, `ContentView` | `PlatformPlaceholderView` |
-| Placeholder root | `PlatformPlaceholderView.swift` | Not built | Names the platform as in progress |
+| Window tabbing and root view | `CineSchedApp.swift` | `allowsAutomaticWindowTabbing = false`, `ContentView` and the menus, the app delegate | `MinimalProjectEditor` and the system's `DocumentGroupLaunchScene` (#12; `PlatformPlaceholderView` until then) |
+| Readable document types | `PlatformDocumentTypes.swift` | `.cinesched` and legacy `.json` (the viewer role, ADR 0005) | `.cinesched` only (ADR 0006) |
+| Legacy `.json` handoff | `LegacyProjectHandoff.swift` | Moves a `.json`'s contents to an untitled document | Not built (#13 imports instead) |
+| Application delegate | `MacAppDelegate.swift` | Legacy working-copy recovery (#10), panel directory seeding (#12) | Not built |
 
 (Until #6 the two AppKit-drawn exporters and `ContentView+PDFExports.swift` (then `ProjectStore+PDFExports.swift`) were a temporary
 seam, gated out of the non-Mac builds; that row is gone.)

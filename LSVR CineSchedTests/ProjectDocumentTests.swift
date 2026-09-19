@@ -52,9 +52,18 @@ struct ProjectDocumentTests {
         #expect(UTType(filenameExtension: "cinesched") == .cineschedProject)
     }
 
-    @Test func readsNativeAndJSONButWritesOnlyNative() {
-        #expect(ProjectDocument.readableContentTypes == [.cineschedProject, .json])
+    /// The native type is readable and the only writable type everywhere. Legacy `.json`
+    /// is readable only where the viewer role exists, the Mac (`PlatformDocumentTypes`,
+    /// #12): on iOS and visionOS the document browser offers exactly the readable types,
+    /// and a legacy file is imported there instead (#13).
+    @Test func readsNativeEverywhereAndJSONOnlyOnTheMacButWritesOnlyNative() {
+        #expect(ProjectDocument.readableContentTypes.first == .cineschedProject)
         #expect(ProjectDocument.writableContentTypes == [.cineschedProject])
+        #if os(macOS)
+        #expect(ProjectDocument.readableContentTypes == [.cineschedProject, .json])
+        #else
+        #expect(ProjectDocument.readableContentTypes == [.cineschedProject])
+        #endif
     }
 
     // MARK: - New document

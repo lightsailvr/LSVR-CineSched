@@ -2,13 +2,15 @@
 // The one project document every platform reads, writes and edits (#7, ADR 0004). An
 // observable reference type on the 27 `Document` protocol whose snapshot is `ProjectData`
 // itself, so reading, writing, undo and (later) conflict decisions all speak one value
-// type. On the Mac, `DocumentGroup` in CineSchedApp makes one per window (#8) and
-// `ContentView` edits it; the other platforms adopt it with their own scenes (#12).
+// type. `DocumentGroup` in CineSchedApp makes one per window on the Mac (#8), where
+// `ContentView` edits it, and one per open file on iOS and visionOS (#12), where
+// `MinimalProjectEditor` does until the full editors land.
 //
 // Three seams, each testable on its own:
 //   - `ProjectDocumentReader` / `ProjectDocumentWriter`: URL in, `ProjectData` out (and
 //     back) through `ProjectCodec`, off the main actor. The only writable type is the
-//     native `.cinesched`; `.json` is readable so legacy files still open.
+//     native `.cinesched`; on the Mac `.json` is readable so legacy files still open
+//     (`PlatformDocumentTypes`, a seam, decides per platform).
 //   - `perform(_:coalescing:undoManager:_:)`: the single edit funnel. Every mutation of the
 //     project goes through it, which is what registers the undo action holding the previous
 //     snapshot; the document infrastructure autosaves only from registered undo actions.
@@ -147,7 +149,9 @@ final class ProjectDocument: Document {
 
     // MARK: - Reading
 
-    nonisolated static var readableContentTypes: [UTType] { [.cineschedProject, .json] }
+    /// The native type everywhere; `.json` too on the Mac, whose viewer role for a legacy
+    /// file (`isLegacySource`, `LegacyProjectHandoff`) the other platforms do not have.
+    nonisolated static var readableContentTypes: [UTType] { PlatformDocumentTypes.readable }
 
     func reader(configuration: ReadConfiguration) -> ProjectDocumentReader {
         ProjectDocumentReader()

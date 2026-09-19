@@ -3,8 +3,9 @@
 CineSched is a SwiftUI app for scheduling film shoots: import a screenplay, break it into
 scenes, drag scenes onto shoot days, track cast availability, and export industry-standard PDFs
 (shooting schedule, stripboard, call sheets, breakdown sheets, Days Out of Days). The Mac app is
-the product today; one target also builds iOS, iPadOS and visionOS, which currently launch to a
-placeholder while the port (#1) is in progress.
+the product today; one target also builds iOS, iPadOS and visionOS, which open, create and
+autosave projects from the CineSched folder in iCloud Drive through a minimal editor (#12)
+while the port (#1) is in progress.
 
 This file is the glossary and system map. Use these terms exactly in issues, code, and tests.
 Architecture decisions live in `docs/adr/`. Hard-won surprises live in `learnings.md`.
@@ -67,7 +68,10 @@ Film-production terms first, then app-specific ones.
 | **Sync state** | What the indicator beside the project title says about this copy of an iCloud Drive project (#14): up to date, uploading, downloading, waiting for network, or conflict resolved (`SyncState`). Derived by `SyncState.derive` from the document URL's ubiquitous resource values (`UbiquitousResourceSnapshot`), the network and the conflict policy's flag; a file outside iCloud has none, and the indicator draws nothing. Conflict resolved is shown until the next edit. |
 | **Conflict notice** | What the user sees after iCloud reported the same project edited on two devices (#15): the newest version was kept, and the notice names the device and time of the one that lost, with a **Restore other version** action. The decision is `ConflictPolicy.decide` over `ConflictVersion` values: newest wins (the current one on a tie), the rest are resolved, the loser is retained for the session; a single version yields no notice. Restore applies the retained snapshot through `perform`, so it is undoable. Lives in the sync indicator area; dismisses when acted on or after the next edit. |
 | **Native file type** | `com.lsvr.cinesched.project`, extension `.cinesched`, conforming to JSON (ADR 0005). Same bytes as the `.json` the app has always written; declared in `Config/Info.plist` as the exported type and the only document type. |
-| **Viewer role** | How a legacy `.json` opens on the Mac: it is a readable type, so File ▸ Open lists it, but the document infrastructure would autosave it in place, so `LegacyProjectHandoff` moves its contents into an untitled document and closes the `.json` window. The first Save asks for a `.cinesched` destination; the `.json` is never modified (the writer refuses it). |
+| **Viewer role** | How a legacy `.json` opens on the Mac: it is a readable type there (`PlatformDocumentTypes`), so File ▸ Open lists it, but the document infrastructure would autosave it in place, so `LegacyProjectHandoff` moves its contents into an untitled document and closes the `.json` window. The first Save asks for a `.cinesched` destination; the `.json` is never modified (the writer refuses it). iOS and visionOS have no viewer role: `.json` is not readable there, the browser shows only `.cinesched`, and a legacy file is imported into a new project instead (#13). |
+| **CineSched folder** | The iCloud Documents container `iCloud.com.lsvr.LSVR-CineSched`, public and named "CineSched", so iCloud Drive shows it as a folder on every device of the account (ADR 0006). Owned by the iOS, iPadOS and visionOS builds through their entitlement (`Config/CineSched-iOS.entitlements`); their launch screen and document browser start in it. The Mac has no iCloud entitlement, so it reaches the folder like any other (user-selected files); `CineSchedFolder` derives its on-disk path (`~/Library/Mobile Documents/iCloud~com~lsvr~LSVR-CineSched/Documents`) and `MacAppDelegate` points the Open and Save panels there once, the first launch on which it exists. It exists only after a device has saved a project in it. |
+| **Launch screen** | The system's `DocumentGroupLaunchScene` on iOS and visionOS: the title, New Project (and, from #13, the import actions), the recents grid and the document browser. The Mac has no equivalent; it opens windows and, with iCloud Drive on, the Open panel. |
+| **Minimal editor** | `MinimalProjectEditor`, what a project document shows on iOS, iPadOS and visionOS until milestones 3 and 4: the title as a field and the shoot days with their scene counts. Every write goes through `perform`; it exists to prove create, autosave, reopen and sync there. |
 | **Project commands** | `ProjectCommands`: the closure slots (and View-menu bindings) a `ContentView` publishes as a focused scene value so the app-wide menus act on the frontmost window. |
 | **Window preference** | `@WindowPreference`: view state that belongs to one window (Calendar vs Stripboard, cast row, times vs pages, all days, grid vs list), seeded from the last-used value and written back for the next window. Distinct from an app preference (Dark Mode, Theme, Stripboard fields), which applies everywhere at once. |
 | **Pure core** | The platform-free part of the code: models, parsers and importers, scanners, formatting, row logic, palette settings. Compiles on every platform with no `#if os`. |
@@ -78,8 +82,12 @@ Film-production terms first, then app-specific ones.
 Everything lives flat in `LSVR CineSched/`. One responsibility per file; no third-party dependencies.
 
 ```
-CineSchedApp.swift        @main; on the Mac a DocumentGroup (one window per ProjectDocument) plus the menus,
-                          which reach the key window through @FocusedValue(\.projectCommands).
+CineSchedApp.swift        @main; a DocumentGroup over ProjectDocument on every platform. On the Mac one window per
+                          document plus the menus, which reach the key window through @FocusedValue(\.projectCommands);
+                          on iOS and visionOS MinimalProjectEditor and the system's launch screen (#12).
+MinimalProjectEditor.swift  The iOS/visionOS editor until M3/M4 (title field, shoot days with scene counts) and the
+                          launch screen's background. Platform-free.
+CineSchedFolder.swift     The iCloud container identifier, folder name and the Mac's derivation of its on-disk path (pure).
 ProjectCommands.swift     The closure slots a ContentView publishes for those menus (focused scene value).
 ContentView.swift         The Mac editor for one document: sidebar, toolbar, calendar and stripboard. Reads
                           `document.project`, writes only through `edit` / bindings built on `perform`.
@@ -106,7 +114,7 @@ Localization.swift, ThemeManager.swift                                Cross-cutt
 SceneColorSettings.swift                                              The color slots, the project palette, the legacy device-overrides reader and the palette environment key.
 HoverTooltip.swift, LocationAutocompleteField.swift                            UI utilities.
 FilePanels, SelectAllTextField, WindowAccessor, ModifierKeys, PlatformControlStyles,
-PlatformColors, PlatformPlaceholderView, LegacyProjectHandoff, MacAppDelegate  Platform seams (ADR 0003).
+PlatformColors, PlatformDocumentTypes, LegacyProjectHandoff, MacAppDelegate  Platform seams (ADR 0003).
 LegacyWorkingCopyRecovery.swift                                       The first-launch decision over the pre-document builds' UserDefaults
                                                                        working copy and file bookmark (#10); MacAppDelegate acts on it.
 SyncState.swift                                                       The sync state beside the title (#14): the five states and the pure
@@ -119,16 +127,20 @@ ConflictPolicy.swift                                                  The confli
 ### Data flow
 
 1. `DocumentGroup` (CineSchedApp) makes a `ProjectDocument` per window and reads the file into it
-   through `ProjectDocumentReader`; `ContentView(document:)` is the window's content.
+   through `ProjectDocumentReader`; `ContentView(document:)` is the window's content on the Mac,
+   `MinimalProjectEditor(document:)` on iOS and visionOS, where the file lives in the CineSched
+   folder (or wherever the document browser opened it in place) and the launch screen is the
+   system's.
 2. `ContentView` reads `document.project` and hands the calendar and Stripboard `Binding`s whose
    setters call `edit`, i.e. `document.perform(…, undoManager: environment's)`. The child views'
    callbacks are `onBeforeSceneChange` (open an `EditGesture` so the action's several binding
    writes are one undo step) and `onSceneChanged` (close it); the window's `UndoManager` also groups
    by run-loop event, so a single-event action undoes as one step either way.
 3. `perform` registers the undo action with the window's `UndoManager`; that is what marks the
-   document edited and what the system autosaves from. A mutation that bypasses `perform` never
-   saves and cannot be undone. Save, Save As (for a viewer-role `.json`), Duplicate, Rename,
-   Move To, Revert To and Open Recent are the system's.
+   document edited and what the system autosaves from (on iOS about a minute after the edit, on
+   the Mac within seconds). A mutation that bypasses `perform` never saves and cannot be undone.
+   Save, Save As (for a viewer-role `.json`), Duplicate, Rename, Move To, Revert To and Open
+   Recent are the system's.
 4. Derived state (the sorted Boneyard, conflict sets, duplicate scene numbers, schedule-lock
    drift) is `DerivedScheduleState`, a pure function of the project that `ContentView` reads
    through a cache keyed on `document.changeCount` and the Boneyard sort, so it is computed at

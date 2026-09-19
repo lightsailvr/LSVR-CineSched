@@ -1,11 +1,15 @@
 // MacAppDelegate.swift
-// Platform seam: the Mac's application delegate. It exists for one job today, the first
-// launch after the document model (#10, story 15 of #1): recover the working copy the
-// previous builds autosaved to UserDefaults, which the document infrastructure never
-// reads. The decision of what to open is `LegacyWorkingCopyRecovery`'s (pure, tested);
-// this file reads the two legacy defaults, resolves the file bookmark under its security
-// scope, opens what the decision says through the document controller `DocumentGroup`
-// runs on, and removes the keys once that open has succeeded.
+// Platform seam: the Mac's application delegate. It has two launch-time jobs.
+//
+// The first is the first launch after the document model (#10, story 15 of #1): recover
+// the working copy the previous builds autosaved to UserDefaults, which the document
+// infrastructure never reads. The decision of what to open is `LegacyWorkingCopyRecovery`'s
+// (pure, tested); this file reads the two legacy defaults, resolves the file bookmark
+// under its security scope, opens what the decision says through the document controller
+// `DocumentGroup` runs on, and removes the keys once that open has succeeded.
+//
+// The second is pointing the system's Open and Save panels at the CineSched folder in
+// iCloud Drive (#12, ADR 0006) once it exists on this Mac; see `seedPanelsWithCineSchedFolder`.
 //
 // Why a delegate and not a view: with iCloud Drive on, a document app launched with
 // nothing to open shows the Open panel rather than an untitled window (learnings,
@@ -17,8 +21,9 @@
 // own delegate does not forward `applicationShouldOpenUntitledFile`, so that is not a
 // hook here (learnings, 2026-09-17 #10).
 //
-// Mac-only because the working copy only ever existed on the Mac; iOS and visionOS have
-// nothing to recover.
+// Mac-only because the working copy only ever existed on the Mac, and because the panels
+// are; iOS and visionOS have nothing to recover and open the CineSched folder through
+// their iCloud entitlement.
 
 #if os(macOS)
 import AppKit
@@ -26,7 +31,7 @@ import os
 
 final class MacAppDelegate: NSObject, NSApplicationDelegate {
 
-    private static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.lsvr.LSVR-CineSched", category: "LegacyWorkingCopy")
+    private static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.lsvr.LSVR-CineSched", category: "Launch")
 
     // MARK: - Untitled document seed
 
@@ -55,7 +60,40 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
     private var accessedBookmarkURL: URL?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        seedPanelsWithCineSchedFolder()
         recoverLegacyWorkingCopy()
+    }
+
+    // MARK: - CineSched folder
+
+    /// The defaults key `NSSavePanel` and `NSOpenPanel` keep their last directory in; an
+    /// absolute path steers the next panel there, and each confirmed panel rewrites it.
+    private static let panelDirectoryKey = "NSNavLastRootDirectory"
+    /// Set once the nudge below has happened, so it happens exactly once per Mac.
+    private static let folderSeededKey   = "CineSchedFolderPanelSeeded"
+
+    /// Points the system's Open and Save panels at the CineSched folder in iCloud Drive
+    /// the first time it exists on this Mac (ADR 0006). The Mac has no iCloud entitlement,
+    /// so `FileManager` cannot name the container and no code of ours runs inside the
+    /// system's panels (`DocumentGroup` owns them and `directoryURL` is out of reach);
+    /// what works under the sandbox is the panels' own memory: they start in
+    /// `NSNavLastRootDirectory`, honour a path outside the container (the panel runs out
+    /// of process), and the app may `stat` the folder even though it may not read it.
+    /// One nudge, not a pin: a Mac that has saved projects for years already has a
+    /// remembered directory, so the nudge is keyed on its own flag rather than on the key
+    /// being unset, and after it the panels remember wherever the user last saved, as in
+    /// every Mac app. Runs before AppKit's launch-time "open untitled" step, which is
+    /// what shows the Open panel when iCloud Drive is on, so that panel is steered too.
+    private func seedPanelsWithCineSchedFolder() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.folderSeededKey),
+              let home = CineSchedFolder.realHomeDirectory else { return }
+        let folder = CineSchedFolder.macDocumentsURL(home: home)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDirectory), isDirectory.boolValue else { return }
+        defaults.set(folder.path, forKey: Self.panelDirectoryKey)
+        defaults.set(true, forKey: Self.folderSeededKey)
+        Self.log.notice("Pointed the Open and Save panels at the CineSched folder: \(folder.path, privacy: .public)")
     }
 
     // MARK: - Recovery

@@ -1,7 +1,9 @@
 # CLAUDE.md
 
 CineSched: a SwiftUI app for film production scheduling. The Mac app is the shipping product;
-iOS, iPadOS and visionOS build from the same target and currently launch to a placeholder (#1).
+iOS, iPadOS and visionOS build from the same target and open, create and autosave projects
+from the CineSched folder in iCloud Drive through a deliberately minimal editor (#12, ADR 0006)
+until their real editors land (#1).
 Read `CONTEXT.md` for the glossary and system map before touching the code, and `learnings.md`
 for things that have already cost time.
 
@@ -60,7 +62,8 @@ targets add 5 more of the same kinds.
 Project facts: single scheme `LSVR CineSched`; Swift 5 language mode with
 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` and approachable concurrency on; deployment target
 27.0 on macOS, iOS and visionOS (one target builds all three; only the Mac ships today);
-sandboxed with user-selected file read/write; no SPM packages or other dependencies.
+sandboxed with user-selected file read/write on the Mac, iCloud Documents on the other platforms (ADR 0006);
+no SPM packages or other dependencies.
 
 The Xcode target is a **synchronized folder group**. Any file placed in `LSVR CineSched/` is
 automatically compiled (`.swift`) or bundled as a resource (everything else). No pbxproj edits are
@@ -69,10 +72,20 @@ needed to add a source file, and non-source files should not be put in that fold
 ## Where things are
 
 All Swift sources are flat in `LSVR CineSched/`, one responsibility per file (the partial
-`Config/Info.plist` is the one build input outside it, see Working agreements):
+`Config/Info.plist` and the iOS/visionOS entitlements `Config/CineSched-iOS.entitlements` are
+the build inputs outside it, see Working agreements):
 
-- `CineSchedApp.swift`: `@main`; on the Mac a `DocumentGroup` (one window per `ProjectDocument`)
-  and the menus, which act on the key window through `@FocusedValue(\.projectCommands)`.
+- `CineSchedApp.swift`: `@main`; a `DocumentGroup` over `ProjectDocument` on every platform. On
+  the Mac one window per document plus the menus, which act on the key window through
+  `@FocusedValue(\.projectCommands)`; on iOS and visionOS `MinimalProjectEditor` as the editor
+  and the system's `DocumentGroupLaunchScene` (New Project, recents, the document browser).
+- `MinimalProjectEditor.swift`: the iOS/visionOS editor until milestones 3 and 4 (title field,
+  shoot days with scene counts, every write through `perform`), plus the launch screen's
+  background. Platform-free SwiftUI; the Mac compiles it and never shows it.
+- `CineSchedFolder.swift`: the iCloud container identifier, the folder's display name and the
+  Mac's derivation of where iCloud Drive keeps it (pure, `CineSchedFolderTests`). The Mac has no
+  iCloud entitlement (ADR 0006); `MacAppDelegate` seeds the Open/Save panels' last directory
+  with that path once the folder exists.
 - `ProjectCommands.swift`: the closure slots (and View-menu bindings) a `ContentView` publishes
   for those menus. `WindowPreference.swift`: `@WindowPreference`, per-window view state (Calendar
   vs Stripboard, cast row, times vs pages, all days, grid vs list) seeded from and written back to
@@ -93,6 +106,8 @@ All Swift sources are flat in `LSVR CineSched/`, one responsibility per file (th
   them. A legacy `.json` is never edited in place: `LegacyProjectHandoff` (a Mac seam) moves its
   contents to an untitled document and the writer refuses `.json` destinations, because the
   infrastructure autosaves an opened file within seconds and ignores the readable/writable split.
+  `.json` is readable only on the Mac (`PlatformDocumentTypes`, a seam): on iOS and visionOS the
+  document browser offers exactly the readable types, and a legacy file is imported instead (#13).
 - `SceneColorSettings.swift`: `SceneColorSlot`, `ScenePalette` (the project's strip colors, an
   optional field of the file), `SceneColorSettings.deviceOverrides` (the pre-#11 per-device keys,
   read only for adoption) and the `scenePalette` environment key.
@@ -127,9 +142,9 @@ All Swift sources are flat in `LSVR CineSched/`, one responsibility per file (th
   `DaysOutOfDaysExporter`) draw on it and build everywhere (its header comment is the recipe
   for writing one). `Fountain*`, `FinalDraftParser`, `HighlandArchiveReader`: importers.
 - Platform seams (ADR 0003): `FilePanels`, `SelectAllTextField`, `WindowAccessor`, `ModifierKeys`,
-  `PlatformControlStyles`, `PlatformColors`, `PlatformPlaceholderView`, `LegacyProjectHandoff`,
-  `MacAppDelegate`, plus the root/tabbing choice and the delegate adaptor in `CineSchedApp`.
-  These are the only files allowed to contain `#if os(...)`.
+  `PlatformControlStyles`, `PlatformColors`, `PlatformDocumentTypes`, `LegacyProjectHandoff`,
+  `MacAppDelegate`, plus the editor/launch-scene choice, the tabbing choice and the delegate
+  adaptor in `CineSchedApp`. These are the only files allowed to contain `#if os(...)`.
 
 ## Conventions
 
@@ -155,9 +170,11 @@ All Swift sources are flat in `LSVR CineSched/`, one responsibility per file (th
   undo action the document infrastructure autosaves from. Pass one `EditGesture` token for every
   edit of a drag or typing burst so it undoes as one step. A `perform` whose edit changes nothing
   registers nothing, so an editor's Save may write its whole value back unconditionally.
-- **Platform ownership of the document**: `DocumentGroup` is macOS-only for now (CineSchedApp is a
-  seam file); the other platforms get their own document scenes in #12. `ContentView` compiles on
-  every platform and must stay free of `#if os`.
+- **Platform ownership of the document**: one `DocumentGroup` per platform in `CineSchedApp` (a
+  seam file), both over `ProjectDocument` made the same way (`.newProject()`, the configuration,
+  `SceneColorSettings.deviceOverrides()`). `ContentView` and `MinimalProjectEditor` compile on
+  every platform and must stay free of `#if os`. A per-platform difference in what the document
+  reads goes in `PlatformDocumentTypes`, not in `ProjectDocument`.
 - **Colors**: resolve scene colors only via `Scene.stripColor(in:)`, with the project's palette
   (`ProjectData.resolvedPalette`): views read `@Environment(\.scenePalette)`, which `ContentView`
   sets once at its root; an exporter that draws strips takes `palette:` with the project. Nothing
@@ -196,6 +213,7 @@ The test targets are Xcode template stubs. `LSVR CineSchedTests` uses Swift Test
 `LegacyWorkingCopyRecovery.decide` (`LegacyWorkingCopyRecoveryTests`),
 `SyncState.derive` and the resource snapshot (`SyncStateTests`, one per state and per precedence
 choice), `ConflictPolicy.decide` (`ConflictPolicyTests`, one per row of the decision),
+`CineSchedFolder` (`CineSchedFolderTests`),
 `DerivedScheduleState` and its cache (`DerivedScheduleStateTests`),
 `ScenePalette`, `Scene.stripColor(in:)` and the device-overrides reader (`ScenePaletteTests`; adoption
 and per-slot undo are in `ProjectDocumentTests`, the file shape in `ProjectCodecTests`),
@@ -210,7 +228,8 @@ diff, see `PDFTestSupport`'s header). Prefer adding tests there over UI tests. T
 lifecycle itself (Open panel types, Finder association, autosave, the viewer role of `.json`)
 has no unit seam; check it by running the app (learnings.md, 2026-09-16 #8 has a recipe that
 works without screen access; 2026-09-17 #10 has one for launch behaviour with seeded defaults
-under a throwaway bundle identifier). Any change to
+under a throwaway bundle identifier; 2026-09-18 #12 has one for the iOS simulator: `simctl openurl` a
+`.cinesched` placed in the app's data container, then a throwaway XCUITest that attaches and types). Any change to
 `PDFCanvas` gets the pixel comparison: dump every fixture before and after, rasterize and
 diff (learnings.md, 2026-09-16 #6 has the recipe); expectations that depend on the Mac's SF
 metrics or wrapping are guarded by `PDFFixture.hasMacSystemFace`.
@@ -222,8 +241,13 @@ metrics or wrapping are guarded by `PDFFixture.hasMacSystemFace`.
 - Keep the `.app.zip` bundles, `1024.png`, and other non-source files out of `LSVR CineSched/`; they get copied into the app.
 - The `Info.plist` is generated from build settings (`GENERATE_INFOPLIST_FILE = YES`) and merged with the partial
   `Config/Info.plist`, which holds only keys that cannot be `INFOPLIST_KEY_` settings (today the exported
-  `.cinesched` type, ADR 0005). Never put a plist in the source folder: it would be bundled as a resource and
-  collide with the generated plist in the flat iOS bundle. Version and bundle identifier live in build settings.
+  `.cinesched` type, ADR 0005, and the `NSUbiquitousContainers` dictionary, ADR 0006). Never put a plist in the
+  source folder: it would be bundled as a resource and collide with the generated plist in the flat iOS bundle.
+  Version and bundle identifier live in build settings; an iOS-only key is a per-SDK `INFOPLIST_KEY_…[sdk=…]`
+  setting. Entitlements are per platform: `LSVR CineSched/CineSched.entitlements` for the Mac (sandbox and
+  user-selected files, no iCloud) and `Config/CineSched-iOS.entitlements` for the four non-Mac SDKs (iCloud
+  Documents in `iCloud.com.lsvr.LSVR-CineSched`). Any edit to the container keys needs a `CURRENT_PROJECT_VERSION`
+  bump before iCloud rereads them.
 
 ## Agent skills
 

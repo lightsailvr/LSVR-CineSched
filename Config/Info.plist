@@ -5,16 +5,24 @@
   The app target generates its Info.plist from build settings (GENERATE_INFOPLIST_FILE);
   Xcode merges this partial plist into it (INFOPLIST_FILE). Only keys that cannot be
   expressed as an INFOPLIST_KEY_ build setting belong here, which today is the exported
-  type and the document type built on it. Version, bundle identifier and the iOS
-  scene/launch keys stay in build settings. This file lives outside "LSVR CineSched/" on
-  purpose: that folder is a synchronized group and anything in it is copied into the
-  bundle as a resource, which collides with the generated plist in the flat iOS bundle
-  (see CLAUDE.md).
+  type, the document type built on it and the iCloud container dictionary. Version, bundle
+  identifier, the iOS scene/launch keys, and the iOS-only document browser, open-in-place
+  and display name keys stay in build settings (the last three per SDK, so the Mac's plist
+  never carries them). This file lives outside "LSVR CineSched/" on purpose: that folder
+  is a synchronized group and anything in it is copied into the bundle as a resource,
+  which collides with the generated plist in the flat iOS bundle (see CLAUDE.md).
 
   Only the native type is a document type (ADR 0005): it is what Finder and the Files app
   associate with the app. Legacy .json opens on the Mac through the project document's
   readable types (a viewer role: the first Save asks for a .cinesched destination); it is
   deliberately not declared here, so that no platform claims every JSON file.
+
+  NSUbiquitousContainers names the iCloud Documents container the iOS, iPadOS and
+  visionOS builds own (ADR 0006): public, so it shows in iCloud Drive as the "CineSched"
+  folder on every device. The Mac's plist carries it too because the file is shared; a
+  plist key grants nothing on its own, and the Mac has no iCloud entitlement, so there it
+  is inert. iCloud reads these keys only when the bundle version changes: bump
+  CURRENT_PROJECT_VERSION with any edit to them.
 -->
 <dict>
 	<key>CFBundleDocumentTypes</key>
@@ -34,6 +42,18 @@
 			<integer>1</integer>
 		</dict>
 	</array>
+	<key>NSUbiquitousContainers</key>
+	<dict>
+		<key>iCloud.com.lsvr.LSVR-CineSched</key>
+		<dict>
+			<key>NSUbiquitousContainerIsDocumentScopePublic</key>
+			<true/>
+			<key>NSUbiquitousContainerName</key>
+			<string>CineSched</string>
+			<key>NSUbiquitousContainerSupportedFolderLevels</key>
+			<string>Any</string>
+		</dict>
+	</dict>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>
