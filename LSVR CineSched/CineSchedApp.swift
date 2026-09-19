@@ -10,12 +10,24 @@
 //  place, and the Edit menu's Undo and Redo. The menus below add only what is CineSched's
 //  own, and each item reaches the frontmost window through `ProjectCommands` (a focused
 //  scene value). On iOS, iPadOS and visionOS (#12, ADR 0006) the same `DocumentGroup`
-//  opens one file at a time from the system's launch screen (title, New Project, recents,
-//  the document browser), which starts in the CineSched folder in iCloud Drive.
+//  opens one file at a time from the system's launch screen (title, New Project, Import
+//  Script…, Import Project… (#13), recents, the document browser), which starts in the
+//  CineSched folder in iCloud Drive.
 
 import SwiftUI
 #if os(macOS)
 import AppKit
+#endif
+
+// Platform seam: the launch screen's creation sources (#13); `DocumentCreationSource` has no
+// initializer on the Mac.
+#if !os(macOS)
+extension DocumentCreationSource {
+    /// Import Script…: a new project whose Boneyard holds a screenplay's scenes.
+    static let importScript  = DocumentCreationSource(id: "importScript")
+    /// Import Project…: a new `.cinesched` holding a legacy `.json`'s project.
+    static let importProject = DocumentCreationSource(id: "importProject")
+}
 #endif
 
 @main
@@ -33,6 +45,11 @@ struct CineSchedApp: App {
     // the first launch of the document model (#10). Mac-only because the copy was.
     #if os(macOS)
     @NSApplicationDelegateAdaptor(MacAppDelegate.self) private var appDelegate
+    #else
+    // Platform seam: the launch screen's Import Script… and Import Project… (#13). One
+    // flow serves both buttons; `makeDocument` awaits it and the presentation modifier
+    // on the launch scene shows its picker and summary.
+    @State private var launchImport = LaunchImportFlow()
     #endif
 
     init() {
@@ -78,21 +95,23 @@ struct CineSchedApp: App {
         DocumentGroup(editor: { document in
             MinimalProjectEditor(document: document)
                 .accentColor(currentTheme.primaryAccent(isDarkMode: isDarkMode))
-        }, makeDocument: { configuration, _ in
-            // New Project and an opened file alike: an opened file's contents arrive
-            // through the reader and `apply` straight after. The device's legacy color
+        }, makeDocument: { configuration, context in
+            // New Project and an opened file alike start from the template; an opened
+            // file's contents arrive through the reader and `apply` straight after. The
+            // two imports (#13) start from what their flow returns: the button's
+            // creation source lands here, this closure is async, and a throw (the user
+            // cancelled) leaves the launch screen as it was. The device's legacy color
             // overrides ride along for a project without a palette to adopt (#11); on
             // these platforms no device ever had any, so a file from before #11 keeps the
             // standard code until a Mac adopts into it.
-            //
-            // #13 (Import Script…, Import Project…): a launch-screen `NewDocumentButton`
-            // made with `source: DocumentCreationSource(id:)` lands here with that source
-            // in the second parameter (`context.creationSource`); this closure is async,
-            // so it may present the picker, parse the file and hand the resulting
-            // `ProjectData` to `ProjectDocument(_:configuration:deviceOverrides:)` in
-            // place of `.newProject()`.
-            ProjectDocument(
-                .newProject(),
+            let project: ProjectData
+            switch context.creationSource {
+            case .importScript:  project = try await launchImport.prepareProject(for: .script)
+            case .importProject: project = try await launchImport.prepareProject(for: .project)
+            default:             project = .newProject()
+            }
+            return ProjectDocument(
+                project,
                 configuration: configuration,
                 deviceOverrides: SceneColorSettings.deviceOverrides()
             )
@@ -100,12 +119,16 @@ struct CineSchedApp: App {
 
         // The system's launch screen: title, the actions below, the recents grid and a
         // Browse button into the document browser, which starts in the CineSched folder
-        // (`NSUbiquitousContainers` in Config/Info.plist, ADR 0006).
+        // (`NSUbiquitousContainers` in Config/Info.plist, ADR 0006). The two imports
+        // (#13) are typed creation sources; the screen shows two actions and folds the
+        // rest into a More… menu. Their picker, summary and failure message hang off the
+        // New Project button, which stays on screen while `makeDocument` awaits the flow
+        // (the modifier needs a view in the launch scene; any of the three would do).
         DocumentGroupLaunchScene(L("CineSched")) {
             NewDocumentButton(L("New Project"))
-            // #13 adds the two import actions here:
-            //   NewDocumentButton(L("Import Script…"),  source: DocumentCreationSource(id: "importScript"))
-            //   NewDocumentButton(L("Import Project…"), source: DocumentCreationSource(id: "importProject"))
+                .launchImportPresentation(launchImport)
+            NewDocumentButton(L("Import Script…"),  source: .importScript)
+            NewDocumentButton(L("Import Project…"), source: .importProject)
         } background: {
             ProjectLaunchBackground()
         }

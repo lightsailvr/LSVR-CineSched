@@ -2,8 +2,9 @@
 // File ▸ Import Script…: choose a screenplay (Final Draft, Fountain, Highland) and add its
 // scenes to the frontmost project's Boneyard through the edit funnel. Project open and
 // save are the document infrastructure's (#8); this file only ever adds scenes. The
-// file chooser is the `FilePanels` seam; the PDF export actions live in
-// ContentView+PDFExports.swift.
+// file chooser is the `FilePanels` seam; the formats and the Final Draft scene mapping
+// are `ScriptImport`, shared with the launch screen's import on iOS and visionOS (#13);
+// the PDF export actions live in ContentView+PDFExports.swift.
 
 import SwiftUI
 import Foundation
@@ -17,20 +18,13 @@ extension ContentView {
     /// dispatches by extension to the Final Draft (.fdx/.xml) or Fountain
     /// (.fountain/.md/.spmd) importer once a file is chosen.
     func showScriptImportPanel() {
-        var allowedTypes: [UTType] = []
-        if let fdxType = UTType(filenameExtension: "fdx") { allowedTypes.append(fdxType) }
-        allowedTypes.append(.xml)
-        for ext in FountainImporter.supportedExtensions {
-            if let type = UTType(filenameExtension: ext) { allowedTypes.append(type) }
-        }
         FilePanels.chooseFile(
             title: "Import Script",
             prompt: "Import",
-            allowedTypes: allowedTypes,
+            allowedTypes: ScriptImport.contentTypes,
             directory: defaultPanelDirectory
         ) { url in
-            let ext = url.pathExtension.lowercased()
-            if FountainImporter.supportedExtensions.contains(ext) {
+            if ScriptImport.isFountainFamily(url) {
                 beginFountainImport(from: url)
             } else {
                 importFDXScript(from: url)
@@ -53,25 +47,7 @@ extension ContentView {
                 showingImportAlert = true
                 return
             }
-            let imported: [Scene] = parsed.map { ps in
-                let type: DayNightType
-                switch ps.timeOfDay {
-                case .night:         type = .night
-                case .dawn:          type = .dawn
-                case .dusk:          type = .dusk
-                case .afternoon:     type = .afternoon
-                case .day, .unknown: type = .day
-                }
-                let duration = max(1, ps.duration)
-                return Scene(
-                    title:         ps.location,
-                    sceneNumber:   ps.sceneNumber,
-                    duration:      duration,
-                    estimatedTime: TimeParser.estimatedMinutes(forEighths: duration),
-                    dayNightType:  type,
-                    cast:          ps.cast
-                )
-            }
+            let imported = ScriptImport.scenes(from: parsed)
             edit(L("Import Script")) { $0.allScenes.append(contentsOf: imported) }
             let count = imported.count
             importMessage = "Imported \(count) scene\(count == 1 ? "" : "s") from '\(url.lastPathComponent)' with automatically calculated page eighths and character lists."

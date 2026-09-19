@@ -78,7 +78,23 @@ the build inputs outside it, see Working agreements):
 - `CineSchedApp.swift`: `@main`; a `DocumentGroup` over `ProjectDocument` on every platform. On
   the Mac one window per document plus the menus, which act on the key window through
   `@FocusedValue(\.projectCommands)`; on iOS and visionOS `MinimalProjectEditor` as the editor
-  and the system's `DocumentGroupLaunchScene` (New Project, recents, the document browser).
+  and the system's `DocumentGroupLaunchScene` (New Project, Import Script…, Import Project…,
+  recents, the document browser). The two imports (#13) are `NewDocumentButton`s with a
+  `DocumentCreationSource`; `makeDocument` switches on `context.creationSource` and awaits
+  `LaunchImportFlow` for the project. The button's `prepareDocumentURL` closure is never
+  invoked by the 27.0 launch scene; do not move the flow there.
+- `LaunchImportFlow.swift`: the launch screen's imports (#13). `LaunchImportKind` (script or
+  legacy project, with the picker's types), `LaunchImport` (the pure steps: parse a script,
+  build the new project from the result, read a legacy `.json` through `ProjectCodec`;
+  `LaunchImportTests`), `LaunchImportFlow` (the coordinator `makeDocument` awaits: a
+  continuation plus the stage the presentation shows, cancelled by throwing
+  `CancellationError`, which leaves the launch screen untouched) and the
+  `launchImportPresentation` modifier (the `fileImporter`, the summary sheet and the failure
+  alert, hung off the New Project button). Platform-free; the Mac compiles it and never runs it.
+- `ScriptImport.swift`: what both script imports share: the screenplay content types, the
+  dispatch by extension to `FountainImporter` or `FinalDraftParser`, the Final Draft scene
+  mapping, and `parse(at:)`, which returns any format as a `FountainImportResult` for the
+  summary sheet. The Mac's menu uses the types and the mapping; the launch screen uses all of it.
 - `MinimalProjectEditor.swift`: the iOS/visionOS editor until milestones 3 and 4 (title field,
   shoot days with scene counts, every write through `perform`), plus the launch screen's
   background. Platform-free SwiftUI; the Mac compiles it and never shows it.
@@ -93,7 +109,10 @@ the build inputs outside it, see Working agreements):
 - `ContentView.swift`: the Mac editor for one document (`ContentView(document:)`). It reads
   `document.project` and writes only through `edit(_:_:)` or the bindings built on it. There is
   no view model; UI-only state (range-picker dates, selection, sheets) stays `@State`.
-- `ContentView+ScriptImport.swift`: File ▸ Import Script… into the Boneyard.
+- `ContentView+ScriptImport.swift`: File ▸ Import Script… into the Boneyard (the formats and
+  the Final Draft mapping come from `ScriptImport`). `ImportSummaryView.swift`: the import
+  summary sheet, the Mac's Done mode after a Fountain import and, given `onConfirm`, the
+  launch screen's Cancel / Create Project mode before one.
   `ContentView+PDFExports.swift`: every PDF export call site and its save panel.
 - `ProjectCodec.swift`: the one encoder/decoder for project files (pretty JSON, ISO dates, legacy
   shapes). Every save and load path uses it; nothing else constructs a `JSONEncoder` for a project.
@@ -241,6 +260,9 @@ across a resolution) in `ConflictNoticeTests`; the document's unsaved-edits reco
 coordinated accesses, the metadata query and the path monitor have no unit seam: they need a
 signed-in device (the manual two-device test in issue #15),
 `CineSchedFolder` (`CineSchedFolderTests`),
+`ScriptImport.parse`, `LaunchImport` and `LaunchImportFlow` driven through its callbacks
+(`LaunchImportTests`: one parse per format, the script → new project step, the legacy `.json`
+read against `ProjectCodec` with the source bytes pinned, and every cancellation path),
 `DerivedScheduleState` and its cache (`DerivedScheduleStateTests`),
 `ScenePalette`, `Scene.stripColor(in:)` and the device-overrides reader (`ScenePaletteTests`; adoption
 and per-slot undo are in `ProjectDocumentTests`, the file shape in `ProjectCodecTests`),
@@ -256,7 +278,9 @@ lifecycle itself (Open panel types, Finder association, autosave, the viewer rol
 has no unit seam; check it by running the app (learnings.md, 2026-09-16 #8 has a recipe that
 works without screen access; 2026-09-17 #10 has one for launch behaviour with seeded defaults
 under a throwaway bundle identifier; 2026-09-18 #12 has one for the iOS simulator: `simctl openurl` a
-`.cinesched` placed in the app's data container, then a throwaway XCUITest that attaches and types). Any change to
+`.cinesched` placed in the app's data container, then a throwaway XCUITest that attaches and types;
+2026-09-19 #13 has one for the launch screen's imports: seed scripts into the container's Documents,
+drive More… ▸ Import Script…, the picker and the summary from a throwaway XCUITest). Any change to
 `PDFCanvas` gets the pixel comparison: dump every fixture before and after, rasterize and
 diff (learnings.md, 2026-09-16 #6 has the recipe); expectations that depend on the Mac's SF
 metrics or wrapping are guarded by `PDFFixture.hasMacSystemFace`.

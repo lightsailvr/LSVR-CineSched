@@ -1,18 +1,27 @@
 // ImportSummaryView.swift
-// Post-import sheet shown after a Fountain script import completes: scene
-// count, total pages/eighths, cast detected, and any parse warnings.
+// The script import's summary sheet: scene count, total pages/eighths, cast detected,
+// and any parse warnings. Two moments show it. On the Mac it follows a Fountain import
+// into the current project (Done). On the iOS and visionOS launch screen (#13) it comes
+// first, as the confirmation before the new project is created: given `onConfirm`, the
+// footer is Cancel / Create Project and the copy speaks of what will happen, and the
+// sheet sizes to its presentation instead of the Mac's fixed frame.
 
 import SwiftUI
 
 struct ImportSummaryView: View {
     let result: FountainImportResult
     let onDismiss: () -> Void
+    /// Set for the confirmation before an import (the launch screen); nil for the Mac's
+    /// summary after one.
+    var onConfirm: (() -> Void)? = nil
+
+    private var isConfirmation: Bool { onConfirm != nil }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Script Imported").font(.title2).fontWeight(.bold)
+                    Text(isConfirmation ? L("Import Script") : "Script Imported").font(.title2).fontWeight(.bold)
                     Text(result.fileName)
                         .font(.subheadline).foregroundColor(.secondary)
                         .lineLimit(1).truncationMode(.middle)
@@ -36,7 +45,9 @@ struct ImportSummaryView: View {
                         statTile(icon: "person.2", value: "\(result.castList.count)", label: "cast")
                     }
 
-                    Text("All \(result.scenes.count) scene\(result.scenes.count == 1 ? "" : "s") landed in the Boneyard, unscheduled. Time estimates are a rough guess from page count — edit before scheduling.")
+                    Text(isConfirmation
+                         ? String(format: L("A new project will hold all %d scene%@ in its Boneyard, unscheduled. Time estimates are a rough guess from page count — edit before scheduling."), result.scenes.count, result.scenes.count == 1 ? "" : "s")
+                         : "All \(result.scenes.count) scene\(result.scenes.count == 1 ? "" : "s") landed in the Boneyard, unscheduled. Time estimates are a rough guess from page count — edit before scheduling.")
                         .font(.caption).foregroundColor(.secondary)
 
                     if !result.castList.isEmpty {
@@ -69,11 +80,19 @@ struct ImportSummaryView: View {
             Divider()
             HStack {
                 Spacer()
-                Button("Done") { onDismiss() }.buttonStyle(.borderedProminent)
+                if let onConfirm {
+                    Button(L("Cancel"), role: .cancel) { onDismiss() }
+                    Button(L("Create Project")) { onConfirm() }.buttonStyle(.borderedProminent)
+                } else {
+                    Button("Done") { onDismiss() }.buttonStyle(.borderedProminent)
+                }
             }
             .padding(16)
         }
-        .frame(width: 460, height: 460)
+        // The Mac's sheet takes the size its content asks for; the launch screen's is
+        // sized by its presentation (`.presentationSizing(.form)`), so it stays flexible
+        // there and fits an iPhone.
+        .frame(width: isConfirmation ? nil : 460, height: isConfirmation ? nil : 460)
     }
 
     private func statTile(icon: String, value: String, label: String) -> some View {

@@ -15,6 +15,9 @@ struct FountainImportResult {
     let castList:    [String]
     let warnings:    [String]
     let fileName:    String
+    /// The title page's `Title:` line, when the script has one; a new project made from
+    /// the script takes it as its name (#13). Final Draft scripts carry none.
+    let title:       String?
 }
 
 // MARK: - FountainImportError
@@ -50,7 +53,7 @@ struct FountainImporter {
         DispatchQueue.global(qos: .userInitiated).async {
             let outcome: Result<FountainImportResult, Error>
             do {
-                outcome = .success(try parseAndMap(url: url))
+                outcome = .success(try parse(from: url))
             } catch {
                 outcome = .failure(error)
             }
@@ -60,7 +63,10 @@ struct FountainImporter {
 
     // MARK: - Parsing + mapping
 
-    private static func parseAndMap(url: URL) throws -> FountainImportResult {
+    /// Reads and parses the file on the calling thread (the launch screen's import runs
+    /// it directly, #13). Throws for a file that is not UTF-8 text, a Highland archive
+    /// without a screenplay, or a script with no scene headings.
+    static func parse(from url: URL) throws -> FountainImportResult {
         let data = try Data(contentsOf: url)
         let text: String
         if url.pathExtension.lowercased() == "highland" {
@@ -158,13 +164,21 @@ struct FountainImporter {
             warnings.append("'\(name)' speaks only once — possible typo?")
         }
 
+        // The title page's key is conventionally "Title"; match it in any case and keep
+        // the first line of a value that continued onto more.
+        let title = parsed.titlePage
+            .first { $0.key.lowercased() == "title" }?
+            .value.components(separatedBy: "\n").first?
+            .trimmingCharacters(in: .whitespaces)
+
         return FountainImportResult(
             scenes:      scenes,
             totalPages:  pagination.totalPages,
             totalEighths: pagination.totalEighths,
             castList:    projectCastOrder.sorted(),
             warnings:    warnings,
-            fileName:    url.lastPathComponent
+            fileName:    url.lastPathComponent,
+            title:       (title?.isEmpty == false) ? title : nil
         )
     }
 }

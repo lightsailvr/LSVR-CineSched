@@ -9,6 +9,58 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-19 — Launch-screen imports: the creation source reaches `makeDocument`, `prepareDocumentURL` never runs, a throwing `makeDocument` is a silent no-op, and a sheet presents from the launch scene's actions (#13)
+
+Adding Import Script… and Import Project… to the iOS/visionOS `DocumentGroupLaunchScene`:
+
+- **`NewDocumentButton(_:contentType:source:prepareDocumentURL:)` is the SDK's documented
+  hook for "present a picker, return a prepared document URL, or throw on cancellation", and
+  the 27.0 launch scene never calls it.** Traced on the iPhone 17 and iPad Pro simulators,
+  with the button folded into the More… menu and as a directly visible action: the closure's
+  first line never logged, while `makeDocument` ran with `context.creationSource` set to the
+  button's source and `configuration.fileURL` = `<container>/tmp/Untitled.cinesched`. So the
+  source is the only thing that arrives, and the flow has to live in `makeDocument`, which is
+  `@MainActor async throws` and may await a continuation for as long as the picker and the
+  summary take. Do not move it back to `prepareDocumentURL` without re-tracing on a newer SDK.
+- **A `makeDocument` that throws leaves the launch screen exactly as it was**: no document,
+  no file in Documents (the system creates in `tmp/` and moves after `makeDocument` returns),
+  no alert. Observed for `CancellationError` on the iPad; the same for a picker cancel, a
+  summary cancel and a dismissed failure alert on both simulators. That is what makes
+  "cancelling leaves nothing behind" free: every cancellation is one throw.
+- **How the system creates from a source**: `makeDocument(source: importScript, url:
+  tmp/Untitled.cinesched)` → the snapshot is written there → the file moves to
+  `Documents/Untitled.cinesched` → a second `makeDocument(source: nil, url: Documents/…)` and
+  the reader/`apply` load it. The project handed to the first document is what lands in the
+  file; the name is always "Untitled" (no API names it), which the user renames in the title
+  bar.
+- **A `fileImporter` and a `.sheet` hung off a `NewDocumentButton` in the launch scene's
+  actions present fine while `makeDocument` is suspended**, on iPhone and iPad, including
+  when the tapped button was a More… menu item: the launch screen stays up until the closure
+  returns. The modifier needs a view to hang on; the New Project button is that view. The
+  launch scene shows two actions and folds the rest into More… on every width, iPad too.
+- **`fileImporter`'s `isPresented` binding is cleared before `onCompletion` arrives**, so a
+  setter that treated "false" as a cancel raced a successful pick. The flow defers the check
+  one run-loop turn (`pickerDismissed`) and lets `onCompletion` / `onCancellation` decide.
+- **`ImportSummaryView`'s Mac frame (`.frame(width: 460, height: 460)`) does not fit an
+  iPhone sheet**; in the confirmation mode the frame is nil and the sheet takes
+  `.presentationSizing(.form)`, which is a form sheet on iPad and full-width on iPhone.
+- **Driving the launch screen from a throwaway XCUITest** (the #12 recipe, extended): the
+  More… menu's items exist twice in the tree (the hidden originals at 20 pt tall and the
+  menu's items at 38 pt), so match by label and take the widest; the picker's Cancel is
+  `app.buttons["Cancel"]` (label, not identifier), the sidebar row is
+  `app.cells["DOC.sidebar.item.On My iPad"]` (on iPhone tap the picker's own Browse tab
+  first, the last "Browse" match) and the app's folder is `app.cells["CineSched, Container"]`;
+  a predicate on `label == 'CineSched'` hits the launch title behind the picker and dismisses
+  it. Every `simctl install` migrates the app's data container to a new UUID (the files
+  survive); re-query `get_app_container` after installing, not before. `simctl launch` on
+  a warm app resumes the previous state, so terminate first to land on the launch screen.
+- **`BreakdownPDFExporterTests/breakdownPrintsOneSheetPerSceneInScriptOrder` fails on the
+  iPhone 17 simulator at the branch tip (`6c329fb`), before this change**: PDFKit's text
+  extraction there joins "1" and the title ("SHEET #\n1 The Long Way HomeSCENE #"). It
+  passes on the Mac; not touched here.
+
+---
+
 ## 2026-09-19 — Wiring the sync state and the conflict notice: the entitlement-free Mac reads ubiquity keys, its metadata query reads nothing, a missing file is "not in iCloud", and the Mac's conflict sheet means two paths (#14, #15)
 
 Building `SyncMonitor`, `SyncStateIndicator` and the `NSFileVersion` pipeline around the
