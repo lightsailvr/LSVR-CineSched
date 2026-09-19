@@ -464,6 +464,37 @@ struct ProjectDocumentTests {
         #expect(!document.hasUnsavedEdits)
     }
 
+    /// What the file is known to hold follows the writer's report, not the snapshot
+    /// request: asking for the snapshot leaves `writtenChangeCount` where it was, the
+    /// document's own writer moves it once its bytes landed, a writer that threw moves
+    /// nothing, and a snapshot from disk is by definition what the file holds.
+    @Test func writtenChangeCountFollowsTheWritersReportAndApply() async throws {
+        try await withTemporaryDirectory { dir in
+            let undoManager = makeUndoManager()
+            let document    = ProjectDocument(project)
+            #expect(document.writtenChangeCount == 0)
+
+            document.perform(undoManager: undoManager) { $0.projectTitle = "Edited" }
+            let edited = document.changeCount
+            let snapshot = try await document.snapshot(contentType: .cineschedProject)
+            #expect(document.writtenChangeCount == 0)
+
+            let writer = ProjectDocumentWriter(didWrite: { document.writeDidComplete() })
+            await #expect(throws: CocoaError.self) {
+                try await writer.write(snapshot: snapshot, to: dir.appendingPathComponent("legacy.json"), previous: nil, progress: subprogress())
+            }
+            #expect(document.writtenChangeCount == 0)
+
+            try await writer.write(snapshot: snapshot, to: dir.appendingPathComponent("Edited.cinesched"), previous: nil, progress: subprogress())
+            #expect(document.writtenChangeCount == edited)
+
+            document.perform(undoManager: undoManager) { $0.projectTitle = "Edited again" }
+            #expect(document.writtenChangeCount == edited)
+            try await document.apply(snapshot: project, previous: nil)
+            #expect(document.writtenChangeCount == document.changeCount)
+        }
+    }
+
     /// A snapshot from disk that lands on unsaved edits keeps them for the fallback
     /// conflict notice, once; a snapshot that lands on a clean document keeps nothing.
     @Test func applyOverUnsavedEditsRecordsThemOnce() async throws {

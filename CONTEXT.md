@@ -169,18 +169,23 @@ PlatformConflictResolution.swift                                      Seam: whet
 6. Exporters are pure functions from model values to `Data` (PDF). The save-panel actions around them
    live in `ContentView+PDFExports.swift`; the panels themselves come from `FilePanels`.
 7. The sync state and the conflict notice (#14, #15) come from a `SyncMonitor` each editor
-   owns. The editor starts it with the document and hands it every `changeCount` and
-   `restoreCount` change and the scene phase; the monitor reads `document.fileURL`'s
-   ubiquitous resource values (on those triggers, on a poll, and when its metadata query or
-   path monitor reports), runs `SyncState.derive`, and `SyncStateIndicator` beside the title
-   reads `monitor.state`. A restore is where a conflict shows: on iOS and visionOS the monitor
+   owns through the `syncMonitored(_:document:)` modifier, which starts it with the document
+   and hands it every `changeCount`, `restoreCount` and `writtenChangeCount` change, the scene
+   phase and the undo manager; the monitor reads `document.fileURL`'s ubiquitous resource
+   values (on those triggers, on a poll, and when its metadata query or path monitor
+   reports), runs `SyncState.derive`, and `SyncStateIndicator` beside the title reads
+   `monitor.state`. A restore is where a conflict shows: on iOS and visionOS the monitor
    reads `NSFileVersion`'s unresolved conflict versions under the document's coordinator, runs
-   `ConflictPolicy.decide`, applies a winning other version through `perform` ("Undo Resolve
-   Conflict"), marks and removes the conflict versions, and raises the notice with the loser
-   retained; on the Mac NSDocument's own conflict sheet does the choosing, and the notice comes
-   only from the fallback, the edits `ProjectDocument.apply` found unsaved and recorded. Restore
-   other version is a `perform` of the retained snapshot ("Undo Restore Other Version"); the
-   next `changeCount` that is not the resolution's own retires the notice.
+   `ConflictPolicy.decide` and acts on `ConflictResolutionPlan`: applies a winning other
+   version through `perform` ("Undo Resolve Conflict"), marks and removes the losing conflict
+   versions at once, keeps the winner's own version unresolved until the document reports
+   the write that carries its contents (`writtenChangeCount`, then resolved and removed),
+   and raises the notice with the loser retained; with no undo manager attached nothing is
+   applied or resolved until one is. On the Mac NSDocument's own conflict sheet does the
+   choosing, and the notice comes only from the fallback, the edits `ProjectDocument.apply`
+   found unsaved and recorded. Restore other version is a `perform` of the retained snapshot
+   ("Undo Restore Other Version"); the next `changeCount` that is not the resolution's own
+   retires the notice.
 
 ### Invariants to preserve
 

@@ -28,13 +28,20 @@
 // unresolved conflict versions, reads each one's contents inside a coordinated read
 // through the document's own coordinator (never an uncoordinated read of a version URL;
 // the read also downloads a version that has no local contents), decides with
-// `ConflictPolicy`, applies a winning other version through `document.perform` (one undo
-// step, and what the infrastructure autosaves from), then under a coordinated
-// metadata-only write marks every conflict version resolved and removes it, as the
-// `NSFileVersion` header prescribes ("set this property to YES … you must then remove any
-// versions of the file that are no longer useful"). Only the conflict versions are
-// removed, never the Mac's own saved versions. The loser's snapshot is retained here for
-// the session; Restore other version applies it through `perform`, so it is undoable.
+// `ConflictPolicy` and acts on the `ConflictResolutionPlan` for the decision: applies a
+// winning other version through `document.perform` (one undo step, and what the
+// infrastructure autosaves from), then under a coordinated metadata-only write marks the
+// losing conflict versions resolved and removes them, as the `NSFileVersion` header
+// prescribes ("set this property to YES … you must then remove any versions of the file
+// that are no longer useful"). The winner's own conflict version is the exception: until
+// the document reports the write that puts the winning contents in the file
+// (`writtenChangeCount`), that version is their only copy on disk, so it stays untouched
+// and unresolved (`PendingConflictRemoval`) and is resolved and removed on the write.
+// With no undo manager to register the application with, nothing is applied, resolved
+// or announced; the versions stay listed until `attach(undoManager:)` brings one. Only
+// the conflict versions are ever removed, never the Mac's own saved versions. The
+// loser's snapshot is retained here for the session; Restore other version applies it
+// through `perform`, so it is undoable.
 //
 // The fallback. When the versions are not observable (the Mac, where NSDocument's own
 // sheet resolves them; or a platform that resolved before the app looked), a snapshot
@@ -43,10 +50,16 @@
 // record on the restore that produced it: the notice then cannot name the other device,
 // but the replaced edits are retained and restorable like a policy loser. Which path
 // fires where is in CLAUDE.md and learnings (2026-09-19).
+//
+// The editor wires all of it with one modifier, `syncMonitored(_:document:)` at the end
+// of this file: start and stop with the view, the document's counts, the scene phase and
+// the undo manager.
 
 import Foundation
 import Network
 import Observation
+import SwiftUI
+import os
 
 @MainActor
 @Observable
@@ -84,6 +97,9 @@ final class SyncMonitor {
     // MARK: - Private state
 
     private var document:          ProjectDocument?
+    /// The document last started, kept through `stop()` so a restart can tell the same
+    /// document from another.
+    private var startedDocumentID: ObjectIdentifier?
     private var noticeState        = ConflictNoticeState()
     private var retainedSnapshot:  ProjectData?
     private var pollTask:          Task<Void, Never>?
@@ -92,6 +108,7 @@ final class SyncMonitor {
     private var queryObservers:    [any NSObjectProtocol] = []
     private var queriedURL:        URL?
     private var isCheckingConflicts = false
+    private static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.lsvr.LSVR-CineSched", category: "Sync")
     /// The coordinated accesses run here, off the main actor, so a presenter that has to
     /// relinquish the file never waits on the thread that asked.
     private let accessQueue: OperationQueue = {
@@ -103,11 +120,19 @@ final class SyncMonitor {
 
     // MARK: - Lifecycle
 
-    /// Starts observing `document`. Idempotent for the same document.
+    /// Starts observing `document`. Idempotent for the same document, whose pending
+    /// conflict work (a winner's version awaiting its write, a decision awaiting an undo
+    /// manager) survives a stop and start; another document's does not carry over.
     func start(document: ProjectDocument) {
         if self.document === document, pollTask != nil { return }
+        if startedDocumentID != ObjectIdentifier(document) {
+            pendingRemoval      = nil
+            removalInFlight     = false
+            awaitingUndoManager = false
+        }
         stop()
-        self.document = document
+        self.document     = document
+        startedDocumentID = ObjectIdentifier(document)
         startPathMonitor()
         refresh()
         checkForConflicts()
@@ -148,6 +173,12 @@ final class SyncMonitor {
         checkForConflicts()
     }
 
+    /// `document.writtenChangeCount` moved: the file holds a newer snapshot. If that is
+    /// the one a resolution applied, the winner's conflict version can go.
+    func documentWasWritten() {
+        completePendingRemovalIfDue()
+    }
+
     /// The scene came to the foreground: what iCloud did meanwhile is worth a look.
     func sceneDidActivate() {
         refresh()
@@ -162,6 +193,7 @@ final class SyncMonitor {
         let url = document.fileURL
         snapshot = url.flatMap(Self.readSnapshot(of:))
         updateMetadataQuery(for: snapshot?.isUbiquitousItem == true ? url : nil)
+        completePendingRemovalIfDue()
         if snapshot?.hasUnresolvedConflicts == true { checkForConflicts() }
         rederive()
     }
@@ -242,17 +274,31 @@ final class SyncMonitor {
     /// Looks for the system's unresolved conflict versions and, where this platform
     /// resolves them, decides. Where it does not (the Mac), only the fallback below can
     /// raise a notice. Re-entrancy is refused: a check in flight covers the trigger.
+    ///
+    /// The document's record of replaced edits is taken here, before the policy runs, and
+    /// is used only when the policy does not: a check that finds and decides conflict
+    /// versions raises the policy's notice, which names the device and retains a whole
+    /// version, and the record (this device's last unsaved edits, which its own conflict
+    /// version holds up to the last autosave) is dropped rather than raised as a second
+    /// notice over the first. Taking it after the policy instead would leave it for the
+    /// next check, which would raise it then, with nothing to do with any conflict.
     func checkForConflicts() {
         guard let document, !isCheckingConflicts else { return }
         let replaced = document.takeReplacedUnsavedEdits()
         guard resolvesConflicts, let url = document.fileURL,
-              let versions = NSFileVersion.unresolvedConflictVersionsOfItem(at: url), !versions.isEmpty
+              let listed = NSFileVersion.unresolvedConflictVersionsOfItem(at: url)
         else {
             raiseFallbackNotice(for: replaced)
             return
         }
+        // The winner of an earlier decision, awaiting its write, is not a new conflict.
+        let versions = listed.filter { $0.url != pendingRemoval?.version.url }
+        guard !versions.isEmpty else {
+            raiseFallbackNotice(for: replaced)
+            return
+        }
         isCheckingConflicts     = true
-        pendingConflictVersions = versions
+        pendingConflictVersions = Dictionary(uniqueKeysWithValues: versions.enumerated().map { ("version-\($0.offset)", $0.element) })
         // What the accessor needs is Sendable: the version URLs and their metadata. The
         // versions themselves stay on the main actor for the resolution step.
         let entries: [(id: String, url: URL, date: Date, device: String?)] = versions.enumerated().map { index, version in
@@ -273,8 +319,18 @@ final class SyncMonitor {
         }
     }
 
-    /// The versions a check in flight is reading, for the resolution step once it lands.
-    private var pendingConflictVersions: [NSFileVersion] = []
+    /// The versions a check in flight is reading, by the id the policy sees them under,
+    /// for the resolution step once it lands.
+    private var pendingConflictVersions: [ConflictVersion.ID: NSFileVersion] = [:]
+
+    /// The winner's conflict version awaiting the write that makes it useless, with the
+    /// object to resolve and remove then. One at a time: a check that finds this version
+    /// still listed skips it, and a later decision replaces it only once it is done.
+    private var pendingRemoval: (state: PendingConflictRemoval, version: NSFileVersion)?
+
+    /// Whether a decision was left unacted for want of an undo manager, so that
+    /// `attach(undoManager:)` knows to check again.
+    private var awaitingUndoManager = false
 
     /// The decision and what follows from it, back on the main actor. A version whose
     /// contents could not be read is not a version that can win: it stays unresolved for
@@ -282,7 +338,7 @@ final class SyncMonitor {
     private func finishConflictCheck(others: [ConflictVersion], readFailed: Bool, replaced: ProjectDocument.ReplacedEdits?) {
         isCheckingConflicts = false
         let versions = pendingConflictVersions
-        pendingConflictVersions = []
+        pendingConflictVersions = [:]
         guard let document else { return }
         let readable = others.filter { $0.snapshot != nil }
         guard !readFailed, readable.count == others.count, let url = document.fileURL else {
@@ -299,22 +355,60 @@ final class SyncMonitor {
             now:                  Date()
         )
         let decision = ConflictPolicy.decide(current: current, others: readable)
-        if !decision.currentWins, let winning = decision.winner.snapshot {
+        guard let plan = ConflictResolutionPlan.make(for: decision, canRegisterEdits: undoManager != nil) else {
+            // Applying the winner without a manager would leave it in memory only (a
+            // `perform` with no manager registers nothing, and the infrastructure
+            // autosaves from registered actions alone). Leave every version unresolved
+            // and look again once the editor attaches one.
+            awaitingUndoManager = true
+            Self.log.notice("Conflict decision deferred: no undo manager to register the winning version with")
+            return
+        }
+        awaitingUndoManager = false
+        if plan.appliesWinner, let winning = decision.winner.snapshot {
             document.perform(L("Resolve Conflict"), undoManager: undoManager) { data in
                 data = Self.adopting(winning, paletteOf: data)
             }
         }
-        // Every conflict version is now accounted for: the winner's contents live in the
-        // document (and autosave as the current version), the losers are retained here
-        // or lost by the policy's rule. Marking and removing happen under a coordinated
+        // The losers are accounted for: retained here or discarded by the policy's rule,
+        // and never needed by the file. Marking and removing happen under a coordinated
         // write, as the header prescribes.
-        resolve(versions, of: url)
+        resolveAndRemove(plan.removeNow.compactMap { versions[$0] }, of: url)
+        // The winner's version holds the only on-disk copy of what `perform` just put in
+        // memory; it goes once the document reports the write that carries it.
+        if let winnerID = plan.removeAfterWrite, let version = versions[winnerID] {
+            pendingRemoval = (PendingConflictRemoval(versionID: winnerID, changeCountAtResolution: document.changeCount), version)
+        }
         retainedSnapshot = decision.retained?.snapshot
         if let notice = ConflictNotice(decision: decision) {
             noticeState.raise(notice, changeCount: document.changeCount)
         }
+        completePendingRemovalIfDue()
         rederive()
     }
+
+    /// Resolves and removes the pending winner's version once the file holds its
+    /// contents (`PendingConflictRemoval.isDue` against `writtenChangeCount`). The version
+    /// is looked up in the current listing rather than trusted from the earlier one: if
+    /// something else resolved or removed it meanwhile (another presenter, the Mac's
+    /// sheet), there is nothing left to touch.
+    private func completePendingRemovalIfDue() {
+        guard let document, let pending = pendingRemoval, !removalInFlight,
+              pending.state.isDue(writtenChangeCount: document.writtenChangeCount),
+              let url = document.fileURL
+        else { return }
+        // The pending record stands until the coordinated write has run, so a check that
+        // lands in between still skips the version instead of deciding it again.
+        removalInFlight = true
+        let stillListed = (NSFileVersion.unresolvedConflictVersionsOfItem(at: url) ?? []).filter { $0.url == pending.version.url }
+        resolveAndRemove(stillListed, of: url) { [weak self] in
+            self?.pendingRemoval  = nil
+            self?.removalInFlight = false
+        }
+    }
+
+    /// Whether the pending winner's removal has been handed to the access queue.
+    private var removalInFlight = false
 
     /// The winner's snapshot with the document's palette when the winner brought none
     /// (a file from before #11 saved elsewhere), so a resolution never resets the strip
@@ -329,17 +423,24 @@ final class SyncMonitor {
     /// Marks `versions` resolved and removes them from the version store, inside a
     /// coordinated write on the file that changes no content (`.contentIndependentMetadataOnly`,
     /// so the presenter is not asked to save). The versions are not Sendable; they are
-    /// handed to the accessor and not touched here again.
-    private func resolve(_ versions: [NSFileVersion], of url: URL) {
+    /// handed to the accessor and not touched here again. `completion` runs on the main
+    /// actor once the accessor has run (or was refused), and at once with nothing to do.
+    private func resolveAndRemove(_ versions: [NSFileVersion], of url: URL, completion: (@MainActor @Sendable () -> Void)? = nil) {
+        guard !versions.isEmpty else {
+            completion?()
+            return
+        }
         nonisolated(unsafe) let versions = versions
         let coordinator = document?.makeFileCoordinator() ?? NSFileCoordinator(filePresenter: nil)
         let intent = NSFileAccessIntent.writingIntent(with: url, options: [.contentIndependentMetadataOnly])
         coordinator.coordinate(with: [intent], queue: accessQueue) { error in
-            guard error == nil else { return }
-            for version in versions {
-                version.isResolved = true
-                try? version.remove()
+            if error == nil {
+                for version in versions {
+                    version.isResolved = true
+                    try? version.remove()
+                }
             }
+            if let completion { Task { @MainActor in completion() } }
         }
     }
 
@@ -366,9 +467,11 @@ final class SyncMonitor {
     /// `attach(undoManager:)` so a resolution that arrives on its own is undoable too.
     private var undoManager: UndoManager?
 
-    /// The window's undo manager, so a resolution's `perform` registers with it.
+    /// The window's undo manager, so a resolution's `perform` registers with it. A
+    /// decision that waited for one is retried as soon as it arrives.
     func attach(undoManager: UndoManager?) {
         self.undoManager = undoManager
+        if undoManager != nil, awaitingUndoManager { checkForConflicts() }
     }
 
     /// Restore other version: applies the retained snapshot through the funnel (one undo
@@ -388,5 +491,52 @@ final class SyncMonitor {
         retainedSnapshot = nil
         noticeState.dismiss()
         rederive()
+    }
+}
+
+// MARK: - Wiring into an editor
+
+extension View {
+    /// Runs `monitor` for `document` for as long as this view is on screen: attaches the
+    /// environment's undo manager (and again when it changes), starts on appear, stops
+    /// on disappear, and feeds the document's change, restore and written counts and the
+    /// scene phase. `ContentView` and `MinimalProjectEditor` apply it once, at their
+    /// root, beside their own reactions to the same counts.
+    func syncMonitored(_ monitor: SyncMonitor, document: ProjectDocument) -> some View {
+        modifier(SyncMonitoring(monitor: monitor, document: document))
+    }
+}
+
+private struct SyncMonitoring: ViewModifier {
+    let monitor:  SyncMonitor
+    let document: ProjectDocument
+    @Environment(\.undoManager) private var undoManager
+    @Environment(\.scenePhase)  private var scenePhase
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                monitor.attach(undoManager: undoManager)
+                monitor.start(document: document)
+            }
+            .onDisappear {
+                monitor.stop()
+            }
+            // `UndoManager` is not `Equatable`; its identity is what changes.
+            .onChange(of: undoManager.map(ObjectIdentifier.init)) { _, _ in
+                monitor.attach(undoManager: undoManager)
+            }
+            .onChange(of: document.changeCount) { _, newCount in
+                monitor.documentDidChange(changeCount: newCount)
+            }
+            .onChange(of: document.restoreCount) { _, _ in
+                monitor.documentWasRestored()
+            }
+            .onChange(of: document.writtenChangeCount) { _, _ in
+                monitor.documentWasWritten()
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { monitor.sceneDidActivate() }
+            }
     }
 }

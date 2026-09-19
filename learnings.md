@@ -9,6 +9,45 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-19 — Conflict versions after review: a `perform` is not a write, the writer is where "written" is known, and an extension does not inherit `nonisolated` (#15)
+
+Applying the review of the #15 wiring (ADR 0004, amendment of 2026-09-19):
+
+- **A `perform` puts the winner in memory only; the file follows on the next autosave,
+  and never when the undo manager was nil.** The first wiring marked and removed every
+  conflict version right after the `perform`, which left up to a minute (iOS) in which the
+  winning contents existed nowhere on disk, and forever when no manager was attached (a
+  `perform` without one registers nothing, and the infrastructure autosaves only from
+  registered actions). Now the losers go at once, the winner's own version waits for the
+  write, and a nil manager defers the whole decision (`ConflictResolutionPlan`).
+- **`snapshot(contentType:)` is not the write.** It is the infrastructure asking for the
+  bytes; the atomic write happens afterwards in the `@concurrent` writer and can throw and
+  be retried. The document learns that the bytes landed from the writer itself:
+  `ProjectDocumentWriter.didWrite`, a `@MainActor @Sendable` closure the document hands
+  its writer in `writer(configuration:)` (a `@MainActor` closure is Sendable by isolation,
+  so the nonisolated writer can hold it and `await` it after the write). That is what
+  `writtenChangeCount` follows; `hasUnsavedEdits` keeps following the request.
+- **The winner's version is left unresolved, not merely unremoved, until the write.** The
+  header's "set `isResolved`, then remove" reads as one step, but marking the winner
+  resolved before its contents are in the file would, on a kill, leave them in a version
+  the system no longer reports and the app never looks at; left unresolved, the next
+  launch re-lists it and the policy applies it again. The monitor skips the pending
+  version on re-checks (by `url`) so it is not decided twice, and re-lists at removal time
+  rather than trusting the earlier object, in case another presenter resolved it meanwhile.
+- **`extension ConflictVersion { static let currentID }` was main-actor isolated even
+  though the struct is `nonisolated`**: an extension's members take the default isolation,
+  not the type's modifier, and the read from the new `nonisolated` plan warned ("main
+  actor-isolated static property can not be referenced from a nonisolated context"). Mark
+  such members `nonisolated` themselves.
+- **`UndoManager` is not `Equatable`**, so a view cannot `onChange(of: undoManager)`;
+  `onChange(of: undoManager.map(ObjectIdentifier.init))` follows the environment's
+  manager by identity, which is what the `syncMonitored` modifier uses to re-attach.
+- The template XCUITests (`testExample`, `testLaunch`, `testLaunchPerformance`) fail in an
+  agent shell with "Failed to activate application" (no screen); the unit target is what
+  to read the totals from.
+
+---
+
 ## 2026-09-19 — Signing the iOS build for a device: automatic signing never creates the iCloud container, and Xcode's capabilities tab edits the Mac's entitlements file (#12)
 
 Getting the first device build of the iPhone/iPad app to sign, with the per-SDK entitlements

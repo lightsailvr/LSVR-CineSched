@@ -22,10 +22,13 @@
 //
 // For the sync state and the conflict notice (#14, #15, `SyncMonitor`) it exposes what
 // the configuration knows (`fileURL`, `lastContentModificationDate`, `makeFileCoordinator`)
-// and keeps three things the protocol does not ask for: when the project last changed
+// and keeps four things the protocol does not ask for: when the project last changed
 // here (`lastEditDate`), whether it holds edits the file lacks (`hasUnsavedEdits`, from
-// the counts at the last `snapshot(contentType:)` and `apply`), and the edits an `apply`
-// replaced before they were written (`replacedUnsavedEdits`), which only `apply` can see.
+// the counts at the last `snapshot(contentType:)` and `apply`), which change count the
+// file is known to hold (`writtenChangeCount`, reported back by the writer once its bytes
+// landed, so a conflict version is removed only after the file holds the contents that
+// replaced it), and the edits an `apply` replaced before they were written
+// (`replacedUnsavedEdits`), which only `apply` can see.
 
 import Foundation
 import Observation
@@ -120,6 +123,15 @@ final class ProjectDocument: Document {
 
     /// Whether the project holds changes the file has not received yet.
     var hasUnsavedEdits: Bool { changeCount != savedChangeCount }
+
+    /// The change count whose project the file is known to hold: the count a snapshot
+    /// from disk arrived at (`apply`), or the count of the last snapshot whose write the
+    /// writer reported complete (`writeDidComplete`, after the atomic write, not when the
+    /// snapshot was asked for: a write can fail and be retried). `SyncMonitor` removes a
+    /// conflict version whose contents it applied only once this reaches the change count
+    /// of that application (#15): until then the version is the contents' only copy on
+    /// disk.
+    private(set) var writtenChangeCount = 0
 
     /// Edits a snapshot from disk replaced before they were written: the project as it was
     /// the moment `apply` ran over a document with unsaved edits, and when they were made.
@@ -217,19 +229,23 @@ final class ProjectDocument: Document {
         if hasUnsavedEdits {
             replacedUnsavedEdits = ReplacedEdits(project: project, editedAt: lastEditDate)
         }
-        openGesture      = nil
-        project          = Self.adoptingDevicePalette(snapshot, from: deviceOverrides)
-        changeCount     += 1
-        restoreCount    += 1
-        savedChangeCount = changeCount
+        openGesture        = nil
+        project            = Self.adoptingDevicePalette(snapshot, from: deviceOverrides)
+        changeCount       += 1
+        restoreCount      += 1
+        savedChangeCount   = changeCount
+        writtenChangeCount = changeCount
     }
 
     // MARK: - Writing
 
     nonisolated static var writableContentTypes: [UTType] { [.cineschedProject] }
 
+    /// The writer reports back when its bytes have landed (`writeDidComplete`), which is
+    /// what `writtenChangeCount` follows; a writer made without the document (a test)
+    /// reports to nobody.
     func writer(configuration: WriteConfiguration) -> ProjectDocumentWriter {
-        ProjectDocumentWriter()
+        ProjectDocumentWriter(didWrite: { [weak self] in self?.writeDidComplete() })
     }
 
     /// What the infrastructure writes; asking for it is the write, as far as the unsaved
@@ -238,6 +254,13 @@ final class ProjectDocument: Document {
     func snapshot(contentType: UTType) async throws -> ProjectData {
         savedChangeCount = changeCount
         return project
+    }
+
+    /// The writer's bytes landed: the file now holds the snapshot the infrastructure
+    /// last asked for. The infrastructure runs one save at a time, so the last snapshot
+    /// asked for is the one written.
+    func writeDidComplete() {
+        writtenChangeCount = savedChangeCount
     }
 
     // MARK: - Edit funnel
@@ -327,7 +350,12 @@ nonisolated struct ProjectDocumentReader: DocumentReader {
 /// Writes a `ProjectData` as the codec's JSON, atomically, off the main actor. Never to a
 /// legacy `.json`: that file is opened in a viewer role and must stay byte-identical, and
 /// the writer is the last line of defence should any path try (see `isLegacySource`).
+/// `didWrite`, when the document made the writer, runs on the main actor once the bytes
+/// are on disk (and not when the write threw), so the document can record what the file
+/// holds (`writtenChangeCount`).
 nonisolated struct ProjectDocumentWriter: DocumentWriter {
+    var didWrite: (@MainActor @Sendable () -> Void)? = nil
+
     @concurrent
     func write(snapshot: ProjectData, to destination: URL, previous: ProjectData?, progress: consuming Subprogress) async throws {
         let manager = progress.start(totalCount: 1)
@@ -339,5 +367,6 @@ nonisolated struct ProjectDocumentWriter: DocumentWriter {
             ])
         }
         try ProjectCodec.encode(snapshot).write(to: destination, options: .atomic)
+        if let didWrite { await didWrite() }
     }
 }

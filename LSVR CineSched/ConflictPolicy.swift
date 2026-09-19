@@ -17,11 +17,13 @@
 //
 // Rules:
 //   - The newest modification date wins. On an equal date the current version wins (what
-//     this device shows stays); among the others, the smaller `id` wins, so the outcome
-//     does not depend on the order the system listed them in.
+//     this device shows stays); among the others, the smaller `id` wins (numbers in the
+//     id compared as numbers: `"version-2"` before `"version-10"`), so the outcome does
+//     not depend on the order the system listed them in.
 //   - `resolved` is every version but the winner, the current one included when it lost:
 //     it is "resolved" by the winner's snapshot replacing it through the funnel. The
-//     others are the conflict versions the wiring flags resolved.
+//     others are the conflict versions the wiring flags resolved; when and whether each
+//     is also removed is `ConflictResolutionPlan`'s.
 //   - `retained` is the version the notice is about: the newest loser when the current
 //     version won, or the current version itself when another won (it is this device's
 //     own work, so it is what the user would want back). Nil, with no notice, when there
@@ -113,9 +115,12 @@ nonisolated enum ConflictPolicy {
     }
 
     /// The strict order `max(by:)` picks the winner with: by date, then by `id` so that
-    /// equal dates resolve the same way whatever order the versions arrived in.
+    /// equal dates resolve the same way whatever order the versions arrived in. The id
+    /// comparison is Finder's (`localizedStandardCompare`), so the wiring's
+    /// `"version-2"` is the smaller id next to `"version-10"`, as the index it carries
+    /// says; a plain string compare would put `"version-10"` first.
     private static func isOlder(_ a: ConflictVersion, _ b: ConflictVersion) -> Bool {
         if a.modificationDate != b.modificationDate { return a.modificationDate < b.modificationDate }
-        return a.id > b.id
+        return a.id.localizedStandardCompare(b.id) == .orderedDescending
     }
 }

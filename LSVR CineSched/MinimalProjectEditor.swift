@@ -25,9 +25,8 @@ struct MinimalProjectEditor: View {
     @FocusState private var titleFieldFocused: Bool
 
     /// The iCloud sync state beside the title and the conflict notice (#14, #15): one
-    /// monitor per scene, fed the document's counts and the scene phase below.
+    /// monitor per scene, run by the `syncMonitored` modifier below.
     @State private var syncMonitor = SyncMonitor()
-    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         List {
@@ -52,22 +51,7 @@ struct MinimalProjectEditor: View {
         .onChange(of: titleFieldFocused) { _, focused in
             if !focused { titleGesture = EditGesture() }
         }
-        .onAppear {
-            syncMonitor.attach(undoManager: undoManager)
-            syncMonitor.start(document: document)
-        }
-        .onDisappear {
-            syncMonitor.stop()
-        }
-        .onChange(of: document.changeCount) { _, newCount in
-            syncMonitor.documentDidChange(changeCount: newCount)
-        }
-        .onChange(of: document.restoreCount) { _, _ in
-            syncMonitor.documentWasRestored()
-        }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active { syncMonitor.sceneDidActivate() }
-        }
+        .syncMonitored(syncMonitor, document: document)
     }
 
     // MARK: - Edits

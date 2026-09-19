@@ -162,19 +162,29 @@ the build inputs outside it, see Working agreements):
   resolution, cleared by any other count, by restore or by dismiss), plus
   `ConflictVersion.current(...)`, how the document's own version is dated (last local edit
   while unsaved, the file's date and saving computer otherwise). Pure.
+- `ConflictResolutionPlan.swift`: what the wiring does with a decision (#15, ADR 0004's
+  2026-09-19 amendment): `ConflictResolutionPlan.make(for:canRegisterEdits:)` says which
+  conflict versions are resolved and removed at once (the losers), which one waits for the
+  write that carries its contents (the winner's own, `removeAfterWrite`), and returns nil
+  when another version wins but no undo manager is attached (nothing is applied or
+  resolved then). `PendingConflictRemoval.isDue(writtenChangeCount:)` is the wait. Pure.
 - `SyncMonitor.swift`: the wiring of both, one `@Observable` per editor (`@State` in
-  `ContentView` and `MinimalProjectEditor`, started in `onAppear` and fed `changeCount`,
-  `restoreCount` and the scene phase). Reads the document URL's resource values on every
-  trigger and on a poll (2 s in iCloud, 10 s outside), runs an `NSMetadataQuery` on the file
-  (reports only with the container entitlement, so iOS and visionOS) and an `NWPathMonitor`
-  (every platform), and publishes `state` and `notice`. Where `PlatformConflictResolution`
-  says the app resolves (iOS, visionOS) it lists `NSFileVersion`'s unresolved conflict
-  versions, reads them under a coordinated read through `document.makeFileCoordinator()`,
-  applies a winning other version through `perform`, marks and removes the conflict versions
-  under a coordinated metadata-only write, and retains the loser for Restore other version
-  (through `perform`, undoable). The fallback: `ProjectDocument.apply` over unsaved edits
-  records them (`replacedUnsavedEdits`), and the monitor turns that into a notice with the
-  edits restorable; that is the path that fires on the Mac, where NSDocument's own conflict
+  `ContentView` and `MinimalProjectEditor`, run by the `syncMonitored(_:document:)` modifier
+  at the end of the file: attach the undo manager, start and stop with the view, feed
+  `changeCount`, `restoreCount`, `writtenChangeCount` and the scene phase). Reads the
+  document URL's resource values on every trigger and on a poll (2 s in iCloud, 10 s
+  outside), runs an `NSMetadataQuery` on the file (reports only with the container
+  entitlement, so iOS and visionOS) and an `NWPathMonitor` (every platform), and publishes
+  `state` and `notice`. Where `PlatformConflictResolution` says the app resolves (iOS,
+  visionOS) it lists `NSFileVersion`'s unresolved conflict versions, reads them under a
+  coordinated read through `document.makeFileCoordinator()`, applies a winning other
+  version through `perform`, follows the plan for the versions (losers resolved and removed
+  under a coordinated metadata-only write at once; the winner's own version only once
+  `ProjectDocument.writtenChangeCount` says the file holds its contents, the writer's
+  `didWrite` report), and retains the loser for Restore other version (through `perform`,
+  undoable). The fallback: `ProjectDocument.apply` over unsaved edits records them
+  (`replacedUnsavedEdits`), and the monitor turns that into a notice with the edits
+  restorable; that is the path that fires on the Mac, where NSDocument's own conflict
   sheet resolves the versions. The header says which path fires where.
 - `SyncStateIndicator.swift`: the symbol-and-caption view beside the title (nothing for nil
   state) and `ConflictNoticeView`, the popover with Restore Other Version and Dismiss.
@@ -259,10 +269,11 @@ The test targets are Xcode template stubs. `LSVR CineSchedTests` uses Swift Test
 `LegacyWorkingCopyRecovery.decide` (`LegacyWorkingCopyRecoveryTests`),
 `SyncState.derive` and the resource snapshot (`SyncStateTests`, one per state and per precedence
 choice), `ConflictPolicy.decide` (`ConflictPolicyTests`, one per row of the decision),
-`ConflictNoticeState`, `ConflictNotice(decision:)`, `ConflictVersion.current` and the monitor's
-pure parts (`SyncMonitor.state(for:…)`, `readSnapshot(of:)` on a local file, the palette carried
-across a resolution) in `ConflictNoticeTests`; the document's unsaved-edits record
-(`hasUnsavedEdits`, `replacedUnsavedEdits`) in `ProjectDocumentTests`. `NSFileVersion`, the
+`ConflictNoticeState`, `ConflictNotice(decision:)`, `ConflictVersion.current`,
+`ConflictResolutionPlan`, `PendingConflictRemoval` (against a real document and writer) and the
+monitor's pure parts (`SyncMonitor.state(for:…)`, `readSnapshot(of:)` on a local file, the palette
+carried across a resolution) in `ConflictNoticeTests`; the document's unsaved-edits record
+(`hasUnsavedEdits`, `replacedUnsavedEdits`) and `writtenChangeCount` in `ProjectDocumentTests`. `NSFileVersion`, the
 coordinated accesses, the metadata query and the path monitor have no unit seam: they need a
 signed-in device (the manual two-device test in issue #15),
 `CineSchedFolder` (`CineSchedFolderTests`),

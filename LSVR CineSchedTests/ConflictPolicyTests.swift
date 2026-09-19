@@ -119,6 +119,17 @@ struct ConflictPolicyTests {
         #expect(forward.retained == current)
     }
 
+    /// The tie-break reads the number in the id as a number: the wiring names versions
+    /// by their index, and `"version-2"` is the smaller id next to `"version-10"`, though
+    /// a plain string compare would put `"version-10"` first.
+    @Test func equalDatesAmongOthersBreakTheTieByTheIndexInTheID() {
+        let current  = version("current", minutesAfterNoon: 0)
+        let second   = version("version-2",  minutesAfterNoon: 5, device: "Second")
+        let tenth    = version("version-10", minutesAfterNoon: 5, device: "Tenth")
+        #expect(ConflictPolicy.decide(current: current, others: [tenth, second]).winner == second)
+        #expect(ConflictPolicy.decide(current: current, others: [second, tenth]).winner == second)
+    }
+
     /// A version is the same version with or without its contents read.
     @Test func versionEqualityIsIdentity() {
         let unread = version("ipad", minutesAfterNoon: 5, device: "Matt's iPad")

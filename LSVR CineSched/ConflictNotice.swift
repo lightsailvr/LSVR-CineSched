@@ -98,8 +98,10 @@ nonisolated struct ConflictNoticeState: Equatable {
 // MARK: - The current version
 
 extension ConflictVersion {
-    /// The convention for the current version's `id`.
-    static let currentID: ID = "current"
+    /// The convention for the current version's `id`. (`nonisolated` because an
+    /// extension does not inherit the struct's isolation, and `ConflictResolutionPlan`
+    /// reads it off the main actor.)
+    nonisolated static let currentID: ID = "current"
 
     /// The version the document shows, as the policy sees it. While the document holds
     /// edits the file does not, it is this device's work: dated by the last local edit

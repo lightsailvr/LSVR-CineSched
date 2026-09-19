@@ -223,6 +223,24 @@ struct LaunchImportTests {
         }
     }
 
+    /// Import Project's acceptance row, through the document `makeDocument` builds: the
+    /// new document's project equals what the codec decodes from the source, and the
+    /// source bytes are untouched. No device overrides, so no palette is adopted on the
+    /// way in (a device with some would add one, by #11's rule, which is not the import's).
+    @Test func anImportedLegacyProjectInANewDocumentEqualsTheSource() async throws {
+        try await withTemporaryDirectory { dir in
+            let bytes = try ProjectCodec.encode(ProjectCodecTests.project)
+            let url   = dir.appendingPathComponent("Old Project.json")
+            try bytes.write(to: url)
+
+            let document = ProjectDocument(untitled: try LaunchImport.readLegacyProject(at: url))
+
+            #expect(document.project == (try ProjectCodec.decode(bytes)))
+            #expect(document.fileURL == nil)
+            #expect(try Data(contentsOf: url) == bytes)
+        }
+    }
+
     @Test func readingAFileThatIsNotAProjectThrows() async throws {
         try await withTemporaryDirectory { dir in
             let url = try write("{ \"not\": \"a project\" }", as: "Other.json", in: dir)

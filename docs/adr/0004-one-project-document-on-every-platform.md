@@ -117,3 +117,44 @@ notice, and shape how they are built:
 
 Neither changes the decision: one document, one snapshot type, one funnel. The resolution
 and the restore are both `perform`s, so they autosave and undo like any edit.
+
+## Amendment (2026-09-19, #15 review): a conflict version outlives the `perform` that applied it
+
+A `perform` puts the winning version's snapshot in memory; the file gets it when the
+infrastructure autosaves from the registered undo action, seconds later on the Mac and up
+to a minute later on iOS. Removing the winner's conflict version at resolution time, as the
+first wiring did, left that window in which the winning contents existed nowhere on disk
+(the file still held the loser's), and a `perform` without an undo manager registers
+nothing, so the window never closed. Two rules follow, both in `ConflictResolutionPlan`
+(pure, tested) and wired by `SyncMonitor`:
+
+- **The document reports what the file holds.** `ProjectDocument.writtenChangeCount` is
+  the change count of the last snapshot whose write the writer reported complete
+  (`ProjectDocumentWriter.didWrite`, after the atomic write, not when the snapshot was
+  asked for), or the count a snapshot from disk arrived at. It is the one thing the
+  document keeps that the protocol does not ask for and that only the writer can supply;
+  it exists so the monitor can tell "applied" from "written".
+- **Losers go at once, the winner's version goes after the write, and nothing goes
+  without an undo manager.** The losing conflict versions are marked resolved and removed
+  under a coordinated metadata-only write as soon as the policy decides: their contents
+  are retained in memory for the session (Restore other version) or discarded by the
+  policy's own rule, and the file never needed them. The winner's own conflict version,
+  when another version won, is left unresolved and untouched (`PendingConflictRemoval`)
+  until `writtenChangeCount` reaches the change count the `perform` produced, then
+  resolved and removed; the monitor's checks skip it meanwhile so it is not decided
+  twice. When no undo manager is attached (the editor's environment has not supplied one
+  yet) the decision is not acted on at all: no `perform`, nothing resolved, no notice,
+  logged, and retried when `attach(undoManager:)` brings one.
+
+The residual, on every platform that runs the policy (iOS, visionOS; the Mac observes
+only): if the app is killed between the `perform` and the write, the file still holds the
+loser's contents and the winner's version is still listed as an unresolved conflict, so
+the next launch's check runs the policy again, applies the winner again and raises the
+notice again, now naming the file's saving device as the version set aside. Nothing is
+lost and nothing is left for the user to find; the cost is that the resolution happens
+twice. That is preferable to marking the winner's version resolved at once (which would
+leave the winning contents in a version the system no longer reports and the app never
+looks at, i.e. lost on iOS) and to removing it at once (lost outright). The losers' early
+removal has no residual: an editor closed or killed after the decision has already
+retained or discarded them by the policy's rule, and a version a check has read but not
+decided is untouched.

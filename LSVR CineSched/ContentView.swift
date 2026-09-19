@@ -125,10 +125,8 @@ struct ContentView: View {
     // MARK: - Sync state
 
     /// The iCloud sync state beside the title and the conflict notice (#14, #15): one
-    /// monitor per window, started with the document and fed the change and restore
-    /// counts and the scene phase from `applyLifecycle`.
+    /// monitor per window, run by the `syncMonitored` modifier in `applyLifecycle`.
     @State private var syncMonitor = SyncMonitor()
-    @Environment(\.scenePhase) private var scenePhase
 
     // MARK: - Breakdown Browser
     @State private var breakdownBrowserScenes: [Scene] = []
@@ -332,31 +330,23 @@ struct ContentView: View {
             // The one place the palette enters the view tree; every strip, card and sheet
             // below reads it from the environment rather than from the device.
             .environment(\.scenePalette, palette)
+            // The sync monitor's whole lifecycle (start, stop, the counts, the scene
+            // phase, the undo manager) is the modifier's.
+            .syncMonitored(syncMonitor, document: document)
             .onAppear {
                 columnVisibility = sidebarCollapsedPreference ? .detailOnly : .all
-                syncMonitor.attach(undoManager: undoManager)
-                syncMonitor.start(document: document)
-            }
-            .onDisappear {
-                syncMonitor.stop()
             }
             .onChange(of: columnVisibility) { _, newValue in
                 sidebarCollapsedPreference = (newValue == .detailOnly)
             }
             // Every path into the project (an edit, an undo, a reload from disk) moves the
             // change count. The derived sets follow it through `derived`; only the
-            // selection is real state that has to be trimmed here, and the sync monitor
-            // learns that the file is about to change (and retires a conflict notice).
-            .onChange(of: document.changeCount) { _, newCount in
+            // selection is real state that has to be trimmed here.
+            .onChange(of: document.changeCount) { _, _ in
                 pruneSelection()
-                syncMonitor.documentDidChange(changeCount: newCount)
             }
             .onChange(of: document.restoreCount) { _, _ in
                 seedRangePickers()
-                syncMonitor.documentWasRestored()
-            }
-            .onChange(of: scenePhase) { _, phase in
-                if phase == .active { syncMonitor.sceneDidActivate() }
             }
             .onChange(of: titleFieldFocused) { _, focused in
                 if !focused { titleGesture = EditGesture() }
