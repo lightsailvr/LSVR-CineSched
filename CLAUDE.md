@@ -127,13 +127,32 @@ the build inputs outside it, see Working agreements):
   five displayed states) and `SyncState.derive(from:networkReachable:conflictResolved:)`, a
   pure function of `UbiquitousResourceSnapshot` (the document URL's ubiquitous resource
   values as plain values, with an initializer from `URLResourceValues`); nil for a file
-  outside iCloud. The header lists the precedence. Reading the values, the metadata query,
-  the network monitor and the indicator are the platform scenes' (#12) and not wired yet.
+  outside iCloud. The header lists the precedence.
 - `ConflictPolicy.swift`: the conflict decision (#15): `ConflictPolicy.decide(current:others:)`
   over `ConflictVersion` values (id, modification date, device name, optional snapshot);
   newest wins, the rest are `resolved`, the loser is `retained` for the notice and the
-  Restore other version action, which the wiring applies through `perform`. Reading and
-  flagging `NSFileVersion`s through the document's coordinator is the wiring's, not wired yet.
+  Restore other version action.
+- `ConflictNotice.swift`: the notice (`ConflictNotice`, with its `origin`: the policy or the
+  fallback) and its lifecycle (`ConflictNoticeState`: raised with the change count of the
+  resolution, cleared by any other count, by restore or by dismiss), plus
+  `ConflictVersion.current(...)`, how the document's own version is dated (last local edit
+  while unsaved, the file's date and saving computer otherwise). Pure.
+- `SyncMonitor.swift`: the wiring of both, one `@Observable` per editor (`@State` in
+  `ContentView` and `MinimalProjectEditor`, started in `onAppear` and fed `changeCount`,
+  `restoreCount` and the scene phase). Reads the document URL's resource values on every
+  trigger and on a poll (2 s in iCloud, 10 s outside), runs an `NSMetadataQuery` on the file
+  (reports only with the container entitlement, so iOS and visionOS) and an `NWPathMonitor`
+  (every platform), and publishes `state` and `notice`. Where `PlatformConflictResolution`
+  says the app resolves (iOS, visionOS) it lists `NSFileVersion`'s unresolved conflict
+  versions, reads them under a coordinated read through `document.makeFileCoordinator()`,
+  applies a winning other version through `perform`, marks and removes the conflict versions
+  under a coordinated metadata-only write, and retains the loser for Restore other version
+  (through `perform`, undoable). The fallback: `ProjectDocument.apply` over unsaved edits
+  records them (`replacedUnsavedEdits`), and the monitor turns that into a notice with the
+  edits restorable; that is the path that fires on the Mac, where NSDocument's own conflict
+  sheet resolves the versions. The header says which path fires where.
+- `SyncStateIndicator.swift`: the symbol-and-caption view beside the title (nothing for nil
+  state) and `ConflictNoticeView`, the popover with Restore Other Version and Dismiss.
 - `CalendarView.swift`, `StripboardView.swift`: the two schedule views.
 - `*Sheet.swift`: modal editors. `*Exporter.swift`: PDF generators; every call site is in
   `ContentView+PDFExports.swift`. `PDFCanvas.swift` is the shared drawing helper (CoreGraphics +
@@ -142,9 +161,11 @@ the build inputs outside it, see Working agreements):
   `DaysOutOfDaysExporter`) draw on it and build everywhere (its header comment is the recipe
   for writing one). `Fountain*`, `FinalDraftParser`, `HighlandArchiveReader`: importers.
 - Platform seams (ADR 0003): `FilePanels`, `SelectAllTextField`, `WindowAccessor`, `ModifierKeys`,
-  `PlatformControlStyles`, `PlatformColors`, `PlatformDocumentTypes`, `LegacyProjectHandoff`,
-  `MacAppDelegate`, plus the editor/launch-scene choice, the tabbing choice and the delegate
-  adaptor in `CineSchedApp`. These are the only files allowed to contain `#if os(...)`.
+  `PlatformControlStyles`, `PlatformColors`, `PlatformDocumentTypes`, `PlatformConflictResolution`
+  (whether the system presents its own conflict UI: the Mac's NSDocument sheet, so the app
+  resolves only on iOS and visionOS), `LegacyProjectHandoff`, `MacAppDelegate`, plus the
+  editor/launch-scene choice, the tabbing choice and the delegate adaptor in `CineSchedApp`.
+  These are the only files allowed to contain `#if os(...)`.
 
 ## Conventions
 
@@ -213,6 +234,12 @@ The test targets are Xcode template stubs. `LSVR CineSchedTests` uses Swift Test
 `LegacyWorkingCopyRecovery.decide` (`LegacyWorkingCopyRecoveryTests`),
 `SyncState.derive` and the resource snapshot (`SyncStateTests`, one per state and per precedence
 choice), `ConflictPolicy.decide` (`ConflictPolicyTests`, one per row of the decision),
+`ConflictNoticeState`, `ConflictNotice(decision:)`, `ConflictVersion.current` and the monitor's
+pure parts (`SyncMonitor.state(for:…)`, `readSnapshot(of:)` on a local file, the palette carried
+across a resolution) in `ConflictNoticeTests`; the document's unsaved-edits record
+(`hasUnsavedEdits`, `replacedUnsavedEdits`) in `ProjectDocumentTests`. `NSFileVersion`, the
+coordinated accesses, the metadata query and the path monitor have no unit seam: they need a
+signed-in device (the manual two-device test in issue #15),
 `CineSchedFolder` (`CineSchedFolderTests`),
 `DerivedScheduleState` and its cache (`DerivedScheduleStateTests`),
 `ScenePalette`, `Scene.stripColor(in:)` and the device-overrides reader (`ScenePaletteTests`; adoption

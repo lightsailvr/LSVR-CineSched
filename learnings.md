@@ -9,6 +9,73 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-19 — Wiring the sync state and the conflict notice: the entitlement-free Mac reads ubiquity keys, its metadata query reads nothing, a missing file is "not in iCloud", and the Mac's conflict sheet means two paths (#14, #15)
+
+Building `SyncMonitor`, `SyncStateIndicator` and the `NSFileVersion` pipeline around the
+pure halves:
+
+- **The Mac needs no iCloud entitlement to read the ubiquitous resource keys.** A plain
+  `swiftc` probe (no entitlements, no sandbox) on files under `~/Library/Mobile Documents`
+  got `isUbiquitousItem == true`, `isUploaded`, `downloadingStatus` (an evicted PDF read
+  `notDownloaded`) and `ubiquitousItemContainerDisplayName` ("iCloud Drive"; the CineSched
+  container reported "LSVR CineSched", so the App ID's container name, not
+  `NSUbiquitousContainerName`, is what the Mac sees). A `/tmp` file read nil for every key.
+  So the Mac's indicator is a poll of `url.resourceValues(forKeys:)` on the document's URL,
+  which the sandbox may read once the user opened the file; 2 s while the file is in
+  iCloud, 10 s otherwise.
+- **`NSMetadataQuery` over `NSMetadataQueryUbiquitousDocumentsScope` gathers zero results
+  without the entitlement** (`start()` returns true, the gather finishes empty, no error),
+  and a directory-scoped query over `Mobile Documents` also finds nothing (Spotlight does
+  not index it). The monitor still starts the query everywhere, since it is what reports
+  promptly on iOS and visionOS, and treats its notifications as "re-read the resource
+  values" rather than as a second source of truth.
+- **`resourceValues(forKeys:)` for a file that does not exist does not throw for the
+  ubiquity keys**; they come back unset, i.e. "not in iCloud". A test that expected nil
+  for a missing file failed; the outcome (no indicator) is the same either way.
+- **The 27 `Document` protocol has no presenter callbacks**, so nothing tells the document
+  that a version arrived or why an `apply` came; the monitor asks `NSFileVersion` on every
+  `restoreCount` change (and on activation and on the query's updates). What
+  `URLDocumentConfiguration` does give is the URL, `lastContentModificationDate` and
+  `makeFileCoordinator()`; `ProjectDocument` now exposes all three. ADR 0004 has the
+  amendment.
+- **Two conflict paths, by platform.** NSDocument (which the Mac scene runs on) presents
+  its own conflict sheet and Versions browser when the item gains a conflict version, and
+  issue #15 wants that dialog on the Mac, so an app-side resolution there would race it.
+  `PlatformConflictResolution` (a new seam) says the Mac observes only; iOS and visionOS
+  run `ConflictPolicy`. The pre-agreed fallback covers what the system resolves first:
+  `ProjectDocument.apply` over unsaved edits (`changeCount` past the count the last
+  `snapshot(contentType:)` or `apply` saw) records the replaced project, and the monitor
+  raises the notice from it on the restore. Since those edits are in hand, the fallback
+  offers Restore other version as well; that is one step beyond the agreed "notice without
+  restore", and `canRestore` is where to switch it off if the human prefers the agreement.
+  The fallback also fires for a Mac Revert To on an iCloud file whose edits had not
+  autosaved yet, which is rare (autosave lands within seconds) and harmless (Dismiss).
+- **Removing conflict versions: `isResolved = true`, then `remove()`, under a coordinated
+  metadata-only write.** The `NSFileVersion` header says so twice ("you must then remove
+  any versions of the file that are no longer useful"; "always remove file versions as
+  part of a coordinated write"). `removeOtherVersionsOfItem(at:)` would also take the
+  Mac's own saved versions, so the monitor removes exactly the versions it listed. The
+  coordinated read of each version's URL (which downloads a nonlocal version) and the
+  write run through `coordinate(with:queue:)` on a private `OperationQueue`, never
+  blocking the main actor: NSDocument relinquishes on its own queue, but a synchronous
+  coordinate on main while the presenter wants main is how a document app deadlocks.
+- **Dating the current version.** While the document has unsaved edits the policy gets
+  `lastEditDate` and no device name (the system only names saved versions); otherwise the
+  file's `NSFileVersion.currentVersionOfItem(at:)` date and `localizedNameOfSavingComputer`,
+  which matters when the system already applied another device's version as current: the
+  "current" the policy sees is then that device's, and the notice can still name it.
+- **A `var` array filled inside a `@Sendable` accessor and read by a `Task` after it is a
+  new warning** ("reference to captured var in concurrently-executing code"); build the
+  array with `map` into a `let`. Grep the whole log for `warning:`; the app target is
+  still at 7.
+- **The two-device conflict test and airplane-mode checks were not run**: this agent has
+  no signed-in devices, the simulators have no iCloud account, and a synthetic conflict
+  cannot be made (`addVersionOfItem` makes a local version, never a conflict version).
+  The manual steps are in the issue comments; the Mac's indicator was checked against a
+  local file only (nothing drawn).
+
+---
+
 ## 2026-09-18 — The CineSched iCloud folder: per-SDK entitlements, a merged plist that will not take NO, the panels' remembered directory, and a simulator that autosaves a minute later (#12)
 
 Giving iOS and visionOS the document lifecycle with iCloud Documents while the Mac stays

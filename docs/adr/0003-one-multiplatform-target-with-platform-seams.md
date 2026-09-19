@@ -27,6 +27,7 @@ starts with a header comment saying why the seam exists and what the non-Mac sid
 | Window tabbing and root view | `CineSchedApp.swift` | `allowsAutomaticWindowTabbing = false`, `ContentView` and the menus, the app delegate | `MinimalProjectEditor` and the system's `DocumentGroupLaunchScene` (#12; `PlatformPlaceholderView` until then) |
 | Readable document types | `PlatformDocumentTypes.swift` | `.cinesched` and legacy `.json` (the viewer role, ADR 0005) | `.cinesched` only (ADR 0006) |
 | Legacy `.json` handoff | `LegacyProjectHandoff.swift` | Moves a `.json`'s contents to an untitled document | Not built (#13 imports instead) |
+| Conflict resolution owner | `PlatformConflictResolution.swift` | `systemPresentsConflictUI` true: NSDocument's conflict sheet resolves iCloud versions, `SyncMonitor` only observes (#15) | False: `SyncMonitor` runs `ConflictPolicy` over `NSFileVersion`'s conflict versions |
 | Application delegate | `MacAppDelegate.swift` | Legacy working-copy recovery (#10), panel directory seeding (#12) | Not built |
 
 (Until #6 the two AppKit-drawn exporters and `ContentView+PDFExports.swift` (then `ProjectStore+PDFExports.swift`) were a temporary

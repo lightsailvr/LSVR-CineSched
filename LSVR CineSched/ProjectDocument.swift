@@ -19,6 +19,13 @@
 // It is also where a project without a palette adopts the device's legacy color
 // overrides (#11): every project entering a document, whether made new or read from disk,
 // passes through `adoptingDevicePalette`.
+//
+// For the sync state and the conflict notice (#14, #15, `SyncMonitor`) it exposes what
+// the configuration knows (`fileURL`, `lastContentModificationDate`, `makeFileCoordinator`)
+// and keeps three things the protocol does not ask for: when the project last changed
+// here (`lastEditDate`), whether it holds edits the file lacks (`hasUnsavedEdits`, from
+// the counts at the last `snapshot(contentType:)` and `apply`), and the edits an `apply`
+// replaced before they were written (`replacedUnsavedEdits`), which only `apply` can see.
 
 import Foundation
 import Observation
@@ -81,12 +88,55 @@ final class ProjectDocument: Document {
     private(set) var restoreCount = 0
 
     /// Where the document lives, when the system opened or saved it somewhere; nil for an
-    /// untitled window. Only read for conveniences such as where a PDF export panel opens.
+    /// untitled window. Read for conveniences such as where a PDF export panel opens, and
+    /// by `SyncMonitor` for the file's ubiquitous resource values (#14).
     var fileURL: URL? { configuration?.fileURL }
+
+    /// The file's content modification date as the infrastructure last saw it; nil for an
+    /// untitled window or a document built in a test. The conflict policy dates the
+    /// current version by it when the document holds nothing the file lacks (#15).
+    var lastContentModificationDate: Date? { configuration?.lastContentModificationDate }
+
+    /// The coordinator to read the file's other versions and remove them with (#15): the
+    /// infrastructure's own, which knows the document is the file's presenter and so will
+    /// not wait on it; a plain coordinator for a document with no configuration. Nothing
+    /// touches a version's URL outside a coordinated access.
+    func makeFileCoordinator() -> NSFileCoordinator {
+        configuration?.makeFileCoordinator() ?? NSFileCoordinator(filePresenter: nil)
+    }
 
     /// True once the file's contents have arrived through `apply`; false for a document
     /// still showing its construction-time project.
     var hasLoadedSnapshot: Bool { restoreCount > 0 }
+
+    /// When the project last changed on this device (an edit, an undo, a redo); nil until
+    /// it has. Dates the current version in a conflict decision (#15).
+    private(set) var lastEditDate: Date?
+
+    /// The change count the infrastructure last wrote (it asks for `snapshot(contentType:)`
+    /// to write) or applied; while `changeCount` is past it the document holds edits the
+    /// file does not.
+    private var savedChangeCount = 0
+
+    /// Whether the project holds changes the file has not received yet.
+    var hasUnsavedEdits: Bool { changeCount != savedChangeCount }
+
+    /// Edits a snapshot from disk replaced before they were written: the project as it was
+    /// the moment `apply` ran over a document with unsaved edits, and when they were made.
+    /// Nothing else can see them go, and the fallback conflict notice (#15) is about
+    /// exactly this; `SyncMonitor` takes the record on the restore that produced it.
+    struct ReplacedEdits {
+        var project:  ProjectData
+        var editedAt: Date?
+    }
+
+    private(set) var replacedUnsavedEdits: ReplacedEdits?
+
+    /// Hands over and clears the record of the edits the last `apply` replaced, if any.
+    func takeReplacedUnsavedEdits() -> ReplacedEdits? {
+        defer { replacedUnsavedEdits = nil }
+        return replacedUnsavedEdits
+    }
 
     /// Whether an opened file is a legacy `.json` rather than the native type. The document
     /// infrastructure autosaves an opened file in place within seconds of an edit and does
@@ -159,12 +209,19 @@ final class ProjectDocument: Document {
 
     /// Replaces the model wholesale: correctness first, incrementality later (#1). A
     /// snapshot without a palette (every file from before #11) adopts this device's
-    /// legacy overrides on the way in; see `adoptingDevicePalette`.
+    /// legacy overrides on the way in; see `adoptingDevicePalette`. A snapshot that lands
+    /// on edits the file never received (iCloud brought a newer version, or the Mac's
+    /// conflict sheet chose one) keeps those edits in `replacedUnsavedEdits` for the
+    /// fallback notice (#15); the first load of a fresh document replaces nothing.
     func apply(snapshot: ProjectData, previous: ProjectData?) async throws {
-        openGesture   = nil
-        project       = Self.adoptingDevicePalette(snapshot, from: deviceOverrides)
-        changeCount  += 1
-        restoreCount += 1
+        if hasUnsavedEdits {
+            replacedUnsavedEdits = ReplacedEdits(project: project, editedAt: lastEditDate)
+        }
+        openGesture      = nil
+        project          = Self.adoptingDevicePalette(snapshot, from: deviceOverrides)
+        changeCount     += 1
+        restoreCount    += 1
+        savedChangeCount = changeCount
     }
 
     // MARK: - Writing
@@ -175,8 +232,12 @@ final class ProjectDocument: Document {
         ProjectDocumentWriter()
     }
 
+    /// What the infrastructure writes; asking for it is the write, as far as the unsaved
+    /// edits record is concerned (a write that then fails is the infrastructure's to
+    /// retry, and it asks again).
     func snapshot(contentType: UTType) async throws -> ProjectData {
-        project
+        savedChangeCount = changeCount
+        return project
     }
 
     // MARK: - Edit funnel
@@ -200,7 +261,8 @@ final class ProjectDocument: Document {
     ) {
         if let gesture, let open = openGesture, open.token == gesture, open.undoManager === undoManager {
             edit(&project)
-            changeCount += 1
+            changeCount  += 1
+            lastEditDate  = Date()
             return
         }
         let before = project
@@ -211,7 +273,8 @@ final class ProjectDocument: Document {
             openGesture = nil
             return
         }
-        changeCount += 1
+        changeCount  += 1
+        lastEditDate  = Date()
         guard let undoManager else {
             openGesture = nil
             return
@@ -234,6 +297,7 @@ final class ProjectDocument: Document {
             document.project       = snapshot
             document.changeCount  += 1
             document.restoreCount += 1
+            document.lastEditDate  = Date()
             document.registerUndo(restoring: current, named: actionName, with: undoManager)
         }
         if let actionName { undoManager.setActionName(actionName) }

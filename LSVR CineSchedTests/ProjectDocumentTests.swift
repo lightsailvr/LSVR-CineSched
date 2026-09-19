@@ -439,6 +439,61 @@ struct ProjectDocumentTests {
         #expect(document.restoreCount == 3)
     }
 
+    // MARK: - Unsaved edits and the fallback record (#15)
+
+    /// The document knows whether it holds edits the file has not received: an edit, an
+    /// undo or a redo makes it so, the infrastructure asking for the snapshot to write
+    /// (or applying one) clears it.
+    @Test func unsavedEditsFollowPerformUndoAndTheWrite() async throws {
+        let undoManager = makeUndoManager()
+        let document    = ProjectDocument(project)
+        #expect(!document.hasUnsavedEdits)
+        #expect(document.lastEditDate == nil)
+
+        document.perform(undoManager: undoManager) { $0.projectTitle = "Edited" }
+        #expect(document.hasUnsavedEdits)
+        #expect(document.lastEditDate != nil)
+
+        _ = try await document.snapshot(contentType: .cineschedProject)
+        #expect(!document.hasUnsavedEdits)
+
+        undoManager.undo()
+        #expect(document.hasUnsavedEdits)
+
+        try await document.apply(snapshot: project, previous: nil)
+        #expect(!document.hasUnsavedEdits)
+    }
+
+    /// A snapshot from disk that lands on unsaved edits keeps them for the fallback
+    /// conflict notice, once; a snapshot that lands on a clean document keeps nothing.
+    @Test func applyOverUnsavedEditsRecordsThemOnce() async throws {
+        let undoManager = makeUndoManager()
+        let document    = ProjectDocument(project)
+
+        try await document.apply(snapshot: project, previous: nil)
+        #expect(document.replacedUnsavedEdits == nil)
+
+        document.perform(undoManager: undoManager) { $0.projectTitle = "Typed on this device" }
+        var fromElsewhere = project
+        fromElsewhere.projectTitle = "Typed elsewhere"
+        try await document.apply(snapshot: fromElsewhere, previous: project)
+
+        #expect(document.project.projectTitle == "Typed elsewhere")
+        let replaced = try #require(document.takeReplacedUnsavedEdits())
+        #expect(replaced.project.projectTitle == "Typed on this device")
+        #expect(replaced.editedAt != nil)
+        #expect(document.takeReplacedUnsavedEdits() == nil)
+    }
+
+    /// The document with no configuration still hands out a coordinator and no dates,
+    /// so the monitor's conflict check can run against it.
+    @Test func aDocumentWithoutAConfigurationHasNoURLOrDate() {
+        let document = ProjectDocument(project)
+        #expect(document.fileURL == nil)
+        #expect(document.lastContentModificationDate == nil)
+        _ = document.makeFileCoordinator()
+    }
+
     /// An editor's Save writes its whole value back whether or not anything changed; a
     /// write that leaves the project equal must not dirty the document or add an undo step.
     @Test func anEditThatChangesNothingRegistersNoUndoStep() throws {

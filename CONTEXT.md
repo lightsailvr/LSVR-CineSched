@@ -65,8 +65,8 @@ Film-production terms first, then app-specific ones.
 | **Fountain / FDX / Highland** | Supported screenplay import formats: plain-text Fountain, Final Draft XML, and Highland's zipped TextBundle. |
 | **Project document** | `ProjectDocument`: the one observable document every platform reads, writes and edits (ADR 0004). Its snapshot is `ProjectData`; its reader and writer go through `ProjectCodec`; every edit goes through `perform`, which registers the undo action. On the Mac, `DocumentGroup` makes one per window and `ContentView` edits it. |
 | **Edit gesture** | An `EditGesture` token passed to every `perform` of one user gesture (a drag, a typing burst) so the gesture undoes as one step. |
-| **Sync state** | What the indicator beside the project title says about this copy of an iCloud Drive project (#14): up to date, uploading, downloading, waiting for network, or conflict resolved (`SyncState`). Derived by `SyncState.derive` from the document URL's ubiquitous resource values (`UbiquitousResourceSnapshot`), the network and the conflict policy's flag; a file outside iCloud has none, and the indicator draws nothing. Conflict resolved is shown until the next edit. |
-| **Conflict notice** | What the user sees after iCloud reported the same project edited on two devices (#15): the newest version was kept, and the notice names the device and time of the one that lost, with a **Restore other version** action. The decision is `ConflictPolicy.decide` over `ConflictVersion` values: newest wins (the current one on a tie), the rest are resolved, the loser is retained for the session; a single version yields no notice. Restore applies the retained snapshot through `perform`, so it is undoable. Lives in the sync indicator area; dismisses when acted on or after the next edit. |
+| **Sync state** | What the indicator beside the project title says about this copy of an iCloud Drive project (#14): up to date, uploading, downloading, waiting for network, or conflict resolved (`SyncState`). Derived by `SyncState.derive` from the document URL's ubiquitous resource values (`UbiquitousResourceSnapshot`), the network and the conflict notice's presence; a file outside iCloud has none, and the indicator draws nothing. `SyncMonitor` (one per editor) reads the values on every change, restore, activation and a short poll, with an `NSMetadataQuery` on the entitled platforms and an `NWPathMonitor` everywhere; `SyncStateIndicator` draws it. Conflict resolved is shown until the next edit. |
+| **Conflict notice** | What the user sees after iCloud reported the same project edited on two devices (#15): the newest version was kept, and the notice names the device and time of the one that lost, with a **Restore other version** action. The decision is `ConflictPolicy.decide` over `ConflictVersion` values: newest wins (the current one on a tie), the rest are resolved, the loser is retained for the session; a single version yields no notice. `SyncMonitor` runs it on iOS and visionOS over `NSFileVersion`'s unresolved conflict versions (read and removed under the document's coordinator); on the Mac the system's own conflict sheet resolves them (`PlatformConflictResolution`). Either way, a snapshot from disk that replaces unsaved local edits raises the same notice from the document's record of those edits (the **fallback**, `ConflictNotice.Origin.replacedUnsavedEdits`). Restore applies the retained snapshot through `perform`, so it is undoable. Lives in the sync indicator area (`ConflictNoticeState` is the lifecycle); dismisses when acted on or after the next edit. |
 | **Native file type** | `com.lsvr.cinesched.project`, extension `.cinesched`, conforming to JSON (ADR 0005). Same bytes as the `.json` the app has always written; declared in `Config/Info.plist` as the exported type and the only document type. |
 | **Viewer role** | How a legacy `.json` opens on the Mac: it is a readable type there (`PlatformDocumentTypes`), so File ▸ Open lists it, but the document infrastructure would autosave it in place, so `LegacyProjectHandoff` moves its contents into an untitled document and closes the `.json` window. The first Save asks for a `.cinesched` destination; the `.json` is never modified (the writer refuses it). iOS and visionOS have no viewer role: `.json` is not readable there, the browser shows only `.cinesched`, and a legacy file is imported into a new project instead (#13). |
 | **CineSched folder** | The iCloud Documents container `iCloud.com.lsvr.LSVR-CineSched`, public and named "CineSched", so iCloud Drive shows it as a folder on every device of the account (ADR 0006). Owned by the iOS, iPadOS and visionOS builds through their entitlement (`Config/CineSched-iOS.entitlements`); their launch screen and document browser start in it. The Mac has no iCloud entitlement, so it reaches the folder like any other (user-selected files); `CineSchedFolder` derives its on-disk path (`~/Library/Mobile Documents/iCloud~com~lsvr~LSVR-CineSched/Documents`) and `MacAppDelegate` points the Open and Save panels there once, the first launch on which it exists. It exists only after a device has saved a project in it. |
@@ -119,9 +119,16 @@ LegacyWorkingCopyRecovery.swift                                       The first-
                                                                        working copy and file bookmark (#10); MacAppDelegate acts on it.
 SyncState.swift                                                       The sync state beside the title (#14): the five states and the pure
                                                                        mapping from a URL's ubiquitous resource values, the network and
-                                                                       the conflict flag; nil outside iCloud. The platform scenes wire it.
+                                                                       the conflict flag; nil outside iCloud.
 ConflictPolicy.swift                                                  The conflict decision (#15): newest version wins, the rest resolved,
                                                                        the loser retained for the notice and Restore other version.
+ConflictNotice.swift                                                  The notice and its lifecycle (raised at a change count, retired by the
+                                                                       next), and how the document's own version is dated. Pure.
+SyncMonitor.swift                                                     The wiring, one per editor: resource values, metadata query, path
+                                                                       monitor, the NSFileVersion pipeline through the coordinator, the
+                                                                       fallback from the document's replaced-edits record.
+SyncStateIndicator.swift                                              The indicator beside the title and the notice popover. Platform-free.
+PlatformConflictResolution.swift                                      Seam: whether the system presents its own conflict UI (the Mac).
 ```
 
 ### Data flow
@@ -153,6 +160,19 @@ ConflictPolicy.swift                                                  The confli
    when no project window is key.
 6. Exporters are pure functions from model values to `Data` (PDF). The save-panel actions around them
    live in `ContentView+PDFExports.swift`; the panels themselves come from `FilePanels`.
+7. The sync state and the conflict notice (#14, #15) come from a `SyncMonitor` each editor
+   owns. The editor starts it with the document and hands it every `changeCount` and
+   `restoreCount` change and the scene phase; the monitor reads `document.fileURL`'s
+   ubiquitous resource values (on those triggers, on a poll, and when its metadata query or
+   path monitor reports), runs `SyncState.derive`, and `SyncStateIndicator` beside the title
+   reads `monitor.state`. A restore is where a conflict shows: on iOS and visionOS the monitor
+   reads `NSFileVersion`'s unresolved conflict versions under the document's coordinator, runs
+   `ConflictPolicy.decide`, applies a winning other version through `perform` ("Undo Resolve
+   Conflict"), marks and removes the conflict versions, and raises the notice with the loser
+   retained; on the Mac NSDocument's own conflict sheet does the choosing, and the notice comes
+   only from the fallback, the edits `ProjectDocument.apply` found unsaved and recorded. Restore
+   other version is a `perform` of the retained snapshot ("Undo Restore Other Version"); the
+   next `changeCount` that is not the resolution's own retires the notice.
 
 ### Invariants to preserve
 

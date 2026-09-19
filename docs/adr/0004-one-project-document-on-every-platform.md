@@ -87,3 +87,33 @@ to register with there, and an adoption must not appear as an Undo step the mome
 opens, so it lives in memory until the project's next registered edit autosaves it. The
 rule stands for everything the user does; this is the one seam-owned exception, tested
 in `ProjectDocumentTests`.
+
+## Amendment (2026-09-19, #14, #15)
+
+Two limitations of the document surfaced while wiring the sync state and the conflict
+notice, and shape how they are built:
+
+- **The document is not told about a conflict.** The 27 `Document` protocol has no
+  presenter callbacks (`presentedItemDidGainVersion`, `presentedItemDidChangeUbiquityAttributes`
+  are NSDocument's and UIDocument's, not the SwiftUI document's), and nothing in the
+  protocol says why an `apply` arrived. So the sync state is observed from outside the
+  document (`SyncMonitor` reads the URL's resource values on the document's own counters,
+  a poll, a metadata query and the path monitor), and a conflict is discovered by asking
+  `NSFileVersion` for unresolved conflict versions on every restore rather than by being
+  told. `URLDocumentConfiguration` does provide what the resolution needs — the URL, the
+  last content modification date and a file coordinator that knows the document is the
+  presenter — and `ProjectDocument` exposes those three.
+- **The Mac's infrastructure resolves conflicts itself, before the app can look.** The Mac
+  scene runs on NSDocument, whose conflict sheet and Versions browser handle a conflict
+  version the moment the window is main; an app-side resolution there would race the
+  sheet, and issue #15 wants the sheet. Hence the `PlatformConflictResolution` seam: the
+  app resolves only on iOS and visionOS. Where the system chooses first, the only thing
+  the document can still observe is that a snapshot from disk replaced edits it had not
+  written: `apply` records them (`replacedUnsavedEdits`, from the `snapshot(contentType:)`
+  and `apply` bookkeeping that defines `hasUnsavedEdits`), and the pre-agreed fallback
+  notice is raised from that record. The record is one field more than the protocol's
+  contract asks for, kept in the document because only `apply` sees the project it is
+  about to replace.
+
+Neither changes the decision: one document, one snapshot type, one funnel. The resolution
+and the restore are both `perform`s, so they autosave and undo like any edit.
