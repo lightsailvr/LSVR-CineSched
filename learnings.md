@@ -57,7 +57,10 @@ Adding Import Script… and Import Project… to the iOS/visionOS `DocumentGroup
 - **`BreakdownPDFExporterTests/breakdownPrintsOneSheetPerSceneInScriptOrder` fails on the
   iPhone 17 simulator at the branch tip (`6c329fb`), before this change**: PDFKit's text
   extraction there joins "1" and the title ("SHEET #\n1 The Long Way HomeSCENE #"). It
-  passes on the Mac; not touched here.
+  passes on the Mac; not touched here. (Fixed afterwards, #33: the PDF is the same on
+  every platform, only PDFKit's extracted-text layout differs, so a pin that ends a cell
+  with `\n` is Mac-only. The test now matches `SHEET #\n1` followed by any whitespace,
+  which still rejects "10"; pin the cell's content, never the break after it.)
 
 ---
 

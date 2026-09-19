@@ -67,8 +67,12 @@ struct BreakdownPDFExporterTests {
         #expect(first.contains("BREAKDOWN SHEET"))
         // The sheet-number label is "SHEET #" (the masthead carries the full name): the
         // old "BREAKDOWN SHEET #" was a point too wide for its column on the Mac, so its
-        // "#" wrapped onto a line the label box clipped (#33). Label, then the number.
-        #expect(first.contains("SHEET #\n1\n"))
+        // "#" wrapped onto a line the label box clipped (#33). Label, then the number,
+        // then a break: the number is the whole cell ("1", not "10"). What the break is
+        // depends on the platform's PDFKit, not on the drawing: the Mac's extraction ends
+        // the cell with a newline, the iOS and visionOS one runs it into the title cell
+        // on the same baseline with a space ("1 The Long Way Home").
+        #expect(first.contains(#/SHEET #\n1\s/#))
         #expect(!first.contains("SHEET\n#"))
         #expect(first.contains(PDFFixture.title))
         #expect(first.contains("SCENE #\n7A"))
