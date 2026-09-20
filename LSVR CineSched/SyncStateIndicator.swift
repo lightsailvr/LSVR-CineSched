@@ -51,6 +51,9 @@ struct SyncStateIndicator: View {
                             showingNotice = false
                         }
                     )
+                    // Stay a popover on the iPhone too; the default adaptation there is a
+                    // full-height sheet for a three-line notice.
+                    .presentationCompactAdaptation(.popover)
                 }
             }
             .onChange(of: monitor.notice) { _, notice in
@@ -114,7 +117,14 @@ struct ConflictNoticeView: View {
             }
         }
         .padding()
-        .frame(minWidth: 300, idealWidth: 340, maxWidth: 400)
+        // A fixed width, not a min/ideal/max range: on iPadOS the popover takes its
+        // preferred size from the content measured unconstrained, i.e. with the message
+        // on one line, then caps the width, so the wrapped text pushed the title and the
+        // buttons out of the frame (seen on the iPad in the first two-device test). With
+        // the width fixed the height is measured for the wrapped message, and the
+        // vertical fixedSize keeps the popover from shrinking it again.
+        .frame(width: 360)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private var message: String {
