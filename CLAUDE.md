@@ -104,6 +104,15 @@ the build inputs outside it, see Working agreements):
 - `BoneyardListView.swift`: the Boneyard list (strip rows, drag out, drop back, tooltip,
   double-tap editor, context menu) as a view both layouts draw; every action is a closure
   `ContentView` wires to the selection, the sheets and the funnel.
+- `ScheduleDrag.swift`: the one typed drag payload every drag on the schedule carries (#18),
+  pure: `ScheduleDragPayload` (a `Transferable` on the exported `UTType.cineschedDragPayload`,
+  with kinds scenes/day/dayType/calendarEvent), `SceneDropDestination` (a day and a place —
+  `.before(sceneID)` or `.end`), and `ScheduleMoves.moveScenes` / `.returnToBoneyard`, the
+  pure moves a drop makes over `[ShootDay]` and the Boneyard (`ScheduleDragTests`). The
+  calendar, the Stripboard and the Boneyard drag with `.draggable`/`.dropDestination` on this
+  type (not the 27 reorder container — it crashes beside a heterogeneous drag container, see
+  CalendarView's header and learnings.md 2026-09-20); `CalendarView` holds the shared
+  `DropIndicatorView`, `DragSessionTracking` and `DropTargetTracking`.
 - `ContentView+Inspector.swift`: the three-column layout's trailing column: the project
   statistics when nothing is selected, `SceneEditSheet` bound to the selected scene by id
   (Save is one gesture, Cancel and Delete clear the selection), `DayDetailSheet` for the
@@ -283,6 +292,16 @@ the build inputs outside it, see Working agreements):
   in the context menu and nowhere else. An editor shown in the inspector reads
   `@Environment(\.editorPresentation)` to drop its sheet-only frame and auto-focus. Per-window
   view state on the iPad (the inspector's visibility) is a `@WindowPreference` like the rest.
+- **Drag and drop (#18)**: every drag on the schedule carries one `ScheduleDragPayload`
+  (`ScheduleDrag.swift`), never a text encoding, and a drop switches on its kind. Strips,
+  the day handle, the day-type band and event chips are `.draggable(payload)`; cells and day
+  sections are `.dropDestination(for: ScheduleDragPayload.self)`, with a per-strip drop zone
+  for the exact insertion point. A scene move goes through `ScheduleMoves.moveScenes` in one
+  `edit`/gesture; a drop back to the Boneyard through `ScheduleMoves.returnToBoneyard`. Do
+  not add a `dragContainer`/`reorderContainer`: on 27.0 a drag container captures every
+  same-typed plain draggable in the window and the reorder container crashes beside it
+  (learnings.md 2026-09-20). Multi-select drags carry `selectedSceneIDs` widened in the
+  payload closure; clear drop highlight on exit, on drop and on `dragStateResetToken` (undo).
 - **Colors**: resolve scene colors only via `Scene.stripColor(in:)`, with the project's palette
   (`ProjectData.resolvedPalette`): views read `@Environment(\.scenePalette)`, which `ContentView`
   sets once at its root; an exporter that draws strips takes `palette:` with the project. Nothing
@@ -334,6 +353,9 @@ coordinated accesses, the metadata query and the path monitor have no unit seam:
 signed-in device (the manual two-device test in issue #15),
 `CineSchedFolder` (`CineSchedFolderTests`),
 `EditorSelection`, `ProjectData.locate(sceneID:)` and the pruning (`EditorSelectionTests`),
+`ScheduleDragPayload` (round-trip per kind, including multi-scene) and `ScheduleMoves`
+(from the Boneyard, within a day, across days, before a strip or at the end, back to the
+Boneyard) in `ScheduleDragTests`,
 `ScriptImport.parse`, `LaunchImport` and `LaunchImportFlow` driven through its callbacks
 (`LaunchImportTests`: one parse per format, the script → new project step, the legacy `.json`
 read against `ProjectCodec` with the source bytes pinned, and every cancellation path),
@@ -369,7 +391,8 @@ metrics or wrapping are guarded by `PDFFixture.hasMacSystemFace`.
 - Keep the `.app.zip` bundles, `1024.png`, and other non-source files out of `LSVR CineSched/`; they get copied into the app.
 - The `Info.plist` is generated from build settings (`GENERATE_INFOPLIST_FILE = YES`) and merged with the partial
   `Config/Info.plist`, which holds only keys that cannot be `INFOPLIST_KEY_` settings (today the exported
-  `.cinesched` type, ADR 0005, and the `NSUbiquitousContainers` dictionary, ADR 0006). Never put a plist in the
+  `.cinesched` type, ADR 0005, the in-app `.drag-payload` type, #18, and the
+  `NSUbiquitousContainers` dictionary, ADR 0006). Never put a plist in the
   source folder: it would be bundled as a resource and collide with the generated plist in the flat iOS bundle.
   Version and bundle identifier live in build settings; an iOS-only key is a per-SDK `INFOPLIST_KEY_…[sdk=…]`
   setting. Entitlements are per platform: `LSVR CineSched/CineSched.entitlements` for the Mac (sandbox and

@@ -5,13 +5,20 @@
 // Mac window and the iPad's three-column editor draw the same list; every action is a
 // closure the editor supplies, and every write happens in the editor's edit funnel.
 //
+// Drag and drop (#18): each row is `draggable` with a `ScheduleDragPayload` of scenes,
+// widened by the editor to the whole multi-selection when the row is part of it; the whole
+// list is the drop destination for strips coming back from a day. (Not the drag container
+// with selection: on 27.0 a `dragContainer(for: ScheduleDragPayload.self)` here captured
+// the schedule's plain draggables of the same type and crashed their lift at
+// `DragContainerStorage.payload(for:)`, so every drag on the schedule uses plain
+// `draggable`, and the Boneyard matches it. See CalendarView's header note.)
+//
 // View-body cost (#34): this body is evaluated for every Boneyard row on every redraw,
 // and SwiftUI builds `.contextMenu` eagerly, so nothing here builds a formatter or scans
 // the project. The sorted rows and the duplicate set arrive computed once per change
 // (`DerivedScheduleState`).
 
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct BoneyardListView: View {
     /// The Boneyard's script scenes in display order, each with its index in `allScenes`,
@@ -26,10 +33,10 @@ struct BoneyardListView: View {
     let onEdit:      (Int, Scene) -> Void
     let onDuplicate: (Scene) -> Void
     let onDelete:    (Int) -> Void
-    /// The drag payload for a row, which the editor widens to the whole multi-selection.
-    let dragPayload: (Scene) -> NSItemProvider
-    /// A strip dropped back from a day: the comma-joined scene ids the schedule views drag.
-    let onDropFromSchedule: (String) -> Void
+    /// The payload a row carries when it is lifted (the selection widened, or the row).
+    let dragPayload: (Scene) -> ScheduleDragPayload
+    /// Strips dropped back from a day.
+    let onDropFromSchedule: ([ScheduleDragPayload]) -> Void
 
     @Environment(\.scenePalette) private var palette
 
@@ -78,7 +85,7 @@ struct BoneyardListView: View {
                             .strokeBorder(Color.red, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
                             .opacity(isDup ? 1 : 0)
                     )
-                    .onDrag { dragPayload(item.scene) }
+                    .draggable(dragPayload(item.scene))
                     .fastTooltip(item.scene.tooltipText)
                     .simultaneousGesture(
                         TapGesture(count: 2).onEnded {
@@ -107,14 +114,8 @@ struct BoneyardListView: View {
             .padding(4)
         }
         .tooltipContainer()
-        .onDrop(of: [UTType.text.identifier], isTargeted: nil) { providers in
-            guard let provider = providers.first else { return false }
-            provider.loadObject(ofClass: NSString.self) { item, _ in
-                if let idString = item as? String {
-                    DispatchQueue.main.async { onDropFromSchedule(idString) }
-                }
-            }
-            return true
+        .dropDestination(for: ScheduleDragPayload.self) { items, _ in
+            onDropFromSchedule(items)
         }
     }
 }

@@ -1,10 +1,21 @@
 // CalendarView.swift
-// Calendar grid with drag-and-drop scene scheduling
+// Calendar grid with drag-and-drop scene scheduling.
+//
+// Drag and drop (#18): every drag carries a `ScheduleDragPayload` (ScheduleDrag.swift), and
+// each cell (and each empty date tile) is one `dropDestination` that switches on the
+// payload's kind. Each strip is `draggable` with the scenes it moves (widened to the
+// multi-selection), and a thin drop zone between strips gives the exact insertion point,
+// with a `DropIndicatorView` where it will land. The day handle and the day-type band are
+// their own draggables. Every drop is one edit gesture.
+//
+// Not the 27 SDK's `reorderContainer`/`reorderable`: those own the lift of an item, and
+// combined with the drag container the app also needs (to carry a strip out to the Boneyard
+// and to carry the day handle and band, which are not strips) the lift crashed at
+// `DragContainerStorage.payload(for:)` on 27.0, because a reorderable strip is not a
+// registered item of that heterogeneous drag container. The Boneyard, whose items are all
+// one kind, does use the drag container with selection (BoneyardListView).
 
 import SwiftUI
-import UniformTypeIdentifiers
-
-// MARK: - DropIndicatorView & Delegates
 
 // MARK: - Day type submenu (shared by the day cell and empty cell context menus)
 
@@ -31,15 +42,6 @@ func dayTypePicker(_ title: String, current: DayType?, onSelect: @escaping (DayT
     }
 }
 
-struct DropIndicatorView: View {
-    var body: some View {
-        Rectangle()
-            .fill(Color.blue)
-            .frame(height: 2)
-            .padding(.vertical, 1)
-    }
-}
-
 // MARK: - Selecting into the inspector
 
 /// A single tap that exists only where there is an inspector to select into (#17): the
@@ -62,102 +64,63 @@ struct SelectOnTap: ViewModifier {
     }
 }
 
-struct CombinedDayDropDelegate: DropDelegate {
-    let dayId: UUID
-    let scenes: [Scene]
-    @Binding var dropTargetDayId: UUID?
-    @Binding var dropTargetPosition: Int?
-    @Binding var dayDropTargetId: UUID?
-    @Binding var draggingDayId: UUID?
-    let onSceneDrop: (UUID) -> Void
-    let onDayDrop: (UUID) -> Void
-    /// A day-type band being dragged (calendar only). Optional so the Stripboard, which has
-    /// no band, keeps its existing call sites. Moves just the type and note, not the day.
-    var draggingDayTypeId: Binding<UUID?>? = nil
-    var onDayTypeDrop: ((UUID) -> Void)? = nil
+// MARK: - Drop plumbing shared with the Stripboard
 
-    func performDrop(info: DropInfo) -> Bool {
-        if let typeBinding = draggingDayTypeId, let sourceId = typeBinding.wrappedValue {
-            if sourceId != dayId { onDayTypeDrop?(sourceId) }
-            typeBinding.wrappedValue = nil
-            dayDropTargetId = nil
-            return true
-        }
-        if let dayIdStr = draggingDayId, dayIdStr != dayId {
-            onDayDrop(dayIdStr)
-            draggingDayId = nil
-            dayDropTargetId = nil
-            return true
-        }
-        guard let item = info.itemProviders(for: [UTType.text.identifier]).first else { return false }
-        // Drag payloads are built with NSItemProvider(object: … as NSString), so load them back
-        // as NSString; loadItem(forTypeIdentifier:) is deprecated as of the 27.0 SDKs.
-        item.loadObject(ofClass: NSString.self) { loaded, _ in
-            if let idStr = loaded as? String {
-                let firstIdStr = idStr.split(separator: ",").first.map(String.init) ?? idStr
-                if let uuid = UUID(uuidString: firstIdStr) {
-                    DispatchQueue.main.async {
-                        onSceneDrop(uuid)
-                    }
-                }
-            }
-        }
-        dropTargetDayId = nil
-        dropTargetPosition = nil
-        return true
-    }
-
-    func dropEntered(info: DropInfo) {
-        let typeDragId = draggingDayTypeId?.wrappedValue
-        if (draggingDayId != nil && draggingDayId != dayId) || (typeDragId != nil && typeDragId != dayId) {
-            dayDropTargetId = dayId
-        } else {
-            dropTargetDayId = dayId
-            dropTargetPosition = scenes.count
-        }
-    }
-
-    func dropExited(info: DropInfo) {
-        if dayDropTargetId == dayId { dayDropTargetId = nil }
-        if dropTargetDayId == dayId { dropTargetDayId = nil }
+/// The blue line the drop indicator draws where a strip will land.
+struct DropIndicatorView: View {
+    var body: some View {
+        Rectangle()
+            .fill(Color.blue)
+            .frame(height: 2)
+            .padding(.vertical, 1)
     }
 }
 
-struct SceneDropDelegate: DropDelegate {
-    let dayId: UUID
-    let position: Int
-    @Binding var dropTargetDayId: UUID?
-    @Binding var dropTargetPosition: Int?
-    let onDrop: (UUID) -> Void
+/// Follows a plain `draggable`'s session in a binding: the day handle's and the band's
+/// day, which the cells read to colour a hover green (a day is coming) rather than red
+/// (scenes are) and the source cell reads to fade. Set when the session starts and
+/// cleared when it ends however it ends; the `onDrag` closure this replaces could only set
+/// it, so a day drag dropped nowhere left the id behind for the next drop to misread.
+struct DragSessionTracking: ViewModifier {
+    @Binding var draggingID: UUID?
+    let id: UUID
 
-    func performDrop(info: DropInfo) -> Bool {
-        guard let item = info.itemProviders(for: [UTType.text.identifier]).first else { return false }
-        // Drag payloads are built with NSItemProvider(object: … as NSString), so load them back
-        // as NSString; loadItem(forTypeIdentifier:) is deprecated as of the 27.0 SDKs.
-        item.loadObject(ofClass: NSString.self) { loaded, _ in
-            if let idStr = loaded as? String {
-                let firstIdStr = idStr.split(separator: ",").first.map(String.init) ?? idStr
-                if let uuid = UUID(uuidString: firstIdStr) {
-                    DispatchQueue.main.async {
-                        onDrop(uuid)
-                    }
-                }
+    func body(content: Content) -> some View {
+        content.onDragSessionUpdated { session in
+            switch session.phase {
+            case .initial, .active:
+                draggingID = id
+            case .ended, .dataTransferCompleted:
+                if draggingID == id { draggingID = nil }
+            default:
+                break
             }
         }
-        dropTargetDayId = nil
-        dropTargetPosition = nil
-        return true
     }
+}
 
-    func dropEntered(info: DropInfo) {
-        dropTargetDayId = dayId
-        dropTargetPosition = position
-    }
+/// The hover state of a calendar cell or a Stripboard day section during a drop session:
+/// `dayDropTargetId` (green) while a day or a band is in flight, `dropTargetDayId` (red)
+/// for scenes, either cleared when the session leaves or ends. The views also clear both
+/// on `dragStateResetToken` so an undo mid-hover cannot leave a border stuck.
+struct DropTargetTracking: ViewModifier {
+    let dayID: UUID
+    /// Whether the drag in flight is a whole day or a band rather than scenes.
+    let isDayDrag: Bool
+    @Binding var dropTargetDayId: UUID?
+    @Binding var dayDropTargetId: UUID?
 
-    func dropExited(info: DropInfo) {
-        if dropTargetDayId == dayId && dropTargetPosition == position {
-            dropTargetDayId = nil
-            dropTargetPosition = nil
+    func body(content: Content) -> some View {
+        content.onDropSessionUpdated { session in
+            switch session.phase {
+            case .entering, .active:
+                if isDayDrag { dayDropTargetId = dayID } else { dropTargetDayId = dayID }
+            case .exiting, .ended, .dataTransferCompleted:
+                if dayDropTargetId == dayID { dayDropTargetId = nil }
+                if dropTargetDayId == dayID { dropTargetDayId = nil }
+            @unknown default:
+                break
+            }
         }
     }
 }
@@ -182,8 +145,6 @@ struct DayCellView: View {
     @Binding var dayDropTargetId: UUID?
     @Binding var addingEventForDayId: UUID?
     @Binding var callSheetDay: ShootDay?
-    @Binding var interactingSceneId: UUID?
-    @Binding var draggedSceneId: UUID?
     @Binding var draggingDayTypeId: UUID?
 
     let onOpenDayDetail: () -> Void
@@ -193,10 +154,12 @@ struct DayCellView: View {
     let onToggleCompletedScene: (Scene) -> Void
     let onSelectScene: (Scene) -> Void
     let onSendToDay: (Scene) -> Void
-    let onHandleSceneDrop: (UUID, Int) -> Void
-    let onHandleDayRearrange: (UUID) -> Void
-    /// The day-type band from `sourceDayId` was dropped on this cell.
-    let onHandleDayTypeMove: (UUID) -> Void
+    /// The payload a strip on this day carries when it is lifted, widened by the editor to
+    /// the whole multi-selection when the strip is part of it.
+    let dragPayload: (Scene) -> ScheduleDragPayload
+    /// Payloads dropped on this cell (scenes at the given place, a day, a band, an event).
+    /// The calendar switches on each payload's kind.
+    let onDrop: ([ScheduleDragPayload], SceneDropDestination.Position) -> Void
     let onSetDayType: (ShootDay, DayType) -> Void
     let onSetDayTypeForWeekday: (ShootDay, DayType) -> Void
     let onClearDayType: (ShootDay) -> Void
@@ -264,17 +227,16 @@ struct DayCellView: View {
             onOpenDayDetail()
         }
         .modifier(SelectOnTap(action: onSelectDay))
-        .onDrop(of: [UTType.text.identifier], delegate: CombinedDayDropDelegate(
-            dayId: day.id,
-            scenes: visibleScenes,
+        // The whole cell: a day handle, a band, or scenes dropped on the header/footer
+        // rather than on a strip's drop zone, which land at the end of the day.
+        .dropDestination(for: ScheduleDragPayload.self) { items, _ in
+            onDrop(items, .end)
+        }
+        .modifier(DropTargetTracking(
+            dayID: day.id,
+            isDayDrag: draggingDayId != nil || draggingDayTypeId != nil,
             dropTargetDayId: $dropTargetDayId,
-            dropTargetPosition: $dropTargetPosition,
-            dayDropTargetId: $dayDropTargetId,
-            draggingDayId: $draggingDayId,
-            onSceneDrop: { sceneId in onHandleSceneDrop(sceneId, visibleScenes.count) },
-            onDayDrop: { sourceDayId in onHandleDayRearrange(sourceDayId) },
-            draggingDayTypeId: $draggingDayTypeId,
-            onDayTypeDrop: { sourceDayId in onHandleDayTypeMove(sourceDayId) }
+            dayDropTargetId: $dayDropTargetId
         ))
     }
 
@@ -286,10 +248,8 @@ struct DayCellView: View {
                     .foregroundColor(draggingDayId == day.id ? .blue : .secondary)
                     .padding(2)
                     .contentShape(Rectangle())
-                    .onDrag {
-                        draggingDayId = day.id
-                        return NSItemProvider(object: "day:\(day.id.uuidString)" as NSString)
-                    }
+                    .draggable(ScheduleDragPayload(.day(id: day.id)))
+                    .modifier(DragSessionTracking(draggingID: $draggingDayId, id: day.id))
                     .help("Drag to swap this day's scenes, call sheet, day type, and note with another date")
 
                 if let onSelectDay {
@@ -423,10 +383,8 @@ struct DayCellView: View {
             .contentShape(Rectangle())
             // The band is what people grab when they want to "move the scout day". It moves
             // only the type and note; the header handle is the gesture for the whole day.
-            .onDrag {
-                draggingDayTypeId = day.id
-                return NSItemProvider(object: "daytype:\(day.id.uuidString)" as NSString)
-            }
+            .draggable(ScheduleDragPayload(.dayType(dayID: day.id)))
+            .modifier(DragSessionTracking(draggingID: $draggingDayTypeId, id: day.id))
             .help(L("Drag to move this day type to another date"))
         }
         if !day.dayNote.isEmpty {
@@ -446,6 +404,9 @@ struct DayCellView: View {
         formattedDate(date, pattern: "EEEE")
     }
 
+    /// The day's strips, each `draggable` and each preceded by a thin drop zone that lands a
+    /// scene before it (the last strip's footer zone lands at the end). The indicator marks
+    /// the zone the drag is over.
     private var sceneList: some View {
         VStack(spacing: 2) {
             ForEach(Array(visibleScenes.enumerated()), id: \.element.id) { sceneIndex, scene in
@@ -458,7 +419,6 @@ struct DayCellView: View {
                         dayId: day.id,
                         dayIndex: dayIndex,
                         sceneIndex: sceneIndex,
-                        interactingSceneId: $interactingSceneId,
                         isSelected: selectedSceneIDs.contains(scene.id),
                         selectionCount: selectedSceneIDs.count,
                         showCast: isSidebarCollapsed || showCastOnCards,
@@ -470,20 +430,24 @@ struct DayCellView: View {
                         onRemove:    { onRemoveScene(scene) },
                         onDuplicate: { onDuplicateScene(scene) },
                         onToggleCompleted: { onToggleCompletedScene(scene) },
-                        onDragStart: { draggedSceneId = scene.id },
-                        onDragEnd:   { draggedSceneId = nil },
                         onSelect:    { onSelectScene(scene) },
                         onSendToDay: { onSendToDay(scene) },
-                        dragPayload: { scene.id.uuidString }
+                        dragPayload: { dragPayload(scene) }
                     )
                 }
-                .onDrop(of: [UTType.text.identifier], delegate: SceneDropDelegate(
-                    dayId: day.id,
-                    position: sceneIndex,
-                    dropTargetDayId: $dropTargetDayId,
-                    dropTargetPosition: $dropTargetPosition,
-                    onDrop: { sceneId in onHandleSceneDrop(sceneId, sceneIndex) }
-                ))
+                // Landing this strip before `scene`. `.before` names the scene, so an
+                // insert is by id and never an index that a concurrent move invalidated.
+                .dropDestination(for: ScheduleDragPayload.self) { items, _ in
+                    onDrop(items, .before(scene.id))
+                    return true
+                } isTargeted: { targeted in
+                    if targeted {
+                        dropTargetDayId = day.id
+                        dropTargetPosition = sceneIndex
+                    } else if dropTargetDayId == day.id && dropTargetPosition == sceneIndex {
+                        dropTargetPosition = nil
+                    }
+                }
             }
 
             if dropTargetDayId == day.id && dropTargetPosition == visibleScenes.count {
@@ -574,16 +538,16 @@ struct CompactMonthCalendarView: View {
     @State private var showingSendToDaySheet = false
     @State private var sendToDaySceneIDs: [UUID] = []
 
-    // Day rearrange drag/drop state
+    // Day rearrange drag/drop state: the day whose handle or band is in flight (the
+    // source cell fades; hovers turn green) and the cell it hovers.
     @State private var draggingDayId:       UUID? = nil
     @State private var draggingDayTypeId:   UUID? = nil
     @State private var dayDropTargetId:     UUID? = nil
 
-    // Drag/drop state
+    // Scene drag/drop state: the cell scenes hover (red) and the strip zone the drag is
+    // over (its indicator).
     @State private var dropTargetDayId:    UUID?
     @State private var dropTargetPosition: Int?
-    @State private var draggedSceneId:     UUID?
-    @State private var interactingSceneId: UUID?
 
     // Add Calendar Event sheet state
     @State private var addingEventForDayId: UUID? = nil
@@ -817,7 +781,6 @@ struct CompactMonthCalendarView: View {
             // cell's drop-target border can't get stuck highlighted after an undo.
             dropTargetDayId = nil
             dropTargetPosition = nil
-            draggedSceneId = nil
             dayDropTargetId = nil
             draggingDayId = nil
             draggingDayTypeId = nil
@@ -994,29 +957,9 @@ struct CompactMonthCalendarView: View {
         .onTapGesture(count: 2) {
             createAndAddEvent(for: date)
         }
-        .onDrop(of: [UTType.text.identifier], delegate: CombinedDayDropDelegate(
-            dayId: UUID(),
-            scenes: [],
-            dropTargetDayId: $dropTargetDayId,
-            dropTargetPosition: $dropTargetPosition,
-            dayDropTargetId: $dayDropTargetId,
-            draggingDayId: $draggingDayId,
-            onSceneDrop: { sceneId in
-                onBeforeSceneChange()
-                var targetDay: ShootDay
-                if let existing = shootDays.first(where: { Calendar.current.isDate($0.date, inSameDayAs: date) }) {
-                    targetDay = existing
-                } else {
-                    targetDay = ShootDay(date: date)
-                    shootDays.append(targetDay)
-                    shootDays.sort { $0.date < $1.date }
-                }
-                handleSceneDrop(sceneId: sceneId, targetDayId: targetDay.id, targetPosition: targetDay.scenes.count)
-            },
-            onDayDrop: { sourceDayId in handleDayRearrange(sourceDayId: sourceDayId, toDate: date) },
-            draggingDayTypeId: $draggingDayTypeId,
-            onDayTypeDrop: { sourceDayId in moveDayType(from: sourceDayId, toDate: date) }
-        ))
+        .dropDestination(for: ScheduleDragPayload.self) { items, _ in
+            handleDrop(items, onDate: date)
+        }
         .contextMenu {
             Button(L("Add Calendar Event")) {
                 createAndAddEvent(for: date)
@@ -1131,8 +1074,6 @@ struct CompactMonthCalendarView: View {
             dayDropTargetId: $dayDropTargetId,
             addingEventForDayId: $addingEventForDayId,
             callSheetDay: $callSheetDay,
-            interactingSceneId: $interactingSceneId,
-            draggedSceneId: $draggedSceneId,
             draggingDayTypeId: $draggingDayTypeId,
             onOpenDayDetail: { inspectingDay = day },
             onEditScene: { sceneIndex, scene in editScene(dayIndex: dayIndex, sceneIndex: sceneIndex, scene: scene, dayId: day.id) },
@@ -1141,9 +1082,8 @@ struct CompactMonthCalendarView: View {
             onToggleCompletedScene: { scene in toggleSceneCompleted(scene) },
             onSelectScene: { scene in selectScene(scene, dayId: day.id) },
             onSendToDay: { scene in beginSendToDay(scene) },
-            onHandleSceneDrop: { sceneId, pos in handleSceneDrop(sceneId: sceneId, targetDayId: day.id, targetPosition: pos) },
-            onHandleDayRearrange: { sourceDayId in handleDayRearrange(sourceDayId: sourceDayId, targetDayId: day.id) },
-            onHandleDayTypeMove: { sourceDayId in moveDayType(from: sourceDayId, toDayId: day.id) },
+            dragPayload: sceneDragPayload,
+            onDrop: { items, position in handleDrop(items, onDayID: day.id, position: position) },
             onSetDayType: { targetDay, type in setDayType(targetDay, to: type) },
             onSetDayTypeForWeekday: { targetDay, type in setDayTypeForWeekday(targetDay, to: type) },
             onClearDayType: { targetDay in clearDayType(targetDay) },
@@ -1286,47 +1226,89 @@ struct CompactMonthCalendarView: View {
         }
     }
 
-    private func handleSceneDrop(sceneId: UUID, targetDayId: UUID, targetPosition: Int) {
-        onBeforeSceneChange()
-        guard let targetDayIndex = shootDays.firstIndex(where: { $0.id == targetDayId }) else { return }
+    // MARK: - Drag and drop (#18)
 
-        let idsToMove: [UUID] = selectedSceneIDs.contains(sceneId) && selectedSceneIDs.count > 1
-            ? Array(selectedSceneIDs)
-            : [sceneId]
-
-        if let sourceDayIndex = shootDays.firstIndex(where: { $0.scenes.contains(where: { $0.id == sceneId }) }) {
-            // Dragged from another shoot day or reordering
-            editDays { days in
-                if sourceDayIndex == targetDayIndex {
-                    let dayScenes = days[sourceDayIndex].scenes
-                    let movingSet = Set(idsToMove)
-                    let scenesToMove = dayScenes.filter { movingSet.contains($0.id) }
-                    var remaining = dayScenes.filter { !movingSet.contains($0.id) }
-                    let clampedPos = min(targetPosition, remaining.count)
-                    remaining.insert(contentsOf: scenesToMove, at: clampedPos)
-                    days[sourceDayIndex].scenes = remaining
-                } else {
-                    var scenesToMove: [Scene] = []
-                    for dIdx in days.indices {
-                        let matches = days[dIdx].scenes.filter { idsToMove.contains($0.id) }
-                        scenesToMove.append(contentsOf: matches)
-                        days[dIdx].scenes.removeAll { idsToMove.contains($0.id) }
-                    }
-                    let clampedPos = min(targetPosition, days[targetDayIndex].scenes.count)
-                    days[targetDayIndex].scenes.insert(contentsOf: scenesToMove, at: clampedPos)
-                }
-            }
-            onSceneChanged()
+    /// What a strip carries when it is lifted (#18): the whole multi-selection when the
+    /// strip is part of it (a multi-select drag moves every selected strip, in board order),
+    /// the strip alone otherwise, with the day it left.
+    private func sceneDragPayload(for scene: Scene) -> ScheduleDragPayload {
+        let ids: [UUID]
+        if selectedSceneIDs.count > 1, selectedSceneIDs.contains(scene.id) {
+            ids = shootDays.flatMap { $0.scenes.filter { selectedSceneIDs.contains($0.id) }.map(\.id) }
         } else {
-            // Dragged from BONEYARD (allScenes)!
-            let scenesFromBoneyard = allScenes.filter { idsToMove.contains($0.id) }
-            if !scenesFromBoneyard.isEmpty {
-                allScenes.removeAll { idsToMove.contains($0.id) }
-                let clampedPos = min(targetPosition, shootDays[targetDayIndex].scenes.count)
-                shootDays[targetDayIndex].scenes.insert(contentsOf: scenesFromBoneyard, at: clampedPos)
-                onSceneChanged()
+            ids = [scene.id]
+        }
+        let originDayID = shootDays.first { $0.scenes.contains { $0.id == scene.id } }?.id
+        return .scenes(ids, from: originDayID)
+    }
+
+    /// The scene ids a drop moves: the whole multi-selection when the dragged
+    /// scene is part of it (a multi-select drag moves every selected strip, wherever it is
+    /// on the board), the dragged scenes alone otherwise.
+    private func widenedToSelection(_ ids: [UUID]) -> [UUID] {
+        if selectedSceneIDs.count > 1, ids.contains(where: { selectedSceneIDs.contains($0) }) {
+            return Array(selectedSceneIDs)
+        }
+        return ids
+    }
+
+    /// Payloads dropped on a day cell: scenes and events go to `position` in the day, a
+    /// handle swaps the two days, a band moves its type and note. One drop is one gesture.
+    private func handleDrop(_ items: [ScheduleDragPayload], onDayID dayID: UUID, position: SceneDropDestination.Position) {
+        for item in items {
+            switch item.kind {
+            case .scenes(let ids, _):
+                moveScenes(ids, to: SceneDropDestination(dayID: dayID, position: position))
+            case .calendarEvent(let id, _):
+                moveScenes([id], to: SceneDropDestination(dayID: dayID, position: position))
+            case .day(let sourceDayID):
+                handleDayRearrange(sourceDayId: sourceDayID, targetDayId: dayID)
+            case .dayType(let sourceDayID):
+                moveDayType(from: sourceDayID, toDayId: dayID)
             }
         }
+    }
+
+    /// Payloads dropped on a date that has no `ShootDay` yet (outside the production
+    /// range): the day is created first, in the same gesture, so a scene, an event, a
+    /// travel day or its band can be dragged anywhere.
+    private func handleDrop(_ items: [ScheduleDragPayload], onDate date: Date) {
+        for item in items {
+            switch item.kind {
+            case .scenes, .calendarEvent:
+                onBeforeSceneChange()
+                var targetDay: ShootDay
+                if let existing = shootDays.first(where: { Calendar.current.isDate($0.date, inSameDayAs: date) }) {
+                    targetDay = existing
+                } else {
+                    targetDay = ShootDay(date: date)
+                    shootDays.append(targetDay)
+                    shootDays.sort { $0.date < $1.date }
+                }
+                moveScenes(item.sceneIDs, to: SceneDropDestination(dayID: targetDay.id))
+            case .day(let sourceDayID):
+                handleDayRearrange(sourceDayId: sourceDayID, toDate: date)
+            case .dayType(let sourceDayID):
+                moveDayType(from: sourceDayID, toDate: date)
+            }
+        }
+    }
+
+    /// Moves scenes (from the Boneyard, this day or any other) to `destination` as one
+    /// edit each for the Boneyard and the days, in one gesture. Both a drop on a cell and
+    /// the reorder container's difference land here.
+    private func moveScenes(_ ids: [UUID], to destination: SceneDropDestination) {
+        let idsToMove = widenedToSelection(ids)
+        onBeforeSceneChange()
+        var days     = shootDays
+        var boneyard = allScenes
+        guard ScheduleMoves.moveScenes(idsToMove, to: destination, days: &days, boneyard: &boneyard) else {
+            onSceneChanged()
+            return
+        }
+        if boneyard != allScenes { allScenes = boneyard }
+        if days != shootDays     { shootDays = days }
+        onSceneChanged()
     }
 
     private func handleDayRearrange(sourceDayId: UUID, targetDayId: UUID) {
@@ -1507,7 +1489,6 @@ struct SceneCardView: View {
     let dayId: UUID
     let dayIndex: Int
     let sceneIndex: Int
-    @Binding var interactingSceneId: UUID?
     let isSelected:     Bool
     let selectionCount: Int
     let showCast:       Bool
@@ -1521,15 +1502,12 @@ struct SceneCardView: View {
     let onRemove:    () -> Void
     let onDuplicate: () -> Void
     let onToggleCompleted: () -> Void
-    let onDragStart: () -> Void
-    let onDragEnd:   () -> Void
     let onSelect:    () -> Void
     let onSendToDay: () -> Void
-    let dragPayload: () -> String
+    let dragPayload: () -> ScheduleDragPayload
 
     @Environment(\.scenePalette) private var palette
 
-    private var isDragging: Bool { interactingSceneId == scene.id }
     private var isFlagged: Bool { hasConflict || isOnNonShootDay }
     private var displayColor: Color {
         if scene.isCalendarEvent {
@@ -1633,10 +1611,10 @@ struct SceneCardView: View {
                 Button(LocalizationManager.shared.currentLanguage == .spanish ? "Quitar del Día" : "Remove from Day") { onRemove() }
             }
         }
-        .onDrag {
-            onDragStart()
-            return NSItemProvider(object: dragPayload() as NSString)
-        }
+        // The taps above are simultaneous gestures so neither the single nor the double tap
+        // claims the long press that starts the drag (the gesture-priority fix in the
+        // README); `draggable` owns that press.
+        .draggable(dragPayload())
         .fastTooltip(scene.tooltipText)
     }
 }

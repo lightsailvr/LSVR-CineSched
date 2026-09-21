@@ -897,7 +897,7 @@ struct ContentView: View {
             onDelete:                { index in
                 edit(L("Delete Scene")) { $0.allScenes.remove(at: index) }
             },
-            dragPayload:             dragPayload,
+            dragPayload:             boneyardDragPayload,
             onDropFromSchedule:      moveScenesToBoneyard
         )
     }
@@ -927,16 +927,15 @@ struct ContentView: View {
         )) }
     }
 
-    private func moveScenesToBoneyard(_ payload: String) {
-        let ids = payload.components(separatedBy: ",").compactMap { UUID(uuidString: $0) }
+    /// Strips dropped on the Boneyard from a day, on either schedule view: back to the
+    /// Boneyard in board order (events stay on their day; a day or a band is ignored). A
+    /// payload from the Boneyard itself moves nothing, and an edit that moves nothing
+    /// registers nothing.
+    private func moveScenesToBoneyard(_ items: [ScheduleDragPayload]) {
+        let ids = items.flatMap(\.sceneIDs)
         guard !ids.isEmpty else { return }
         edit(L("Move to Boneyard")) { data in
-            for id in ids {
-                guard let d = data.shootDays.firstIndex(where: { day in day.scenes.contains { $0.id == id } }),
-                      let scene = data.shootDays[d].scenes.first(where: { $0.id == id }) else { continue }
-                data.shootDays[d].scenes.removeAll { $0.id == id }
-                data.allScenes.append(scene)
-            }
+            ScheduleMoves.returnToBoneyard(ids, days: &data.shootDays, boneyard: &data.allScenes)
         }
     }
 
@@ -960,17 +959,20 @@ struct ContentView: View {
         selection = .scene(id: id)
     }
 
-    private func dragPayload(for scene: Scene) -> NSItemProvider {
+    /// What a Boneyard row carries when it lifts (#18): the whole multi-selection when the
+    /// row is part of it (every selected scene, in display order), the row alone otherwise.
+    /// A single unselected row becomes the selection as it always has (a click-and-drag is
+    /// a click).
+    private func boneyardDragPayload(for scene: Scene) -> ScheduleDragPayload {
         let ids: [UUID]
-        if selectedSceneIDs.contains(scene.id), selectedSceneIDs.count > 1 {
-            ids = derived.sortedBoneyard.map(\.scene).filter { selectedSceneIDs.contains($0.id) }.map(\.id)
+        if selectedSceneIDs.count > 1, selectedSceneIDs.contains(scene.id) {
+            ids = derived.sortedBoneyard.map(\.scene.id).filter { selectedSceneIDs.contains($0) }
         } else {
-            selectedSceneIDs   = [scene.id]
+            selectedSceneIDs    = [scene.id]
             lastSelectedSceneID = scene.id
             ids = [scene.id]
         }
-        let payload = ids.map(\.uuidString).joined(separator: ",")
-        return NSItemProvider(object: payload as NSString)
+        return .scenes(ids, from: nil)
     }
 
     // MARK: - Detail / main area

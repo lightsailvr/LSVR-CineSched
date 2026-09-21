@@ -9,6 +9,56 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-20 — Typed drag and drop: the 27 reorder container crashes beside a heterogeneous drag container, and a same-typed drag container captures every plain draggable in the window (#18)
+
+Replacing the three `NSString` drag encodings and the two `DropDelegate`s with one
+`Transferable` payload (`ScheduleDrag.swift`), on the iPad Pro 13-inch simulator:
+
+- **`reorderContainer(for:in:)` + `reorderable(collectionID:)` is the API the spec names for
+  strips within and across days, and it crashes at lift when the same view also needs a
+  heterogeneous drag container.** A reorderable strip must still leave its container two
+  ways the reorder API cannot express — out to the Boneyard, and the day handle and the
+  day-type band, which are not strips — so those need a `dragContainer(for: ScheduleDragPayload.self)`
+  / `dropDestination`. With both present, lifting a reorderable strip trapped in
+  `SwiftUI.DragContainerStorage.payload(for:)` (`EXC_BREAKPOINT`, a `preconditionFailure`),
+  because a reorderable item is not a registered *item* of that drag container. Apple's own
+  example unifies the type (reorder, drag and drop all `for: Account.self`); a heterogeneous
+  payload can't. Fell back to `draggable`/`dropDestination` for the strips, as the brief
+  sanctions: each strip is `.draggable(payload)`, a thin `.dropDestination` before each strip
+  gives the exact insertion point (`.before(sceneID)`, by id so a concurrent move can't
+  invalidate an index), and a `DropIndicatorView` marks the target — the pre-27 structure,
+  with the payload swapped from `NSString` to the typed value.
+- **A `dragContainer(for: T.self)` captures every plain `.draggable(T)` in the same window,
+  not just its own container's items.** The Boneyard first used the drag container with
+  selection the spec asks for (`dragContainer` + `draggable(containerItemID:)` +
+  `dragContainerSelection`), which worked for the Boneyard's own rows — but then *lifting a
+  schedule strip* (a sibling subtree, a plain `.draggable(ScheduleDragPayload)`) crashed in
+  the same `DragContainerStorage.payload(for:)`, because the container claimed it by payload
+  type and had no item id for it. So the Boneyard is plain `.draggable` too, widening to the
+  multi-selection in the payload closure; no `dragContainer` survives anywhere. If a later
+  ticket wants the drag-container API, every draggable of that payload type in the window has
+  to be a container item of it, or the types have to differ.
+- **`draggable`/`dropDestination(for:)` moved to a `CodableRepresentation` payload need
+  `import CoreTransferable` in the test file** (`exported(as:)` / `init(importing:)`), and the
+  `Transferable` conformance itself must be `nonisolated extension` — an extension does not
+  inherit the value type's `nonisolated`, so the conformance otherwise "crosses into main
+  actor-isolated code" (a warning now, an error in Swift 6; same shape as the 2026-09-19 #15
+  `ConflictVersion` note).
+- **A second exported UTI goes in the same `Config/Info.plist` block as the project type**
+  (`com.lsvr.cinesched.drag-payload`, conforming to `public.data`, no filename extension so
+  nothing on disk is ever of that type). It resolves at runtime the same way — a test
+  `#require(UTType("com.lsvr.cinesched.drag-payload"))` passes on Mac and simulator.
+- **The touch-drag probe recipe (extends 2026-09-17 #10 / 2026-09-20 #17):** `press(forDuration:
+  thenDragTo:withVelocity:.slow, thenHoldForDuration:)` performs a touch drag, but a **1.0 s**
+  press opens the strip's `.contextMenu` before the lift fires; **0.5 s** lifts cleanly. The
+  day-grip handle is a real element — an `Image` with `identifier: "line.3.horizontal", label:
+  "Drag"` — so target it by identifier and filter by frame, not by a pixel offset from the date
+  (which missed). Attach to the already-open document with `activate()`, dismiss any menu a
+  prior probe left open by tapping the month title, and rotate the portrait framebuffer with
+  `sips -r 270`.
+
+---
+
 ## 2026-09-20 — PDF export on the iPad: a `Transferable` file names the share, PDFKit's view previews on visionOS, and the document's Back button is mirrored into a sheet's bar too (#23)
 
 Building the preview sheet with Share over the existing exporters:

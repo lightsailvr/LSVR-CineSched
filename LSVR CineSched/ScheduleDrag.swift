@@ -84,7 +84,9 @@ nonisolated struct ScheduleDragPayload: Codable, Hashable, Identifiable, Sendabl
     }
 }
 
-extension ScheduleDragPayload: Transferable {
+// `nonisolated`: the system encodes and decodes the payload off the main actor, and an
+// extension does not inherit the struct's `nonisolated` (learnings.md, 2026-09-19 #15).
+nonisolated extension ScheduleDragPayload: Transferable {
     static var transferRepresentation: some TransferRepresentation {
         CodableRepresentation(contentType: .cineschedDragPayload)
     }
