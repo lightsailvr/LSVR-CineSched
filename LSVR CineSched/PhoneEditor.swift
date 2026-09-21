@@ -1,25 +1,30 @@
 // PhoneEditor.swift
 // The compact-width editor (#24, milestone 4 of #1): what a project document shows on an
 // iPhone and in a narrow iPad window. A `TabView` with Days (`DaysTab`: the Stripboard as a
-// list of day cards under the week strip, the Day screen pushed from a header), Boneyard,
-// Production (`ProductionTab`, #28: the Mac's Production, View and File menu commands as
-// rows) and a Search tab in the search role; the tab bar minimizes on scroll and carries
-// the Today control as its bottom accessory. Boneyard and Search are #27's: each is one
-// line here that that ticket replaces.
+// list of day cards under the week strip, the Day screen pushed from a header), Boneyard
+// (`BoneyardTab`, #27: the unscheduled scenes in the Mac's sorts with a filter,
+// multi-select Send to Day and the New Scene form), Production (`ProductionTab`, #28:
+// the Mac's Production, View and File menu commands as rows) and a Search tab in the
+// search role (`SearchTab`, #27: every scene by number, slugline, cast or summary, opened
+// in the editor or shown in Days or the Boneyard); the tab bar minimizes on scroll and
+// carries the Today control as its bottom accessory.
 //
 // This view owns what `ContentView` owns for the other layouts, so the tabs are plain
 // views: the document and the edit funnel (`edit(_:_:)`, the same `perform` under an
 // `EditGesture`, handed down as a `ProjectEdit` closure; `edit(_:coalescing:_:)` for a
 // gesture the caller owns), the `SyncMonitor` for the Days tab's indicator, the
 // `scenePalette` environment at the root (the one place the palette enters the tree), the
-// `DerivedScheduleState` cache (conflicts, once per change), the PDF preview presentation
-// with the `exportPreview` request the Production tab (#28) and the Day screen (#26) set,
-// the moves (#25): `PhoneMoves` over the funnel, handed to the tabs, with the pickers a
-// move asks for (Send to Day, Swap with Day, Add Scenes) presented here as `moveSheet`,
-// and the `ProjectCommands` the iPad's menu bar acts through in a narrow window (#22):
-// published as the focused scene value and into `ActiveProjectCommands` while the window
-// appears active, each command handing the Production tab a `ProductionCommand`.
-// Replaced `MinimalProjectEditor` (#12–#17), which proved the document lifecycle here.
+// `DerivedScheduleState` cache (conflicts and the sorted Boneyard, once per change, for
+// the Boneyard sort the editor holds as the Mac's app-wide preference), the PDF preview
+// presentation with the `exportPreview` request the Production tab (#28) and the Day
+// screen (#26) set, the moves (#25): `PhoneMoves` over the funnel, handed to the tabs,
+// with the pickers a move asks for (Send to Day, Swap with Day, Add Scenes) presented
+// here as `moveSheet`, the cross-tab jumps (`scrollToDate` into Days,
+// `revealBoneyardSceneID` into the Boneyard), and the `ProjectCommands` the iPad's menu
+// bar acts through in a narrow window (#22): published as the focused scene value and
+// into `ActiveProjectCommands` while the window appears active, each command handing the
+// Production tab a `ProductionCommand`. Replaced `MinimalProjectEditor` (#12–#17), which
+// proved the document lifecycle here.
 //
 // Platform-free SwiftUI: the Mac compiles it and never shows it (its window is never
 // compact); the two iOS-only APIs, the tab bar's minimize behaviour and its accessory,
@@ -52,11 +57,16 @@ struct PhoneEditor: View {
 
     // MARK: - Derived and sync state
 
-    /// Conflict sets and the rest of what the whole project implies, computed once per
-    /// change (DerivedScheduleState.swift). The Boneyard sort is #27's; script order here.
+    /// The Boneyard's sort (#27): the Mac's sidebar preference under its own key, so the
+    /// order the phone lists is the order the Mac lists; an app preference, not a window
+    /// one, as on the Mac.
+    @AppStorage("CineSchedBoneyardSort") private var boneyardSort: BoneyardSort = .showOrder
+
+    /// Conflict sets, the sorted Boneyard and the rest of what the whole project implies,
+    /// computed once per change and sort (DerivedScheduleState.swift).
     @State private var derivedCache = DerivedScheduleStateCache()
     private var derived: DerivedScheduleState {
-        derivedCache.state(for: document.project, changeCount: document.changeCount, boneyardSort: .showOrder)
+        derivedCache.state(for: document.project, changeCount: document.changeCount, boneyardSort: boneyardSort)
     }
 
     /// The iCloud sync state in the document's bar and the conflict notice (#14, #15):
@@ -67,9 +77,15 @@ struct PhoneEditor: View {
     /// the call sheet export (#26) set it.
     @State var exportPreview: PDFExportRequest? = nil
 
-    /// The date the Days list scrolls to next: the Today control sets it here, the week
-    /// strip and the month popover set it inside the tab, and the tab clears it.
+    /// The date the Days list scrolls to next: the Today control, the reports (#28) and
+    /// the Search tab's Show in Days (#27) set it here, the week strip and the month
+    /// popover set it inside the tab, and the tab clears it.
     @State private var scrollToDate: Date? = nil
+
+    /// The scene the Boneyard tab scrolls to next (#27): the Search tab's Show in
+    /// Boneyard sets it here with the tab switch, the tab's own New Scene sets it
+    /// inside, and the tab clears it.
+    @State private var revealBoneyardSceneID: UUID? = nil
 
     /// What the menu bar asked the Production tab to do (#22, #28): set here with the
     /// tab switch, consumed and cleared by the tab.
@@ -77,8 +93,8 @@ struct PhoneEditor: View {
 
     /// The picker a move asked for (#25: Send to Day, Swap with Day, Add Scenes), presented
     /// as a sheet over the whole editor by `phoneMoveSheets`, so it outlives the row or the
-    /// Day screen that asked. Set through `moves.present…`; #27's Boneyard tab uses the
-    /// same `presentSendToDay(sceneIDs:)`.
+    /// Day screen that asked. Set through `moves.present…`; the Boneyard tab's Send to Day
+    /// (#27) is the same `presentSendToDay(sceneIDs:)`.
     @State private var moveSheet: PhoneMoveSheet? = nil
 
     private var palette: ScenePalette { document.project.resolvedPalette }
@@ -97,7 +113,14 @@ struct PhoneEditor: View {
                 )
             }
             Tab(L("Boneyard"), systemImage: "tray.full", value: .boneyard) {
-                PhoneTabPlaceholder(title: L("Boneyard"), symbol: "tray.full", message: L("The unscheduled scenes will live here."))
+                BoneyardTab(
+                    document:      document,
+                    derived:       derived,
+                    sort:          $boneyardSort,
+                    revealSceneID: $revealBoneyardSceneID,
+                    edit:          projectEdit,
+                    moves:         moves
+                )
             }
             Tab(L("Production"), systemImage: "person.3", value: .production) {
                 ProductionTab(
@@ -115,7 +138,19 @@ struct PhoneEditor: View {
                 )
             }
             Tab(value: .search, role: .search) {
-                PhoneTabPlaceholder(title: L("Search"), symbol: "magnifyingglass", message: L("Search across scenes and days will live here."))
+                SearchTab(
+                    document: document,
+                    edit:     projectEdit,
+                    moves:    moves,
+                    showInDays: { date in
+                        selectedTab  = .days
+                        scrollToDate = date
+                    },
+                    showInBoneyard: { sceneID in
+                        selectedTab           = .boneyard
+                        revealBoneyardSceneID = sceneID
+                    }
+                )
             }
         }
         // The document infrastructure wraps the editor in its own bar (Back, the title
@@ -222,21 +257,6 @@ struct PhoneEditor: View {
         DispatchQueue.main.async {
             if activeGesture == gesture { activeGesture = nil }
         }
-    }
-}
-
-// MARK: - Stub tabs
-
-/// What a tab shows until its ticket lands: the system's empty state naming what is coming.
-private struct PhoneTabPlaceholder: View {
-    let title:   String
-    let symbol:  String
-    let message: String
-
-    var body: some View {
-        // No stack of its own: the document infrastructure's bar mirrors into any inner
-        // bar (see PhoneEditor's toolbar note), so a stack here would show two.
-        ContentUnavailableView(title, systemImage: symbol, description: Text(message))
     }
 }
 
