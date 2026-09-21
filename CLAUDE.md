@@ -9,8 +9,10 @@ Vision Pro) the editor is `ContentView` in its three-column layout with a traili
 (#17, the foundation of milestone 3 of #1); in compact width (iPhone, a narrow iPad pane) the
 iPhone editor (#24, the foundation of milestone 4): a tab view whose Days tab is the
 Stripboard as a list of day cards under a week strip, with a read-only Day screen, and
-whose Production tab (#28) holds every Mac menu command as rows; its Boneyard and Search
-tabs are stubs until #27. Nothing else about those platforms is placeholder.
+whose Production tab (#28) holds every Mac menu command as rows, whose Boneyard tab (#27)
+lists the unscheduled scenes with the Mac's sorts, a filter, multi-select Send to Day and a
+New Scene form, and whose Search tab (#27) finds any scene and opens it or shows it in
+Days or the Boneyard. Nothing else about those platforms is placeholder.
 Read `CONTEXT.md` for the glossary and system map before touching the code, and `learnings.md`
 for things that have already cost time.
 
@@ -103,8 +105,8 @@ the build inputs outside it, see Working agreements):
   width gets `ContentView(document:layout: .threeColumn)`, compact width `PhoneEditor`
   (#24). Platform-free.
 - `PhoneEditor.swift`: the compact-width editor (#24): a `TabView` with Days (`DaysTab`),
-  Boneyard (a stub, one `PhoneTabPlaceholder` line for #27), Production (`ProductionTab`,
-  #28) and a Search tab in the search role, and the Today control (`TodayControl`,
+  Boneyard (`BoneyardTab`, #27), Production (`ProductionTab`, #28) and a Search tab in the
+  search role (`SearchTab`, #27), and the Today control (`TodayControl`,
   `todayTarget`) as the tab bar accessory, with the bar minimizing on scroll, through the
   `phoneTabBar` seam (both APIs are iOS-only in the 27 SDK). Owns what `ContentView` owns
   for the other layouts: the document and `edit(_:_:)` (the same `perform` under an
@@ -114,8 +116,11 @@ the build inputs outside it, see Working agreements):
   multi-write actions, and the "open one if none is open" closure the Production tab's
   character renames take), the `SyncMonitor` (its indicator is a toolbar item at the
   root, which lands in the document infrastructure's bar), the `scenePalette` environment
-  at the root, the `DerivedScheduleState` cache, `.pdfExportPresentation($exportPreview)`
-  with the `exportPreview` request the Production tab (#28) and #26 set, and the
+  at the root, the `DerivedScheduleState` cache (for the Boneyard sort it holds as the
+  Mac's app-wide `CineSchedBoneyardSort` preference, #27), `.pdfExportPresentation($exportPreview)`
+  with the `exportPreview` request the Production tab (#28) and #26 set, the cross-tab
+  jumps (`scrollToDate` into the Days list, `revealBoneyardSceneID` into the Boneyard,
+  which the Search tab's Show in Days / Show in Boneyard set with the tab switch), and the
   `ProjectCommands` for the iPad's menu bar in a narrow window (#22): published as the
   focused scene value and into `ActiveProjectCommands` by `appearsActive`, every closure a
   switch to the Production tab plus a `ProductionCommand` in the `productionCommand`
@@ -142,6 +147,46 @@ the build inputs outside it, see Working agreements):
   count, conflicted scenes, lock date, changes, scene count) come from the project and
   `DerivedScheduleState`. `ProductionCommand` is what the menu bar hands it (consumed in
   `onChange` and on appear). Platform-free.
+- `BoneyardTab.swift`: the Boneyard tab (#27): a control row (the filter field, Select /
+  Done, "+", the sort `Menu` over the six `BoneyardSort`s, the count of scenes and pages
+  listed) over a `List(selection:)` of `PhoneStripRow`s from `derived.sortedBoneyard`
+  narrowed by `SceneSearch.filter`; a row's tap opens `PhoneSceneEditor` (Previous / Next
+  over the displayed rows), its long press is the Mac's Boneyard menu (Edit, Duplicate —
+  the Mac's private rule copied, with the real location carried too — Send to Day…,
+  Delete) with `StripPreview`, its trailing swipe Send to Day and Delete; Select puts the
+  list in edit mode through `listSelecting` for the multi-selection, whose one Send to Day
+  goes to `moves.presentSendToDay` in display order (`BoneyardSelection.ordered`), and the
+  selection prunes itself on `changeCount` (Select mode ends when it empties); "+" presents
+  `NewSceneSheet` and the added scene is revealed (`revealSceneID`: filter cleared, list
+  scrolled). No stack, no toolbar: the document infrastructure's bar is the one bar.
+- `SearchTab.swift`: the Search tab (#27): a `NavigationStack` for `.searchable` (its
+  bar kept, with the mirrored Back and title removed by `navigationBarBackButtonHidden`
+  and `toolbar(removing: .title)`, because hiding the bar hides the field; see the header)
+  over a `List` of `SceneSearch.results` in two sections, scheduled (each row naming its
+  production day and date) and Boneyard; a row's tap opens `PhoneSceneEditor`, its
+  trailing button, swipe and menu are Show in Days (`showInDays(date)`) or Show in
+  Boneyard (`showInBoneyard(sceneID)`), closures `PhoneEditor` wires to the tab switch
+  and the two jump bindings. Empty states for a blank query and for no results.
+- `SceneSearch.swift`: the filter and the search (#27, `SceneSearchTests`), pure:
+  `SceneSearch.matches(_:query:)` (a script scene every whitespace-separated word of the
+  trimmed, lowercased query appears in: number exactly or as a prefix, slugline, a cast
+  name trimmed, summary, real location; a banner, an auto-meal or an event never; a
+  blank query matches every script scene), `filter(_:query:)` (order kept),
+  `results(for:in:)` (`SceneSearchResult`: the scene and its `SceneLocation`, scheduled
+  first in schedule order then the Boneyard in script order; a blank query finds
+  nothing) and `BoneyardSelection.ordered(_:inDisplayOrder:)`, the multi-selection in
+  the list's order for Send to Day.
+- `NewSceneSheet.swift`: the New Scene form (#27), an adaptive editor over `NewSceneDraft`
+  (EditorDrafts.swift): number, slugline (focused on appear), real location with the
+  autocomplete field, pages and estimate with the scene editor's hints, and the type
+  picker whose default row reads "From slugline · NIGHT" for the slugline as typed;
+  Add Scene hands `draft.makeScene()` to the tab. The Mac's `NewSceneInputView` is untouched.
+- `PhoneSceneEditor.swift`: `SceneEditSheet` as the phone's tabs open it (#27): bound to
+  a scene by id wherever it is (Save through `replaceScene`, one edit), Delete as the
+  Mac's sheets do it (a Boneyard scene removed, a scheduled one returned to the Boneyard
+  through `moves.returnToBoneyard`), the optional Previous / Next a tab supplies, the
+  location suggestions, and an unavailable view if the scene left the project under the
+  sheet; `PhoneSceneEditorRequest` is the `.sheet(item:)` item, identified by the scene.
 - `BreakdownBrowser.swift`: the Breakdown Browser's pure part (#28,
   `BreakdownBrowserTests`): `BreakdownBrowser(project:)` (every scene once, Boneyard then
   days, sorted by `scriptOrderKey`: the Mac browser's list, banners included), `first`,
@@ -186,7 +231,8 @@ the build inputs outside it, see Working agreements):
   sync on the days it touched (learnings 2026-09-20); and the pickers a move needs
   (`presentSendToDay(sceneIDs:)`, `presentSwapDay(dayID:)`, `presentAddScenes(dayID:)`,
   presented over the editor by `phoneMoveSheets` so a sheet outlives the row or Day screen
-  that asked). #27's Boneyard tab calls `presentSendToDay` for a Boneyard scene.
+  that asked). The Boneyard tab (#27) calls `presentSendToDay` for one scene or the
+  multi-selection.
 - `AddScenesSheet.swift`: Add Scenes on the Day screen (#25), an adaptive form: the
   Boneyard as a checklist in display order with an "Add N Scenes" button; the checked set
   is the sheet's `@State` (no draft), placed at the day's end in Boneyard order in one edit.
@@ -229,7 +275,10 @@ the build inputs outside it, see Working agreements):
   system bar) and `EditorRowSummary` (a row that opens a page: title, detail, caption, badge).
 - `EditorDrafts.swift`: the editors' drafts (#19), pure: `SceneDraft` (every field of the
   scene editor as strings, validation, `applied(to:)`), `BannerDraft` (`setType`,
-  `makeBanner()`) and `CalendarEventDraft` (`makeEvent()` keeps an edited event's id). A
+  `makeBanner()`), `CalendarEventDraft` (`makeEvent()` keeps an edited event's id) and
+  `NewSceneDraft` (#27: the Mac's New Scene fields as strings, its validation, an
+  estimate derived from the pages when none is typed, and the time of day read off the
+  slugline through `FinalDraftParser.TimeOfDay` when the picker is nil, `makeScene()`). A
   view holds one in `@State` and writes it back as one assignment (`EditorDraftsTests`).
   `CallSheetDrafts.swift` (#20): `CallSheetDraft` (a day's call sheet with the pre-fills
   the old sheet made on appear, the location, cast-call and crew-call list mutations,
@@ -453,7 +502,8 @@ the build inputs outside it, see Working agreements):
   only for a hardware keyboard, #22),
   `PlatformControlStyles` (the Mac-only control styles, and `insetGroupedListStyle()`,
   the phone lists' card style that macOS lacks, #24), `PlatformListEditing`
-  (`listReordering(_:)`, the Day screen's edit mode for its strips' drag handles, via the
+  (`listReordering(_:)`, the Day screen's edit mode for its strips' drag handles, and
+  `listSelecting(_:)`, the Boneyard tab's for its selection circles (#27), both via the
   `editMode` environment key that is `@available(macOS, unavailable)`; nothing on macOS, #25),
   `PlatformTabAccessory`
   (`phoneTabBar(accessory:)`: the iPhone editor's tab bar minimizing on scroll with the
@@ -557,7 +607,12 @@ the build inputs outside it, see Working agreements):
   that sets it with the tab switch, and a line in `ProductionTab.run`; a write that must
   coalesce across calls under a token the view owns goes through `editCoalescing`, never
   `document.perform`. In a tinted `List` row button, `Color.primary` (the color), not the
-  hierarchical `.primary`, which resolves to the tint.
+  hierarchical `.primary`, which resolves to the tint. A tab that opens the scene editor
+  presents `PhoneSceneEditor` by id (#27), never its own `SceneEditSheet` binding; a
+  multi-selection reaches a move in the list's display order
+  (`BoneyardSelection.ordered`), never widened from the `Set`; a jump from one tab into
+  another is a binding `PhoneEditor` owns (`scrollToDate`, `revealBoneyardSceneID`), set
+  with the tab switch and cleared by the tab that acts on it.
 - **Colors**: resolve scene colors only via `Scene.stripColor(in:)`, with the project's palette
   (`ProjectData.resolvedPalette`): views read `@Environment(\.scenePalette)`, which `ContentView`
   sets once at its root; an exporter that draws strips takes `palette:` with the project. Nothing
@@ -625,8 +680,13 @@ compact iPad window),
 (from the Boneyard, within a day, across days, before a strip or at the end, back to the
 Boneyard; the iPhone's `reorderStrips` from `onMove` offsets, `addScenes` in display
 order, `swapDays` and its inverse, #25) in `ScheduleDragTests`,
-`SceneDraft`, `BannerDraft` and `CalendarEventDraft` (`EditorDraftsTests`: what each reads,
-validation, the value written back, the Custom type's blank-means-none rule),
+`SceneDraft`, `BannerDraft`, `CalendarEventDraft` and `NewSceneDraft` (`EditorDraftsTests`:
+what each reads, validation, the value written back, the Custom type's blank-means-none
+rule, the new scene's estimate from its pages and its type from the slugline),
+`SceneSearch` and `BoneyardSelection` (`SceneSearchTests`: the blank query, every field,
+the number's exact-or-prefix rule, cast trimmed and case-insensitive, notice strips never,
+the results' order and locations, the selection's display order; the tabs themselves have
+no unit seam: learnings.md 2026-09-21 #27 has the probe),
 `CallSheetDraft` and `ProductionSetupDraft` (`CallSheetDraftsTests`: every pre-fill on
 opening, each list mutation, the character renames reported, every field written back with
 the unshown ones carried, an untouched draft writing an equal value, blank rows dropped),

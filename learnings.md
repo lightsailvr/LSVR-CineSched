@@ -9,6 +9,55 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-21 — The Boneyard and Search tabs: `.searchable` under a hidden bar shows no field, the mirrored bar can be emptied piece by piece, a `List(selection:)` needs edit mode but not a Button-free row, and a bare integer is eighths (#27)
+
+Building the Boneyard tab (sorts, filter, multi-select Send to Day, New Scene) and the
+Search tab on a fresh iPhone 17 / iOS 27.0 simulator (`simctl clone` refuses a booted
+source, so `simctl create` with the same device type and runtime is the fallback),
+driven by a throwaway XCUITest (the #24 recipe; screenshots written by the test itself
+from `XCUIScreen.main.screenshot().pngRepresentation` to a host path passed as
+`TEST_RUNNER_I27_SHOT_DIR`, which spares the host-side `simctl io` timing):
+
+- **`.searchable` inside a `NavigationStack` whose bar is hidden at the root
+  (`editorNavigationBarHidden()`, the Days tab's cure for the mirrored bar) draws no
+  search field at all**, and the search-role `Tab` does not move the field into the tab
+  bar's place on 27.0 under the document infrastructure's scene (the tab bar stayed a
+  plain four-tab bar with the Search tab selected). With the bar shown, the field
+  appears — under a second copy of the document's Back button and title menu (the #24
+  mirror). The way out was to keep the bar and remove what is mirrored into it:
+  `.navigationBarBackButtonHidden(true)` takes the Back button and `.toolbar(removing:
+  .title)` (new in the 26/27 SDKs) takes the title menu, leaving the inner bar holding
+  the search field alone under the document's own bar. Both compile on macOS and
+  visionOS.
+- **`scrollDismissesKeyboard` is `unavailable` on visionOS** (the iPhone and Mac builds
+  take it); a phone list that wants it needs a seam or, as here, does without (the
+  filter field's `submitLabel(.done)` and the Select / "+" buttons resigning its
+  `@FocusState` cover the cases).
+- **A `List(selection: $set)` on iOS toggles rows only in edit mode**, so Select is the
+  `listSelecting(_:)` seam (the `editMode` environment, as #25's `listReordering`). A
+  `Button` row would fire instead of toggling in that mode, so the Boneyard row is a
+  `Button` (tap opens the editor) only while not selecting and the bare strip while
+  selecting; the strip's `.contextMenu` and `.swipeActions` sit on the `Group` around
+  both and work in either state. The selection circles indent the row, so a per-row
+  overlay (the duplicate-number dashed edge) shifts with the content, not the cell.
+- **`FractionParser.parseToEighths("1")` is one eighth, not one page** (the field's
+  placeholder says "15, 1 7/8, 7/8"): a test that typed "1" and expected a page's
+  120-minute estimate was the test's mistake, not the draft's.
+- **`Scene.scriptOrderKey` is main-actor** (the `Scene` extension is not `nonisolated`,
+  unlike its `Codable`/`Hashable`), so a `nonisolated enum` that sorts by it warns on
+  every platform; `SceneSearch` is main-actor like `DerivedScheduleState`, which sorts
+  the same way. `SceneSearchResult` and `BoneyardSelection` stay `nonisolated`.
+- The picker's days are buttons labelled "Tuesday, November 3" and its confirm is
+  `app.buttons["Send"]` (the #24 note holds); the week strip's cells are `"Tue Nov 3"`.
+  A `swipeUp()` on the Days list scrolls about two day cards; a
+  `press(forDuration:thenDragTo:withVelocity: .slow, thenHoldForDuration:)` between two
+  normalized coordinates scrolls a controllable distance.
+- Left as is: the Mac's Duplicate Scene does not carry `realLocation` into the copy; the
+  phone's copy of that private rule does (a duplicate on the phone keeps its set), noted
+  in the report rather than changed on the Mac.
+
+---
+
 ## 2026-09-21 — The Production tab: a tinted row's `.primary` is the tint, a closure literal never throws a typed error, a typed-throws `#expect` captures immutably, and a fresh 11-inch iPad needs Windowed Apps on before a window can be narrow (#28)
 
 Building the phone's Production tab (every Mac menu command as rows over the existing
