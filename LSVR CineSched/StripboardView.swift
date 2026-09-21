@@ -796,27 +796,10 @@ struct StripboardView: View {
         onSceneChanged()
     }
 
+    /// The copy is `Scene.duplicated()` (DayEdits.swift, pinned by `DayEditsTests`), the
+    /// same fields this built inline before the phone needed it too (#26).
     private func duplicateScene(_ scene: Scene) {
-        allScenes.append(Scene(
-            title:            scene.title + " (Copy)",
-            sceneNumber:      scene.sceneNumber,
-            duration:         scene.duration,
-            estimatedTime:    scene.estimatedTime,
-            dayNightType:     scene.dayNightType,
-            cast:             scene.cast,
-            summary:          scene.summary,
-            extras:           scene.extras,
-            props:            scene.props,
-            setDressing:      scene.setDressing,
-            wardrobe:         scene.wardrobe,
-            makeupHair:        scene.makeupHair,
-            vehicles:         scene.vehicles,
-            specialEquipment: scene.specialEquipment,
-            stunts:           scene.stunts,
-            sfx:              scene.sfx,
-            vfx:              scene.vfx,
-            breakdownNotes:   scene.breakdownNotes
-        ))
+        allScenes.append(scene.duplicated())
         onSceneChanged()
     }
 
@@ -1208,145 +1191,6 @@ struct BannerStripRow: View {
             Button(L("Delete Banner"), role: .destructive) {
                 onRemove()
             }
-        }
-    }
-}
-
-// MARK: - Quick Time Edit Sheet
-
-struct QuickTimeEditSheet: View {
-    let scene: Scene
-    let onSave: (Scene) -> Void
-    let onCancel: () -> Void
-
-    @State private var isCustomTime: Bool = false
-    @State private var customTimeText: String = ""
-    @State private var hours: Int = 0
-    @State private var minutes: Int = 15
-
-    private var calculatedEndTime: String {
-        let startMin = parseTimeToMinutes(customTimeText) ?? (8 * 60)
-        let totalDur = (hours * 60) + minutes
-        let endMin = startMin + totalDur
-        return "\(formatMinutesToClock(startMin)) ➔ \(formatMinutesToClock(endMin)) (\(formattedTimeHM(totalDur)))"
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Label(L("Set Shooting Time"), systemImage: "clock.badge.checkmark")
-                    .font(.headline)
-                Spacer()
-                Button { onCancel() } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(L("STRIP / SCENE:"))
-                    .font(.caption2).fontWeight(.bold).foregroundColor(.secondary)
-                Text(scene.displayTitle)
-                    .font(.system(size: 12, weight: .semibold))
-                    .lineLimit(2)
-            }
-
-            Divider()
-
-            // Mode Selector
-            VStack(alignment: .leading, spacing: 8) {
-                Text(L("TIME MODE:"))
-                    .font(.caption2).fontWeight(.bold).foregroundColor(.secondary)
-
-                Picker("", selection: $isCustomTime) {
-                    Text(L("Automatic Cascade (by order)")).tag(false)
-                    Text(L("Fixed Time (e.g. 11:00 AM)")).tag(true)
-                }
-                .radioGroupPickerStyle()
-
-                if isCustomTime {
-                    HStack {
-                        Text(L("Start Time:"))
-                            .font(.caption).fontWeight(.semibold)
-                        TextField("11:00 AM", text: $customTimeText)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(maxWidth: 160)
-                    }
-                    .padding(.top, 2)
-                }
-            }
-
-            Divider()
-
-            // Duration Selector
-            VStack(alignment: .leading, spacing: 8) {
-                Text(L("ESTIMATED DURATION:"))
-                    .font(.caption2).fontWeight(.bold).foregroundColor(.secondary)
-
-                HStack(spacing: 12) {
-                    HStack(spacing: 4) {
-                        Stepper("\(hours) h", value: $hours, in: 0...12)
-                    }
-                    HStack(spacing: 4) {
-                        Stepper("\(minutes) min", value: $minutes, in: 0...59, step: 5)
-                    }
-                }
-            }
-
-            // Live Preview Banner
-            VStack(alignment: .leading, spacing: 4) {
-                Text(L("SCHEDULE PREVIEW:"))
-                    .font(.caption2).fontWeight(.bold).foregroundColor(.secondary)
-
-                HStack {
-                    Image(systemName: "timer")
-                        .foregroundColor(.accentColor)
-                    if isCustomTime && !customTimeText.isEmpty {
-                        Text(calculatedEndTime)
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    } else {
-                        let dur = (hours * 60) + minutes
-                        let autoMsg = LocalizationManager.shared.currentLanguage == .spanish ? "Duración: \(formattedTimeHM(dur)) (se calcula según el orden del día)" : "Duration: \(formattedTimeHM(dur)) (cascades by day order)"
-                        Text(autoMsg)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.accentColor.opacity(0.1))
-                .cornerRadius(6)
-            }
-
-            Divider()
-
-            HStack {
-                Button(L("Cancel")) { onCancel() }
-                    .buttonStyle(.bordered)
-                Spacer()
-                Button(L("Save Schedule")) {
-                    var updated = scene
-                    if isCustomTime {
-                        updated.customStartTime = customTimeText.trimmingCharacters(in: .whitespaces)
-                    } else {
-                        updated.customStartTime = ""
-                    }
-                    updated.estimatedTime = (hours * 60) + minutes
-                    onSave(updated)
-                }
-                .buttonStyle(.borderedProminent)
-            }
-        }
-        .padding(18)
-        .frame(width: 360)
-        .onAppear {
-            let start = scene.customStartTime.trimmingCharacters(in: .whitespaces)
-            isCustomTime = !start.isEmpty
-            customTimeText = start.isEmpty ? "08:00 AM" : start
-            let dur = scene.estimatedTime > 0 ? scene.estimatedTime : (scene.isBanner ? 30 : 15)
-            hours = dur / 60
-            minutes = dur % 60
         }
     }
 }

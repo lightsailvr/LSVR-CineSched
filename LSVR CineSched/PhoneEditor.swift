@@ -19,12 +19,15 @@
 // presentation with the `exportPreview` request the Production tab (#28) and the Day
 // screen (#26) set, the moves (#25): `PhoneMoves` over the funnel, handed to the tabs,
 // with the pickers a move asks for (Send to Day, Swap with Day, Add Scenes) presented
-// here as `moveSheet`, the cross-tab jumps (`scrollToDate` into Days,
-// `revealBoneyardSceneID` into the Boneyard), and the `ProjectCommands` the iPad's menu
-// bar acts through in a narrow window (#22): published as the focused scene value and
-// into `ActiveProjectCommands` while the window appears active, each command handing the
-// Production tab a `ProductionCommand`. Replaced `MinimalProjectEditor` (#12–#17), which
-// proved the document lifecycle here.
+// here as `moveSheet`, the day edits (#26): `PhoneDayEdits` over the funnel, handed the
+// same way, with the editors a list asks for (the scene editor, the banner and event
+// inputs, Set Time, the call sheet) presented here as `editSheet` and the call sheet's
+// Export PDF into the preview (a failure is `alertMessage`), the cross-tab jumps
+// (`scrollToDate` into Days, `revealBoneyardSceneID` into the Boneyard), and the
+// `ProjectCommands` the iPad's menu bar acts through in a narrow window (#22): published
+// as the focused scene value and into `ActiveProjectCommands` while the window appears
+// active, each command handing the Production tab a `ProductionCommand`. Replaced
+// `MinimalProjectEditor` (#12–#17), which proved the document lifecycle here.
 //
 // Platform-free SwiftUI: the Mac compiles it and never shows it (its window is never
 // compact); the two iOS-only APIs, the tab bar's minimize behaviour and its accessory,
@@ -97,6 +100,14 @@ struct PhoneEditor: View {
     /// (#27) is the same `presentSendToDay(sceneIDs:)`.
     @State private var moveSheet: PhoneMoveSheet? = nil
 
+    /// The editor a list asked for (#26: a scene, a banner, an event, Set Time, the call
+    /// sheet), presented as a sheet over the whole editor by `phoneEditSheets`, so it
+    /// outlives the row or the Day screen that asked. Set through `dayEdits.present…`.
+    @State private var editSheet: PhoneEditSheet? = nil
+
+    /// What an export could not do (`PDFExportError`), shown as an alert.
+    @State private var alertMessage: String? = nil
+
     private var palette: ScenePalette { document.project.resolvedPalette }
 
     // MARK: - Body
@@ -109,7 +120,9 @@ struct PhoneEditor: View {
                     conflictSceneIDs: derived.conflictSceneIDs,
                     scrollToDate:     $scrollToDate,
                     edit:             projectEdit,
-                    moves:            moves
+                    editCoalescing:   coalescedProjectEdit,
+                    moves:            moves,
+                    dayEdits:         dayEdits
                 )
             }
             Tab(L("Boneyard"), systemImage: "tray.full", value: .boneyard) {
@@ -174,6 +187,12 @@ struct PhoneEditor: View {
         .syncMonitored(syncMonitor, document: document)
         .pdfExportPresentation($exportPreview)
         .phoneMoveSheets($moveSheet, document: document, boneyard: derived.sortedBoneyard.map(\.scene), moves: moves)
+        .phoneEditSheets($editSheet, document: document, dayEdits: dayEdits, moves: moves)
+        .alert(L("Export Failed"), isPresented: Binding(get: { alertMessage != nil }, set: { if !$0 { alertMessage = nil } })) {
+            Button(L("OK")) { alertMessage = nil }
+        } message: {
+            if let alertMessage { Text(alertMessage) }
+        }
         // The menu bar's commands (#22): the focused value, and the holder for the iPad,
         // where the focused value is nil without a hardware keyboard in use.
         .focusedSceneValue(\.projectCommands, projectCommands)
@@ -246,6 +265,26 @@ struct PhoneEditor: View {
     /// The moves (#25) over `edit`, with their pickers presented here.
     private var moves: PhoneMoves {
         PhoneMoves(edit: projectEdit, present: { moveSheet = $0 })
+    }
+
+    /// The day edits (#26) over `edit`, with their editors presented here and the call
+    /// sheet's Export PDF into the preview sheet (#23).
+    private var dayEdits: PhoneDayEdits {
+        PhoneDayEdits(
+            edit:            projectEdit,
+            beginGesture:    { if activeGesture == nil { beginEditGesture() } },
+            present:         { editSheet = $0 },
+            exportCallSheet: { day in
+                // The closure literal's thrown type is inferred untyped (learnings 2026-09-21 #28).
+                do {
+                    exportPreview = try PDFExport.callSheet(project: document.project, day: day)
+                } catch let error as PDFExportError {
+                    alertMessage = error.message
+                } catch {
+                    alertMessage = error.localizedDescription
+                }
+            }
+        )
     }
 
     /// Opens the gesture the following `edit`s fold into, and closes it at the end of the

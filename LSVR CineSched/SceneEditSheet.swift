@@ -6,7 +6,8 @@
 // from the scene when the editor appears and whenever the scene's id changes (Previous /
 // Next, a new inspector selection), and Save assigns `draft.applied(to:)` to the
 // binding once: one `perform`, one undo step, whatever the container (the old sheet
-// wrote thirty properties through the binding, one `perform` each).
+// wrote thirty properties through the binding, one `perform` each). On the iPhone
+// (#26) the footer also carries Duplicate Scene when `onDuplicate` is supplied.
 
 import SwiftUI
 
@@ -32,6 +33,10 @@ struct SceneEditSheet: View {
     /// script you might be halfway through tagging, forcing a restart from scene one.
     var closeAfterDelete: Bool = true
     var knownLocations: [String] = []
+    /// Duplicate Scene from inside the editor (#26, the iPhone, where the strip's
+    /// right-click menu has no home): saves the draft, calls this, closes. Nil at the
+    /// Mac's call sites, which offer it on the strip's menu, so the footer is unchanged.
+    var onDuplicate: (() -> Void)? = nil
 
     @State private var draft: SceneDraft
     @State private var breakdownExpanded: Bool
@@ -51,7 +56,8 @@ struct SceneEditSheet: View {
         positionLabel: String? = nil,
         breakdownExpandedByDefault: Bool = true,
         closeAfterDelete: Bool = true,
-        knownLocations: [String] = []
+        knownLocations: [String] = [],
+        onDuplicate: (() -> Void)? = nil
     ) {
         _scene                     = scene
         _isPresented               = isPresented
@@ -65,6 +71,7 @@ struct SceneEditSheet: View {
         self.breakdownExpandedByDefault = breakdownExpandedByDefault
         self.closeAfterDelete      = closeAfterDelete
         self.knownLocations        = knownLocations
+        self.onDuplicate           = onDuplicate
         // Populated here rather than on appear so the first frame shows the scene.
         _draft                     = State(initialValue: SceneDraft(scene: scene.wrappedValue))
         _breakdownExpanded         = State(initialValue: breakdownExpandedByDefault)
@@ -249,6 +256,25 @@ struct SceneEditSheet: View {
             .buttonStyle(.bordered)
             .tint(.red)
             .help(L("Delete Scene"))
+
+            if let onDuplicate {
+                // Saves first, like Previous and Next, so the copy is of what is on screen.
+                Button {
+                    guard draft.isValid else { return }
+                    saveChanges()
+                    onSave()
+                    onDuplicate()
+                    isPresented = false
+                } label: {
+                    Label(L("Duplicate Scene"), systemImage: "doc.on.doc")
+                        .labelStyle(.iconOnly)
+                        .frame(width: 16, height: 16)
+                }
+                .buttonStyle(.bordered)
+                .disabled(!draft.isValid)
+                .help(L("Duplicate Scene"))
+                .accessibilityLabel(L("Duplicate Scene"))
+            }
 
             Spacer()
 

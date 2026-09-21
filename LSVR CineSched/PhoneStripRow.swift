@@ -1,17 +1,23 @@
 // PhoneStripRow.swift
 // The strip as the iPhone draws it (#24), in the Days list and on the Day screen alike:
-// a script scene (number, slugline, the time cascade's range, cast count, estimate and
-// pages, on the strip color the palette gives it), a banner or auto-meal (its own dark
-// color and label), and the calendar event chip the lists show above the strips. Two
-// lines instead of the Mac's one, semantic text styles and no fixed heights, so Dynamic
-// Type and a narrow window both get a readable strip. Colors come from
-// `Scene.stripColor(in:)` with the `scenePalette` environment, as everywhere.
+// a script scene (number, slugline, the time cascade's range, estimate and pages, on the
+// strip color the palette gives it, and one chip per field the app-wide Stripboard
+// Fields setting turns on, the same chips the Mac's `SceneStripRow` prints, #26), a
+// banner or auto-meal (its own dark color and label), and the calendar event chip the
+// lists show above the strips. Two lines instead of the Mac's one, semantic text styles
+// and no fixed heights, so Dynamic Type and a narrow window both get a readable strip.
+// Colors come from `Scene.stripColor(in:)` with the `scenePalette` environment, as
+// everywhere.
 //
-// `PhoneStripActions` is where the strip's long-press menu and swipe actions are built,
-// one function each, so the tickets that add moves (#25) and edits (#26) have one place
-// to add to for both lists. Here: the long-press preview (`StripPreview`: number,
-// slugline, cast, summary), Open Day, and the moves (#25): Send to Day… and Return to
-// Boneyard in the menu, and as the trailing swipe.
+// `PhoneStripActions` is where the strip's tap, long-press menu and swipe actions are
+// built, one function each, so the tickets that add moves (#25) and edits (#26) have one
+// place to add to for both lists. Here: the long-press preview (`StripPreview`: number,
+// slugline, cast, summary), Open Day; the moves (#25): Send to Day… and Return to
+// Boneyard in the menu and as the trailing swipe; and the edits (#26): a tap opens the
+// strip's editor (the scene editor, the banner input, Set Time for an auto-meal), the
+// menu adds Edit, Set Time…, Duplicate Scene and Delete Banner, the leading swipe is
+// Edit and Set Time, the trailing swipe gains Duplicate for a script scene and Delete
+// for a banner (never a full swipe: a mis-swipe on a small screen must be harmless).
 
 import SwiftUI
 
@@ -29,6 +35,9 @@ struct PhoneStripRow: View {
     /// The cascade's range for this strip ("07:30 AM – 08:15 AM"), or empty.
     let timeText: String
     var hasConflict: Bool = false
+    /// The fields the strip prints as chips (the Stripboard Fields setting, decoded once
+    /// per list body by the caller); a fresh install shows the cast, as the Mac does.
+    var visibleFields: Set<StripboardField> = StripboardField.defaultSelection
     @Environment(\.scenePalette) private var palette
 
     var body: some View {
@@ -42,6 +51,22 @@ struct PhoneStripRow: View {
     // MARK: Script scene
 
     private var textColor: Color { scene.stripTextColor }
+
+    private struct FieldChip: Identifiable {
+        let field: StripboardField
+        let value: String
+        var id: StripboardField { field }
+    }
+
+    /// The enabled fields this scene has a value for, in `StripboardField` order (the
+    /// Mac row's rule: a blank field leaves no dangling icon).
+    private var fieldChips: [FieldChip] {
+        StripboardField.allCases.compactMap { field in
+            guard visibleFields.contains(field) else { return nil }
+            let value = field.displayValue(for: scene)
+            return value.isEmpty ? nil : FieldChip(field: field, value: value)
+        }
+    }
 
     private var sceneRow: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -73,18 +98,33 @@ struct PhoneStripRow: View {
                         .font(.caption.weight(.semibold).monospaced())
                         .foregroundStyle(textColor.opacity(0.85))
                         .lineLimit(1)
-                }
-                if !scene.cast.isEmpty {
-                    Label(scene.cast.count == 1 ? L("1 cast") : String(format: L("%d cast"), scene.cast.count), systemImage: "person.2")
-                        .font(.caption)
-                        .foregroundStyle(textColor.opacity(0.7))
-                        .lineLimit(1)
+                        .fixedSize()
                 }
                 Spacer(minLength: 0)
                 if scene.estimatedTime > 0 {
                     Text(formattedTimeHM(scene.estimatedTime))
                         .font(.caption.monospaced())
                         .foregroundStyle(textColor.opacity(0.7))
+                }
+            }
+            // One chip per enabled field with a value, on their own line so the time
+            // range never gives way to them; each truncates on its own.
+            let chips = fieldChips
+            if !chips.isEmpty {
+                HStack(spacing: 10) {
+                    ForEach(chips) { chip in
+                        HStack(spacing: 3) {
+                            Image(systemName: chip.field.icon)
+                                .font(.caption2.weight(.semibold))
+                            Text(chip.value)
+                                .font(.caption)
+                                .lineLimit(1)
+                        }
+                        .foregroundStyle(textColor.opacity(0.7))
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(Text("\(chip.field.label): \(chip.value)"))
+                    }
+                    Spacer(minLength: 0)
                 }
             }
         }
@@ -263,16 +303,20 @@ struct StripPreview: View {
 // MARK: - Strip actions (the hooks for #25 and #26)
 
 /// The actions a strip row offers, built in one place for the Days list and the Day
-/// screen. `stripContextMenu(for:)` is the long-press menu's items and
-/// `stripSwipeActions(for:)` the row's swipe actions; #25 put the moves here (Send to
-/// Day… for a script scene or a banner, Return to Boneyard for a script scene; auto-meals
-/// follow the call sheet and calendar events are never strips, so neither gets them) and
-/// #26 adds its edits to the same two functions. `edit` is the funnel every item writes
-/// through; `moves` (`PhoneMoves`) is the editor's move funnel and its pickers.
+/// screen. `stripContextMenu(for:)` is the long-press menu's items,
+/// `stripSwipeActions(for:)` the trailing swipe and `stripLeadingSwipeActions(for:)`
+/// the leading one; `open(_:)` is the tap. #25 put the moves here (Send to Day… for a
+/// script scene or a banner, Return to Boneyard for a script scene; auto-meals follow
+/// the call sheet and calendar events are never strips, so neither gets them) and #26
+/// the edits (`PhoneDayEdits`: Edit, Set Time…, Duplicate Scene, Delete Banner; an
+/// auto-meal has Set Time only, because its call sheet's time would bring a deleted one
+/// back at the next sync). `edit` is the funnel every item writes through; `moves`
+/// (`PhoneMoves`) is the editor's move funnel and its pickers.
 struct PhoneStripActions {
-    let day:   ShootDay
-    let edit:  ProjectEdit
-    let moves: PhoneMoves
+    let day:      ShootDay
+    let edit:     ProjectEdit
+    let moves:    PhoneMoves
+    let dayEdits: PhoneDayEdits
     /// Opens the Day screen for `day`; nil on the Day screen itself.
     let openDay: (() -> Void)?
 
@@ -280,6 +324,20 @@ struct PhoneStripActions {
     private func canSendToDay(_ scene: Scene) -> Bool { !scene.isCalendarEvent && !scene.isAutoMeal }
     /// Only a script scene has a place in the Boneyard.
     private func canReturnToBoneyard(_ scene: Scene) -> Bool { !scene.isBanner && !scene.isCalendarEvent }
+    /// Duplicate Scene copies a script scene.
+    private func canDuplicate(_ scene: Scene) -> Bool { !scene.isBanner && !scene.isCalendarEvent }
+    /// Delete Banner: a custom banner goes; an auto-meal is the call sheet's to remove.
+    private func canDeleteBanner(_ scene: Scene) -> Bool { scene.isBanner && !scene.isAutoMeal && !scene.isCalendarEvent }
+
+    /// The tap: the strip's editor (the scene editor, the banner input, or Set Time for
+    /// an auto-meal).
+    func open(_ scene: Scene) {
+        dayEdits.presentEditor(for: scene, dayID: day.id)
+    }
+
+    private func editLabel(_ scene: Scene) -> String {
+        scene.isAutoMeal ? L("Set Time…") : (scene.isBanner ? L("Edit Banner") : L("Edit Scene"))
+    }
 
     @ViewBuilder
     func stripContextMenu(for scene: Scene) -> some View {
@@ -290,7 +348,28 @@ struct PhoneStripActions {
                 Label(L("Open Day"), systemImage: "calendar")
             }
         }
-        // The moves (#25). #26 adds its edits below these.
+        // The edits (#26).
+        Button {
+            open(scene)
+        } label: {
+            Label(editLabel(scene), systemImage: scene.isAutoMeal ? "clock" : "pencil")
+        }
+        if !scene.isAutoMeal {
+            Button {
+                dayEdits.presentSetTime(sceneID: scene.id, dayID: day.id)
+            } label: {
+                Label(L("Set Time…"), systemImage: "clock")
+            }
+        }
+        if canDuplicate(scene) {
+            Button {
+                dayEdits.duplicateScene(id: scene.id)
+            } label: {
+                Label(L("Duplicate Scene"), systemImage: "doc.on.doc")
+            }
+        }
+        Divider()
+        // The moves (#25).
         if canSendToDay(scene) {
             Button {
                 moves.presentSendToDay(sceneIDs: [scene.id])
@@ -305,12 +384,27 @@ struct PhoneStripActions {
                 Label(L("Return to Boneyard"), systemImage: "tray.and.arrow.down")
             }
         }
+        if canDeleteBanner(scene) {
+            Divider()
+            Button(role: .destructive) {
+                dayEdits.deleteNoticeStrip(scene)
+            } label: {
+                Label(L("Delete Banner"), systemImage: "trash")
+            }
+        }
     }
 
-    /// The trailing swipe: Send to Day… and, for a script scene, Boneyard. A banner's or
-    /// event's delete is #26's, so a notice strip has no Boneyard swipe here.
+    /// The trailing swipe: Boneyard and Send to Day for a script scene (#25), then
+    /// Duplicate; Delete and Send to Day for a custom banner; nothing for an auto-meal.
     @ViewBuilder
     func stripSwipeActions(for scene: Scene) -> some View {
+        if canDeleteBanner(scene) {
+            Button(role: .destructive) {
+                dayEdits.deleteNoticeStrip(scene)
+            } label: {
+                Label(L("Delete"), systemImage: "trash")
+            }
+        }
         if canReturnToBoneyard(scene) {
             Button {
                 moves.returnToBoneyard([scene.id])
@@ -327,6 +421,33 @@ struct PhoneStripActions {
             }
             .tint(.blue)
         }
+        if canDuplicate(scene) {
+            Button {
+                dayEdits.duplicateScene(id: scene.id)
+            } label: {
+                Label(L("Duplicate"), systemImage: "doc.on.doc")
+            }
+            .tint(.indigo)
+        }
+    }
+
+    /// The leading swipe (#26): Edit (the strip's editor) and Set Time.
+    @ViewBuilder
+    func stripLeadingSwipeActions(for scene: Scene) -> some View {
+        Button {
+            open(scene)
+        } label: {
+            Label(scene.isAutoMeal ? L("Set Time") : L("Edit"), systemImage: scene.isAutoMeal ? "clock" : "pencil")
+        }
+        .tint(.accentColor)
+        if !scene.isAutoMeal {
+            Button {
+                dayEdits.presentSetTime(sceneID: scene.id, dayID: day.id)
+            } label: {
+                Label(L("Set Time"), systemImage: "clock")
+            }
+            .tint(.teal)
+        }
     }
 }
 
@@ -340,10 +461,13 @@ extension View {
             .listRowBackground(color)
     }
 
-    /// The strip's long press (the preview for a script scene, the menu items from
-    /// `stripContextMenu`) and its swipe actions (`stripSwipeActions`).
+    /// The strip's tap (its editor, #26), its long press (the preview for a script scene,
+    /// the menu items from `stripContextMenu`) and its swipe actions on both edges
+    /// (`stripSwipeActions`, `stripLeadingSwipeActions`), never a full swipe.
     func stripInteractions(_ actions: PhoneStripActions, scene: Scene) -> some View {
         self
+            .contentShape(Rectangle())
+            .onTapGesture { actions.open(scene) }
             .contextMenu {
                 actions.stripContextMenu(for: scene)
             } preview: {
@@ -353,8 +477,12 @@ extension View {
                     StripPreview(scene: scene)
                 }
             }
+            .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                actions.stripLeadingSwipeActions(for: scene)
+            }
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                 actions.stripSwipeActions(for: scene)
             }
     }
 }
+

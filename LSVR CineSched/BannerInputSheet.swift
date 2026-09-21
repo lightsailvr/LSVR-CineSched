@@ -1,24 +1,35 @@
 // BannerInputSheet.swift
 // The banner input (#19): one adaptive `Form` to create a custom banner strip (Company
-// Move, Meal Break, Notice, Custom Text) for the Stripboard. The fields are a
-// `BannerDraft`; Add Banner hands `draft.makeBanner()` to `onSave` once. Only the size
-// around the form changes per container (`editorContainer`).
+// Move, Meal Break, Notice, Custom Text) for the Stripboard, or (#26, the iPhone's Day
+// screen) to edit one (`initialBanner`). The fields are a `BannerDraft`; Add Banner hands
+// `draft.makeBanner()` to `onSave` once, Save Changes `draft.applied(to:)`, which keeps
+// the banner's id and its fixed start. Only the size around the form changes per
+// container (`editorContainer`). The Mac's call site adds only.
 
 import SwiftUI
 
 struct BannerInputSheet: View {
     @ObservedObject private var l10n = LocalizationManager.shared
     @Binding var isPresented: Bool
+    /// The banner being edited; nil to add one.
+    var initialBanner: Scene? = nil
     let onSave: (Scene) -> Void
 
-    @State private var draft = BannerDraft()
+    @State private var draft: BannerDraft
 
     static let sheetSize = EditorSheetSize(width: 480, height: 620, compactDetents: [.medium, .large], fitsHeight: true)
+
+    init(isPresented: Binding<Bool>, initialBanner: Scene? = nil, onSave: @escaping (Scene) -> Void) {
+        _isPresented       = isPresented
+        self.initialBanner = initialBanner
+        self.onSave        = onSave
+        _draft             = State(initialValue: initialBanner.map { BannerDraft(banner: $0) } ?? BannerDraft())
+    }
 
     var body: some View {
         EditorChrome {
             EditorTitle(
-                title:    L("Add Notice / Banner Strip"),
+                title:    draft.isEditing ? L("Edit Banner Strip") : L("Add Notice / Banner Strip"),
                 subtitle: L("Insert custom move, notice, or note into the stripboard schedule")
             )
         } content: {
@@ -28,8 +39,12 @@ struct BannerInputSheet: View {
                 Button(L("Cancel")) { isPresented = false }
                     .buttonStyle(.bordered)
                 Spacer()
-                Button(L("Add Banner")) {
-                    onSave(draft.makeBanner())
+                Button(draft.isEditing ? L("Save Changes") : L("Add Banner")) {
+                    if let initialBanner {
+                        onSave(draft.applied(to: initialBanner))
+                    } else {
+                        onSave(draft.makeBanner())
+                    }
                     isPresented = false
                 }
                 .buttonStyle(.borderedProminent)

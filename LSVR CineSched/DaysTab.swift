@@ -18,8 +18,15 @@
 // that started in another section (learnings 2026-09-21 #25) — and a `List` is what the
 // swipe actions need. Cross-day moves are Send to Day instead (the strip's swipe and
 // menu, `PhoneStripActions`), which lands the scene on any day picked. The day header's
-// long press is the day's menu (Open Day, Add Scenes…, Swap with Day…). No `dragContainer`
-// or `reorderContainer`: see ScheduleDrag.swift and learnings 2026-09-20.
+// long press is the day's menu (Open Day, Add Scenes…, Swap with Day…, and with #26 the
+// call sheet, Add Banner… and Add Event…). No `dragContainer` or `reorderContainer`: see
+// ScheduleDrag.swift and learnings 2026-09-20.
+//
+// The edits (#26) reach the list through the same `PhoneStripActions` as the Day
+// screen: a tap on a strip opens its editor, a tap on an event chip the event input
+// (its long press: Edit Event, Delete Event), every one a sheet over the editor
+// (`PhoneDayEdits`). The strips print the fields the app-wide Stripboard Fields setting
+// turns on, decoded once per body here and handed to every row.
 //
 // Scrolling to a date (the week strip, the month popover, the Today control through the
 // `scrollToDate` binding the editor owns) goes through `dayScrollTarget`: a date folded
@@ -39,9 +46,15 @@ struct DaysTab: View {
     /// strip and month popover; cleared here once acted on.
     @Binding var scrollToDate: Date?
     let edit: ProjectEdit
+    /// `edit` under a gesture the Day screen keeps across calls (its note's typing).
+    let editCoalescing: CoalescedProjectEdit
     /// The moves and their pickers (#25), wired by the editor.
     let moves: PhoneMoves
+    /// The day and strip edits and their editors (#26), wired by the editor.
+    let dayEdits: PhoneDayEdits
     @Environment(\.scenePalette) private var palette
+    /// The Stripboard Fields setting (app-wide, the Production tab's picker writes it).
+    @AppStorage(StripboardFieldSettings.defaultsKey) private var stripboardFieldsRaw: String = StripboardFieldSettings.defaultRaw
     /// Compact vertically (an iPhone in landscape): the week strip is one row.
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
@@ -86,16 +99,29 @@ struct DaysTab: View {
             }
             .editorNavigationBarHidden()
             .navigationDestination(for: UUID.self) { dayID in
-                DayScreen(dayID: dayID, document: document, conflictSceneIDs: conflictSceneIDs, edit: edit, moves: moves)
+                DayScreen(
+                    dayID:            dayID,
+                    document:         document,
+                    conflictSceneIDs: conflictSceneIDs,
+                    edit:             edit,
+                    editCoalescing:   editCoalescing,
+                    moves:            moves,
+                    dayEdits:         dayEdits,
+                    visibleFields:    visibleFields
+                )
             }
         }
     }
+
+    /// The fields every strip prints, decoded once per body (never per row).
+    private var visibleFields: Set<StripboardField> { StripboardFieldSettings.decode(stripboardFieldsRaw) }
 
     // MARK: - The list
 
     private var daysList: some View {
         let rows       = stripboardRows(for: shootDays, showAllDays: false, expandedDayIDs: expandedGapDayIDs)
         let dayNumbers = productionDayNumbers(for: shootDays)
+        let fields     = visibleFields
         return List {
             if rows.isEmpty {
                 ContentUnavailableView(
@@ -108,7 +134,7 @@ struct DaysTab: View {
             ForEach(rows) { row in
                 switch row {
                 case .day(_, let day):
-                    daySection(day, dayNumbers: dayNumbers)
+                    daySection(day, dayNumbers: dayNumbers, fields: fields)
                 case .gap(let gap):
                     gapSection(gap)
                 }
@@ -119,21 +145,21 @@ struct DaysTab: View {
 
     // MARK: - Day section
 
-    private func daySection(_ day: ShootDay, dayNumbers: [UUID: Int]) -> some View {
+    private func daySection(_ day: ShootDay, dayNumbers: [UUID: Int], fields: Set<StripboardField>) -> some View {
         let summary  = DaySummary(day: day, dayNumbers: dayNumbers)
         let strips   = day.scenes.filter { !$0.isCalendarEvent }
         let events   = day.scenes.filter { $0.isCalendarEvent }
         let timeline = dayTimeline(for: day, scenes: strips)
-        let actions  = PhoneStripActions(day: day, edit: edit, moves: moves, openDay: { path.append(day.id) })
+        let actions  = PhoneStripActions(day: day, edit: edit, moves: moves, dayEdits: dayEdits, openDay: { path.append(day.id) })
         let displayed = strips.map(\.id)
 
         return Section {
             dayHeader(day, summary: summary)
             if !events.isEmpty {
-                eventChips(events)
+                eventChips(events, dayID: day.id)
             }
             ForEach(strips) { scene in
-                PhoneStripRow(scene: scene, timeText: timeline[scene.id]?.timeDisplay ?? "", hasConflict: conflictSceneIDs.contains(scene.id))
+                PhoneStripRow(scene: scene, timeText: timeline[scene.id]?.timeDisplay ?? "", hasConflict: conflictSceneIDs.contains(scene.id), visibleFields: fields)
                     .stripListRow(color: PhoneStripRow.rowColor(for: scene, palette: palette))
                     .stripInteractions(actions, scene: scene)
                     .draggable(ScheduleDragPayload.scenes([scene.id], from: day.id))
@@ -212,8 +238,8 @@ struct DaysTab: View {
         .onDisappear { visibleDayDates.remove(day.date); followVisibleDays() }
     }
 
-    /// The day header's long-press menu: the Day screen and the moves that act on the
-    /// whole day (#25). #26 adds its day edits here.
+    /// The day header's long-press menu: the Day screen, the day's edits (#26: the call
+    /// sheet, Add Banner…, Add Event…) and the moves that act on the whole day (#25).
     @ViewBuilder
     private func dayMenuItems(_ day: ShootDay) -> some View {
         Button {
@@ -221,6 +247,23 @@ struct DaysTab: View {
         } label: {
             Label(L("Open Day"), systemImage: "calendar")
         }
+        Divider()
+        Button {
+            dayEdits.presentCallSheet(dayID: day.id)
+        } label: {
+            Label(L("Edit Call Sheet…"), systemImage: "doc.plaintext")
+        }
+        Button {
+            dayEdits.presentBannerEditor(dayID: day.id)
+        } label: {
+            Label(L("Add Banner…"), systemImage: "flag")
+        }
+        Button {
+            dayEdits.presentEventEditor(dayID: day.id)
+        } label: {
+            Label(L("Add Event…"), systemImage: "calendar.badge.plus")
+        }
+        Divider()
         Button {
             moves.presentAddScenes(dayID: day.id)
         } label: {
@@ -249,11 +292,27 @@ struct DaysTab: View {
         return parts.joined(separator: " · ")
     }
 
-    private func eventChips(_ events: [Scene]) -> some View {
+    /// The day's events as chips: a tap opens the event input, a long press its menu (#26).
+    private func eventChips(_ events: [Scene], dayID: UUID) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 ForEach(events) { event in
                     PhoneEventChip(event: event)
+                        .contentShape(Rectangle())
+                        .onTapGesture { dayEdits.presentEventEditor(dayID: dayID, eventID: event.id) }
+                        .contextMenu {
+                            Button {
+                                dayEdits.presentEventEditor(dayID: dayID, eventID: event.id)
+                            } label: {
+                                Label(L("Edit Event"), systemImage: "pencil")
+                            }
+                            Divider()
+                            Button(role: .destructive) {
+                                dayEdits.deleteNoticeStrip(event)
+                            } label: {
+                                Label(L("Delete Event"), systemImage: "trash")
+                            }
+                        }
                 }
             }
             .padding(.horizontal, 14)
