@@ -4,9 +4,11 @@ CineSched: a SwiftUI app for film production scheduling. The Mac app is the ship
 iOS, iPadOS and visionOS build from the same target and today have the system's document
 launch screen (New Project, Import Script…, Import Project…, recents, the document browser),
 open, create and autosave `.cinesched` projects from the CineSched folder in iCloud Drive, and
-show the sync indicator and the conflict notice, all through a deliberately minimal editor
-(#12–#15, ADR 0006). The full iPad editor and the iPhone and Vision Pro editors are milestones
-3 and 4 of #1 (M3, M4); nothing else about those platforms is placeholder.
+show the sync indicator and the conflict notice (#12–#15, ADR 0006). In regular width (iPad,
+Vision Pro) the editor is `ContentView` in its three-column layout with a trailing inspector
+(#17, the foundation of milestone 3 of #1); in compact width (iPhone, a narrow iPad pane) a
+deliberately minimal editor stands in until milestone 4. Nothing else about those platforms
+is placeholder.
 Read `CONTEXT.md` for the glossary and system map before touching the code, and `learnings.md`
 for things that have already cost time.
 
@@ -83,12 +85,30 @@ the build inputs outside it, see Working agreements):
 
 - `CineSchedApp.swift`: `@main`; a `DocumentGroup` over `ProjectDocument` on every platform. On
   the Mac one window per document plus the menus, which act on the key window through
-  `@FocusedValue(\.projectCommands)`; on iOS and visionOS `MinimalProjectEditor` as the editor
+  `@FocusedValue(\.projectCommands)`; on iOS and visionOS `ProjectEditor` as the editor
   and the system's `DocumentGroupLaunchScene` (New Project, Import Script…, Import Project…,
   recents, the document browser). The two imports (#13) are `NewDocumentButton`s with a
   `DocumentCreationSource`; `makeDocument` switches on `context.creationSource` and awaits
   `LaunchImportFlow` for the project. The button's `prepareDocumentURL` closure is never
   invoked by the 27.0 launch scene; do not move the flow there.
+- `ProjectEditor.swift`: the non-Mac editor choice by `horizontalSizeClass` (#17): regular
+  width gets `ContentView(document:layout: .threeColumn)`, compact width
+  `MinimalProjectEditor`. Platform-free.
+- `EditorSelection.swift`: the inspector's selection (#17), pure: `EditorSelection` (`.scene(id:)`
+  or `.day(id:)`), `ProjectData.locate(sceneID:)` → `SceneLocation` (Boneyard index or
+  day/scene indices), `scene(withID:)`, `dayIndex(forDayID:)`, and `pruned(in:)`, which
+  drops a selection whose target left the project (`EditorSelectionTests`).
+- `EditorPresentation.swift`: the `editorPresentation` environment value (`.sheet` default,
+  `.inspector`): `SceneEditSheet` and `DayDetailSheet` read it to drop the fixed frames
+  their Mac sheets need when the inspector column shows them. Goes with #19's rewrite.
+- `BoneyardListView.swift`: the Boneyard list (strip rows, drag out, drop back, tooltip,
+  double-tap editor, context menu) as a view both layouts draw; every action is a closure
+  `ContentView` wires to the selection, the sheets and the funnel.
+- `ContentView+Inspector.swift`: the three-column layout's trailing column: the project
+  statistics when nothing is selected, `SceneEditSheet` bound to the selected scene by id
+  (Save is one gesture, Cancel and Delete clear the selection), `DayDetailSheet` for the
+  selected day with its edits (day type, note, clear, remove or delete an item) and the
+  two sheets it opens (`ActiveSheet.calendarEvent`, `.callSheet`).
 - `LaunchImportFlow.swift`: the launch screen's imports (#13). `LaunchImportKind` (script or
   legacy project, with the picker's types), `LaunchImport` (the pure steps: parse a script,
   build the new project from the result, read a legacy `.json` through `ProjectCodec`;
@@ -101,9 +121,9 @@ the build inputs outside it, see Working agreements):
   dispatch by extension to `FountainImporter` or `FinalDraftParser`, the Final Draft scene
   mapping, and `parse(at:)`, which returns any format as a `FountainImportResult` for the
   summary sheet. The Mac's menu uses the types and the mapping; the launch screen uses all of it.
-- `MinimalProjectEditor.swift`: the iOS/visionOS editor until milestones 3 and 4 (title field,
-  shoot days with scene counts, every write through `perform`), plus the launch screen's
-  background. Platform-free SwiftUI; the Mac compiles it and never shows it.
+- `MinimalProjectEditor.swift`: the compact-width editor on iOS/visionOS until milestone 4
+  (title field, shoot days with scene counts, every write through `perform`), plus the launch
+  screen's background. Platform-free SwiftUI; the Mac compiles it and never shows it.
 - `CineSchedFolder.swift`: the iCloud container identifier, the folder's display name and the
   Mac's derivation of where iCloud Drive keeps it (pure, `CineSchedFolderTests`). The Mac has no
   iCloud entitlement (ADR 0006); `MacAppDelegate` seeds the Open/Save panels' last directory
@@ -112,9 +132,15 @@ the build inputs outside it, see Working agreements):
   for those menus. `WindowPreference.swift`: `@WindowPreference`, per-window view state (Calendar
   vs Stripboard, cast row, times vs pages, all days, grid vs list) seeded from and written back to
   the last-used value; app-wide preferences (Dark Mode, Theme, Stripboard fields) stay `@AppStorage`.
-- `ContentView.swift`: the Mac editor for one document (`ContentView(document:)`). It reads
+- `ContentView.swift`: the editor for one document (`ContentView(document:layout:)`): the Mac
+  window (`EditorLayout.twoColumn`, the default: sidebar, the toolbar row, the detail) and
+  the iPad and Vision Pro window in regular width (`.threeColumn`: the same sidebar, the
+  schedule under a system toolbar, `.inspector` bound to `selection`). One set of state,
+  bindings, sheets and lifecycle; two bodies, the Mac's untouched by the iPad's. It reads
   `document.project` and writes only through `edit(_:_:)` or the bindings built on it. There is
-  no view model; UI-only state (range-picker dates, selection, sheets) stays `@State`.
+  no view model; UI-only state (range-picker dates, selection, sheets) stays `@State`. The
+  schedule views take their touch adaptations as parameters (`onSelectDay`, `selectedDayID`,
+  the calendar's `minimumCellWidth`), never through `#if os`.
 - `ContentView+ScriptImport.swift`: File ▸ Import Script… into the Boneyard (the formats and
   the Final Draft mapping come from `ScriptImport`). `ImportSummaryView.swift`: the import
   summary sheet, the Mac's Done mode after a Fountain import and, given `onConfirm`, the
@@ -198,7 +224,9 @@ the build inputs outside it, see Working agreements):
 - Platform seams (ADR 0003): `FilePanels`, `SelectAllTextField`, `WindowAccessor`, `ModifierKeys`,
   `PlatformControlStyles`, `PlatformColors`, `PlatformDocumentTypes`, `PlatformConflictResolution`
   (whether the system presents its own conflict UI: the Mac's NSDocument sheet, so the app
-  resolves only on iOS and visionOS), `LegacyProjectHandoff`, `MacAppDelegate`, plus the
+  resolves only on iOS and visionOS), `PlatformInspector` (the three-column layout's
+  trailing column: `.inspector` where it exists, a trailing pane on visionOS, which has no
+  such modifier), `LegacyProjectHandoff`, `MacAppDelegate`, plus the
   editor/launch-scene choice, the tabbing choice and the delegate adaptor in `CineSchedApp`.
   These are the only files allowed to contain `#if os(...)`.
 
@@ -228,9 +256,18 @@ the build inputs outside it, see Working agreements):
   registers nothing, so an editor's Save may write its whole value back unconditionally.
 - **Platform ownership of the document**: one `DocumentGroup` per platform in `CineSchedApp` (a
   seam file), both over `ProjectDocument` made the same way (`.newProject()`, the configuration,
-  `SceneColorSettings.deviceOverrides()`). `ContentView` and `MinimalProjectEditor` compile on
-  every platform and must stay free of `#if os`. A per-platform difference in what the document
-  reads goes in `PlatformDocumentTypes`, not in `ProjectDocument`.
+  `SceneColorSettings.deviceOverrides()`). `ContentView`, `ProjectEditor` and
+  `MinimalProjectEditor` compile on every platform and must stay free of `#if os`; the Mac
+  passes `ContentView` its default layout, the others choose by size class. A per-platform
+  difference in what the document reads goes in `PlatformDocumentTypes`, not in `ProjectDocument`.
+- **Touch and the inspector (#17)**: a schedule view offers touch affordances through
+  optional parameters the Mac leaves nil (`onSelectDay`, `selectedDayID`), not through
+  `#if os`; a single tap selects into `ContentView.selection` (scenes through the
+  `lastSelectedSceneID` binding, days through `onSelectDay`), a double tap opens the full
+  editor sheet, and `.contextMenu` is the long-press menu on touch, so a new strip action goes
+  in the context menu and nowhere else. An editor shown in the inspector reads
+  `@Environment(\.editorPresentation)` to drop its sheet-only frame and auto-focus. Per-window
+  view state on the iPad (the inspector's visibility) is a `@WindowPreference` like the rest.
 - **Colors**: resolve scene colors only via `Scene.stripColor(in:)`, with the project's palette
   (`ProjectData.resolvedPalette`): views read `@Environment(\.scenePalette)`, which `ContentView`
   sets once at its root; an exporter that draws strips takes `palette:` with the project. Nothing
@@ -277,6 +314,7 @@ carried across a resolution) in `ConflictNoticeTests`; the document's unsaved-ed
 coordinated accesses, the metadata query and the path monitor have no unit seam: they need a
 signed-in device (the manual two-device test in issue #15),
 `CineSchedFolder` (`CineSchedFolderTests`),
+`EditorSelection`, `ProjectData.locate(sceneID:)` and the pruning (`EditorSelectionTests`),
 `ScriptImport.parse`, `LaunchImport` and `LaunchImportFlow` driven through its callbacks
 (`LaunchImportTests`: one parse per format, the script → new project step, the legacy `.json`
 read against `ProjectCodec` with the source bytes pinned, and every cancellation path),

@@ -1,11 +1,15 @@
 // DayDetailSheet.swift
 // Detailed modal inspector for a Shoot Day, displaying full breakdown scenes, cast, call sheet and calendar events.
+// The iPad's inspector column shows the same view for the selected day (#17): there
+// `editorPresentation` is `.inspector` and the sheet's minimum and ideal frame gives way
+// to the column's size.
 
 import SwiftUI
 
 struct DayDetailSheet: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePalette) private var palette
+    @Environment(\.editorPresentation) private var presentation
     @AppStorage("CineSchedTheme") private var currentTheme: AppTheme = .blue
     @ObservedObject private var l10n = LocalizationManager.shared
 
@@ -208,7 +212,12 @@ struct DayDetailSheet: View {
             .padding(16)
             .background(currentTheme.panelBackground(isDarkMode: colorScheme == .dark))
         }
-        .frame(minWidth: isShootDay ? 620 : 480, idealWidth: isShootDay ? 700 : 540, minHeight: isShootDay ? 520 : 380, idealHeight: isShootDay ? 640 : 440)
+        .frame(
+            minWidth:    presentation == .inspector ? nil : (isShootDay ? 620 : 480),
+            idealWidth:  presentation == .inspector ? nil : (isShootDay ? 700 : 540),
+            minHeight:   presentation == .inspector ? nil : (isShootDay ? 520 : 380),
+            idealHeight: presentation == .inspector ? nil : (isShootDay ? 640 : 440)
+        )
     }
 
     // MARK: - Day Type & Note

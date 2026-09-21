@@ -1,10 +1,12 @@
 // MinimalProjectEditor.swift
-// What a project document shows on iOS, iPadOS and visionOS until their real editors
-// land (#12, milestone 2 of #1): the project title as an editable field and the shoot
-// days with their scene counts. Deliberately small; its job is to prove the document
-// lifecycle (create in the CineSched folder, autosave, reopen, sync) on those platforms,
-// and milestones 3 and 4 replace it. Platform-free SwiftUI so it needs no seam: it also
-// compiles on the Mac, which never shows it (CineSchedApp gives the Mac `ContentView`).
+// What a project document shows in a compact-width window on iOS, iPadOS and visionOS
+// (an iPhone, a narrow iPad Split View pane) until the iPhone companion of milestone 4
+// lands: the project title as an editable field and the shoot days with their scene
+// counts. Written for #12 (milestone 2 of #1) to prove the document lifecycle (create
+// in the CineSched folder, autosave, reopen, sync) on those platforms; since #17
+// `ProjectEditor` shows it only in compact width and the three-column `ContentView` in
+// regular width. Platform-free SwiftUI so it needs no seam: it also compiles on the Mac,
+// which never shows it.
 //
 // Every write goes through `document.perform` with the window's `UndoManager`, as on
 // the Mac: the document infrastructure autosaves only from registered undo actions, so a

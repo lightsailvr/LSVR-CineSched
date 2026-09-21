@@ -1,6 +1,11 @@
 // ContentView.swift
-// The Mac editor for one project document: sidebar, toolbar, calendar and stripboard
-// views. The project itself lives in the `ProjectDocument` the window was opened with
+// The editor for one project document: sidebar, toolbar, calendar and stripboard views,
+// laid out for the Mac window (two columns and the toolbar row, `EditorLayout.twoColumn`)
+// or, in regular width on the iPad and Vision Pro (#17), as three columns with a trailing
+// inspector bound to the selected scene or day (`.threeColumn`; the inspector is
+// ContentView+Inspector.swift). One view, one set of state and sheets, two bodies: the
+// Mac's is untouched by the iPad's, and the platform's scene in CineSchedApp chooses.
+// The project itself lives in the `ProjectDocument` the window was opened with
 // (#8, ADR 0004); this view reads it freely and writes it only through `edit(_:_:)` and
 // the bindings built on it, all of which go through the document's `perform` funnel so
 // that every change is undoable and autosaved. UI state that is not the project (the
@@ -23,6 +28,20 @@ enum ScheduleViewMode: String, CaseIterable {
     }
 }
 
+// MARK: - Editor layout
+
+/// Which window the editor is laid out for (#17). The platform's `DocumentGroup` in
+/// CineSchedApp (a seam) chooses; the view itself has no platform conditionals.
+enum EditorLayout {
+    /// The Mac window: sidebar and detail, the toolbar row with the stats, the view
+    /// switcher and the search field inside the detail, and the app's menus for the rest.
+    case twoColumn
+    /// The iPad and Vision Pro window in regular width: sidebar, the calendar or Stripboard
+    /// as the content with a system toolbar, and a trailing inspector showing the selected
+    /// scene's editor or the selected day's detail.
+    case threeColumn
+}
+
 // MARK: - ContentView
 
 struct ContentView: View {
@@ -34,6 +53,8 @@ struct ContentView: View {
 
     /// The window's project. Read through the accessors below; write only through `edit`.
     let document: ProjectDocument
+    /// The layout this window draws (see `EditorLayout`).
+    let layout: EditorLayout
     /// The window's undo manager, supplied by the document infrastructure. Every `perform`
     /// registers with it, which is also what marks the document edited and autosaves it.
     @Environment(\.undoManager) private var undoManager
@@ -55,8 +76,9 @@ struct ContentView: View {
     /// The bounds the pickers were last seeded from.
     @State private var seededRange: ClosedRange<Date>?
 
-    init(document: ProjectDocument) {
+    init(document: ProjectDocument, layout: EditorLayout = .twoColumn) {
         self.document = document
+        self.layout   = layout
         let range   = Self.dateRange(of: document.project.shootDays)
         _startDate   = State(initialValue: range?.lowerBound ?? Date())
         _endDate     = State(initialValue: range?.upperBound ?? Date())
@@ -118,7 +140,7 @@ struct ContentView: View {
     /// the project at most once per change (see DerivedScheduleState.swift). Read through
     /// `derived`; nothing here is stored state, so an edit costs one body pass, not two.
     @State private var derivedCache = DerivedScheduleStateCache()
-    private var derived: DerivedScheduleState {
+    var derived: DerivedScheduleState {
         derivedCache.state(for: document.project, changeCount: document.changeCount, boneyardSort: boneyardSort)
     }
 
@@ -126,7 +148,7 @@ struct ContentView: View {
 
     /// The iCloud sync state beside the title and the conflict notice (#14, #15): one
     /// monitor per window, run by the `syncMonitored` modifier in `applyLifecycle`.
-    @State private var syncMonitor = SyncMonitor()
+    @State var syncMonitor = SyncMonitor()
 
     // MARK: - Breakdown Browser
     @State private var breakdownBrowserScenes: [Scene] = []
@@ -138,7 +160,7 @@ struct ContentView: View {
     /// writes one calendar or Stripboard action makes fold into one undo step. Closed by
     /// `onSceneChanged` and, regardless, at the end of the run-loop turn (see
     /// `beginEditGesture`).
-    @State private var activeGesture: EditGesture?
+    @State var activeGesture: EditGesture?
     /// Typing in the title field is one gesture per focus session: every keystroke writes
     /// the binding, and without a token each would be its own undo step.
     @State private var titleGesture = EditGesture()
@@ -149,12 +171,33 @@ struct ContentView: View {
     @State private var paletteGesture: (slot: SceneColorSlot, token: EditGesture)?
 
     // MARK: - Sheet presentation
-    private enum ActiveSheet: Identifiable, Hashable {
+    enum ActiveSheet: Identifiable, Hashable {
         case unscheduledEdit, productionSetup, conflictReport, scheduleLockReport, breakdownBrowser, sceneColorSettings, stripboardFields
+        /// The inspector's day detail (#17) adds an event or opens one of the day's for
+        /// editing (`eventID` nil to add), and opens the day's call sheet; the schedule
+        /// views present their own copies of these sheets for their own cells.
+        case calendarEvent(dayID: UUID, eventID: UUID?)
+        case callSheet(dayID: UUID)
         var id: Self { self }
     }
-    @State private var activeSheet: ActiveSheet? = nil
+    @State var activeSheet: ActiveSheet? = nil
     @State private var showingColorLegend = false
+
+    // MARK: - Inspector selection (three-column layout)
+
+    /// What the inspector shows (#17): the scene or day last tapped, or nothing. Written
+    /// by every single tap on a strip (through `lastSelectedSceneBinding`) and on a day
+    /// (`onSelectDay`), pruned with the multi-selection when its target leaves the
+    /// project. Set on the Mac too, where nothing reads it.
+    @State var selection: EditorSelection?
+    /// Whether the inspector column is open; the toolbar toggles it. Per window, seeded
+    /// from the last window like the other view state.
+    @WindowPreference("CineSchedInspectorVisible") private var showInspector: Bool = true
+    /// The scene editor closes itself (`isPresented = false`) after Save as well as on
+    /// Cancel and Delete; in the inspector only the latter two should clear the selection.
+    /// `onSave` sets this so the next close keeps the selection (see
+    /// `inspectorEditorPresented`).
+    @State var inspectorKeepsSelection = false
 
     private var isPresentedUnscheduledEdit: Binding<Bool> {
         Binding(get: { activeSheet == .unscheduledEdit }, set: { if !$0 { activeSheet = nil } })
@@ -176,13 +219,14 @@ struct ContentView: View {
     @State private var lastSelectedSceneID: UUID?
 
     // MARK: - Computed statistics
-    private var scheduledDays: [ShootDay] { shootDays.filter { !$0.scenes.isEmpty } }
-    private var totalScenes:   Int        { scheduledDays.reduce(0) { $0 + $1.scenes.count } }
-    private var completedScenesCount: Int {
+    var scheduledDays: [ShootDay] { shootDays.filter { !$0.scenes.isEmpty } }
+    var totalScenes:   Int        { scheduledDays.reduce(0) { $0 + $1.scenes.count } }
+    var completedScenesCount: Int {
         scheduledDays.reduce(0) { $0 + $1.scenes.filter { $0.isCompleted }.count }
     }
-    private var totalDuration: String     { formattedEighths(scheduledDays.reduce(0) { $0 + $1.totalDuration }) }
-    private var totalEstTime:  String     { formattedTime(scheduledDays.reduce(0) { $0 + $1.totalEstimatedTime }) }
+    var totalDuration: String     { formattedEighths(scheduledDays.reduce(0) { $0 + $1.totalDuration }) }
+    var totalEstTime:  String     { formattedTime(scheduledDays.reduce(0) { $0 + $1.totalEstimatedTime }) }
+    var unscheduledCount: Int     { allScenes.filter { !$0.isBanner }.count }
 
     // MARK: - Body
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -190,6 +234,16 @@ struct ContentView: View {
     private var isSidebarCollapsed: Bool { columnVisibility == .detailOnly }
 
     var body: some View {
+        if layout == .twoColumn {
+            twoColumnBody
+        } else {
+            threeColumnBody
+        }
+    }
+
+    /// The Mac window, exactly as before #17: sidebar and detail, the Mac's own colors on
+    /// the window, the alerts, the sheets and the lifecycle.
+    private var twoColumnBody: some View {
         let base = NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebarView
         } detail: {
@@ -202,6 +256,108 @@ struct ContentView: View {
         let withAlerts = applyAlerts(base)
         let withSheets = applySheets(withAlerts)
         return applyLifecycle(withSheets)
+    }
+
+    /// The iPad and Vision Pro window (#17): the same sidebar, the schedule as the content
+    /// column under a system toolbar (view switcher, undo and redo, the View menu's
+    /// per-window toggles, the Production menu's commands, the inspector toggle), and the
+    /// inspector as a trailing column of the detail. No manual dark mode or window tint:
+    /// the appearance follows the system there (story 77 of #1).
+    private var threeColumnBody: some View {
+        let base = NavigationSplitView(columnVisibility: $columnVisibility) {
+            sidebarView
+                // The sidebar is a fixed column, not a scroll view: with the keyboard up
+                // it would otherwise be squeezed into the space above it.
+                .ignoresSafeArea(.keyboard, edges: .bottom)
+                .navigationSplitViewColumnWidth(min: 280, ideal: 300, max: 420)
+        } detail: {
+            // No navigation title here: the document's own title, its Rename menu and
+            // its Back button sit over the sidebar (the document infrastructure puts
+            // them there), and a second title would share the centre of this bar with
+            // the view switcher and take its taps. The infrastructure mirrors its Back
+            // button and title menu into this bar as well; `navigationBarBackButtonHidden`
+            // does not remove the mirror and `toolbar(removing: .title)` takes the
+            // principal item with it, so the mirror stays (it closes the document).
+            scheduleContent
+                .padding(10)
+                .toolbar { threeColumnToolbar }
+                // The system's inspector column on the iPad, a trailing pane on the
+                // Vision Pro (PlatformInspector, a seam).
+                .trailingInspector(isPresented: $showInspector) {
+                    inspectorView
+                }
+        }
+        .accentColor(currentTheme.primaryAccent(isDarkMode: isDarkMode))
+
+        let withAlerts = applyAlerts(base)
+        let withSheets = applySheets(withAlerts)
+        return applyLifecycle(withSheets)
+    }
+
+    /// The content column's toolbar in the three-column layout. The view switcher is the
+    /// Mac toolbar row's; undo and redo are the Edit menu's, which the iPad has no menu
+    /// bar for yet; the two menus carry what the Mac's View and Production menus do, on
+    /// the same command closures (`projectCommands`).
+    @ToolbarContentBuilder
+    private var threeColumnToolbar: some ToolbarContent {
+        // Leading, not principal: the document infrastructure wraps a principal item in
+        // the document title's menu, whose interaction took the picker's taps.
+        ToolbarItemGroup(placement: .navigation) {
+            Picker(L("Schedule View"), selection: $viewMode) {
+                ForEach(ScheduleViewMode.allCases, id: \.self) { mode in
+                    Text(mode.localizedTitle).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(minWidth: 220)
+            SyncStateIndicator(monitor: syncMonitor)
+        }
+        ToolbarItemGroup(placement: .primaryAction) {
+            Button {
+                undoManager?.undo()
+            } label: {
+                Label(L("Undo"), systemImage: "arrow.uturn.backward")
+            }
+            .disabled(!(undoManager?.canUndo ?? false))
+            Button {
+                undoManager?.redo()
+            } label: {
+                Label(L("Redo"), systemImage: "arrow.uturn.forward")
+            }
+            .disabled(!(undoManager?.canRedo ?? false))
+
+            Menu {
+                Toggle(L("Show Cast in Calendar"), isOn: $showCastOnCards)
+                Toggle(L("Show Estimated Time Instead of Page Count"), isOn: $showEstTimeOnCards)
+                Divider()
+                Toggle(L("Show All Days on Stripboard"), isOn: $stripboardShowAllDays)
+                Button(L("Stripboard Fields…")) { projectCommands.showStripboardFields() }
+                Divider()
+                Button(L("Color Legend…")) { projectCommands.showColorLegend() }
+                Button(L("Customize Scene Colors…")) { projectCommands.showSceneColorSettings() }
+            } label: {
+                Label(L("View"), systemImage: "eye")
+            }
+
+            Menu {
+                Button(L("Production Setup…")) { projectCommands.openProductionSetup() }
+                Button(L("Scan for Conflicts…")) { projectCommands.scanForConflicts() }
+                Button(L("Breakdown Browser…")) { projectCommands.openBreakdownBrowser() }
+                Divider()
+                Button(L("Lock Schedule")) { projectCommands.lockSchedule() }
+                Button(L("Unlock Schedule")) { projectCommands.unlockSchedule() }
+                    .disabled(productionInfo.scheduleLock == nil)
+                Button(L("Schedule Lock Report…")) { projectCommands.showScheduleLockReport() }
+            } label: {
+                Label(L("Production"), systemImage: "clapperboard")
+            }
+
+            Button {
+                showInspector.toggle()
+            } label: {
+                Label(L("Inspector"), systemImage: "sidebar.trailing")
+            }
+        }
     }
 
     // MARK: - Modifiers
@@ -280,6 +436,10 @@ struct ContentView: View {
                     )
                 case .stripboardFields:
                     StripboardFieldsSheet(selectedFields: stripboardFields, onDismiss: { activeSheet = nil })
+                case .calendarEvent(let dayID, let eventID):
+                    inspectorCalendarEventSheet(dayID: dayID, eventID: eventID)
+                case .callSheet(let dayID):
+                    inspectorCallSheetSheet(dayID: dayID)
                 }
             }
             .onChange(of: activeSheet) { _, newValue in
@@ -398,7 +558,7 @@ struct ContentView: View {
     /// through `assign`/`removeScene` without ever calling `onSceneChanged`, and a token that
     /// outlived its run-loop turn would fold the next unrelated edit into this step's undo,
     /// so the end of the turn closes it regardless.
-    private func beginEditGesture() {
+    func beginEditGesture() {
         let gesture = EditGesture()
         activeGesture = gesture
         DispatchQueue.main.async {
@@ -414,10 +574,10 @@ struct ContentView: View {
 
     /// The child views and editors mutate the project the way they always have, through
     /// bindings; these route every write through `edit`.
-    private var allScenesBinding: Binding<[Scene]> {
+    var allScenesBinding: Binding<[Scene]> {
         Binding(get: { allScenes }, set: { new in edit { $0.allScenes = new } })
     }
-    private var shootDaysBinding: Binding<[ShootDay]> {
+    var shootDaysBinding: Binding<[ShootDay]> {
         Binding(get: { shootDays }, set: { new in edit { $0.shootDays = new } })
     }
     private var productionInfoBinding: Binding<ProductionInfo> {
@@ -567,15 +727,20 @@ struct ContentView: View {
                 }
             }
 
-            Text("⌘-click or ⇧-click to select multiple, then drag as a group")
-                .font(.caption2).foregroundColor(.secondary)
+            if layout == .twoColumn {
+                // Touch has no modifier keys; multi-select there is #18's.
+                Text("⌘-click or ⇧-click to select multiple, then drag as a group")
+                    .font(.caption2).foregroundColor(.secondary)
+            }
 
             boneyardList
                 .frame(maxHeight: .infinity)
         }
         .padding(10)
-        .frame(minWidth: 300, maxHeight: .infinity)
-        .background(currentTheme.panelBackground(isDarkMode: isDarkMode))
+        // The Mac's 300 is its window minimum; the iPad column may go a little narrower.
+        .frame(minWidth: layout == .twoColumn ? 300 : 280, maxHeight: .infinity)
+        // The Mac's panel tint; the iPad's sidebar column keeps the system's material.
+        .background(layout == .twoColumn ? currentTheme.panelBackground(isDarkMode: isDarkMode) : Color.clear)
     }
 
     // MARK: - Schedule Lock
@@ -603,11 +768,35 @@ struct ContentView: View {
     /// Drops selected IDs that are no longer in the project. Writes the selection only when
     /// something was dropped, so the usual edit does not invalidate the view a second time.
     private func pruneSelection() {
+        if let selection, selection.pruned(in: document.project) == nil {
+            self.selection = nil
+        }
         guard !selectedSceneIDs.isEmpty else { return }
         let scheduledIDs = Set(shootDays.flatMap { $0.scenes.map(\.id) })
         let boneyardIDs  = Set(allScenes.map(\.id))
         let pruned = selectedSceneIDs.intersection(scheduledIDs.union(boneyardIDs))
         if pruned != selectedSceneIDs { selectedSceneIDs = pruned }
+    }
+
+    /// `lastSelectedSceneID` as the schedule views and the Boneyard write it: every
+    /// single tap on a strip lands here (the plain-select branch of `selectScene` writes
+    /// the id whether or not it changed), so it is also where a tap selects the scene
+    /// into the inspector (#17). Clear (nil) drops a scene selection and leaves a day's.
+    private var lastSelectedSceneBinding: Binding<UUID?> {
+        Binding(get: { lastSelectedSceneID }, set: { id in
+            lastSelectedSceneID = id
+            if let id {
+                selection = .scene(id: id)
+            } else if case .scene = selection {
+                selection = nil
+            }
+        })
+    }
+
+    /// The day the inspector shows, for the schedule views' selected outline.
+    private var selectedDayID: UUID? {
+        if case .day(let id) = selection { return id }
+        return nil
     }
 
     private func renameCastCharacter(from oldName: String, to newName: String) {
@@ -661,113 +850,52 @@ struct ContentView: View {
 
     // MARK: - Boneyard list (Movie Magic strip styling)
 
+    /// The list itself is `BoneyardListView`, shared by both layouts; this wires its
+    /// actions to the selection, the sheets and the edit funnel.
     private var boneyardList: some View {
         let state = derived
-        return ScrollView {
-            VStack(spacing: 2) {
-                ForEach(state.sortedBoneyard, id: \.scene.id) { item in
-                    let isDup = state.duplicateSceneNumberIDs.contains(item.scene.id)
-                    HStack(spacing: 6) {
-                        if !item.scene.sceneNumber.isEmpty {
-                            Text(item.scene.sceneNumber)
-                                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                .foregroundColor(item.scene.stripTextColor.opacity(0.6))
-                                .lineLimit(1)
-                                .frame(minWidth: 18, alignment: .leading)
-                        }
+        return BoneyardListView(
+            items:                   state.sortedBoneyard,
+            duplicateSceneNumberIDs: state.duplicateSceneNumberIDs,
+            selectedSceneIDs:        selectedSceneIDs,
+            onSelect:                selectScene,
+            onEdit:                  { index, scene in
+                editingUnscheduledSceneIndex = index
+                editingUnscheduledScene      = scene
+                activeSheet = .unscheduledEdit
+            },
+            onDuplicate:             duplicateBoneyardScene,
+            onDelete:                { index in
+                edit(L("Delete Scene")) { $0.allScenes.remove(at: index) }
+            },
+            dragPayload:             dragPayload,
+            onDropFromSchedule:      moveScenesToBoneyard
+        )
+    }
 
-                        Text(item.scene.title)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(item.scene.stripTextColor)
-                            .lineLimit(1)
-
-                        if isDup {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 9))
-                                .foregroundColor(.red)
-                        }
-
-                        Spacer(minLength: 4)
-
-                        Text(FractionParser.formatEighths(item.scene.duration))
-                            .font(.system(size: 10, weight: .bold))
-                            .monospacedDigit()
-                            .foregroundColor(item.scene.stripTextColor.opacity(0.8))
-                    }
-                    .padding(.vertical, 4).padding(.horizontal, 8)
-                    .contentShape(Rectangle())
-                    .background(item.scene.stripColor(in: palette))
-                    .cornerRadius(3)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 3)
-                            .stroke(selectedSceneIDs.contains(item.scene.id) ? Color.accentColor : item.scene.stripTextColor.opacity(0.2), lineWidth: selectedSceneIDs.contains(item.scene.id) ? 2 : 0.5)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 3)
-                            .strokeBorder(Color.red, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
-                            .opacity(isDup ? 1 : 0)
-                    )
-                    .onDrag { dragPayload(for: item.scene) }
-                    .fastTooltip(item.scene.tooltipText)
-                    .simultaneousGesture(
-                        TapGesture(count: 2).onEnded {
-                            editingUnscheduledSceneIndex = item.index
-                            editingUnscheduledScene      = item.scene
-                            activeSheet = .unscheduledEdit
-                        }
-                    )
-                    .simultaneousGesture(
-                        TapGesture(count: 1).onEnded {
-                            selectScene(item.scene.id)
-                        }
-                    )
-                    .contextMenu {
-                        Button(L("Edit Scene")) {
-                            editingUnscheduledSceneIndex = item.index
-                            editingUnscheduledScene      = item.scene
-                            activeSheet = .unscheduledEdit
-                        }
-                        Button(L("Duplicate Scene")) {
-                            edit(L("Duplicate Scene")) { $0.allScenes.append(Scene(
-                                title:            item.scene.title + " (Copy)",
-                                sceneNumber:      item.scene.sceneNumber,
-                                duration:         item.scene.duration,
-                                estimatedTime:    item.scene.estimatedTime,
-                                dayNightType:     item.scene.dayNightType,
-                                cast:             item.scene.cast,
-                                summary:          item.scene.summary,
-                                extras:           item.scene.extras,
-                                props:            item.scene.props,
-                                setDressing:      item.scene.setDressing,
-                                wardrobe:         item.scene.wardrobe,
-                                makeupHair:       item.scene.makeupHair,
-                                vehicles:         item.scene.vehicles,
-                                specialEquipment: item.scene.specialEquipment,
-                                stunts:           item.scene.stunts,
-                                sfx:              item.scene.sfx,
-                                vfx:              item.scene.vfx,
-                                breakdownNotes:   item.scene.breakdownNotes
-                            )) }
-                        }
-                        Divider()
-                        Button(L("Delete Scene"), role: .destructive) {
-                            edit(L("Delete Scene")) { $0.allScenes.remove(at: item.index) }
-                        }
-                    }
-                }
-            }
-            .padding(4)
-        }
-        .tooltipContainer()
-        .onDrop(of: [UTType.text.identifier], isTargeted: nil) { providers in
-            guard let provider = providers.first else { return false }
-            provider.loadObject(ofClass: NSString.self) { item, _ in
-                if let idString = item as? String {
-                    DispatchQueue.main.async { moveScenesToBoneyard(idString) }
-                }
-            }
-            return true
-        }
+    /// Duplicate Scene in the Boneyard: a copy with a new id, " (Copy)" on the title, and
+    /// the breakdown carried over; scheduling state (completion, times) starts fresh.
+    private func duplicateBoneyardScene(_ scene: Scene) {
+        edit(L("Duplicate Scene")) { $0.allScenes.append(Scene(
+            title:            scene.title + " (Copy)",
+            sceneNumber:      scene.sceneNumber,
+            duration:         scene.duration,
+            estimatedTime:    scene.estimatedTime,
+            dayNightType:     scene.dayNightType,
+            cast:             scene.cast,
+            summary:          scene.summary,
+            extras:           scene.extras,
+            props:            scene.props,
+            setDressing:      scene.setDressing,
+            wardrobe:         scene.wardrobe,
+            makeupHair:       scene.makeupHair,
+            vehicles:         scene.vehicles,
+            specialEquipment: scene.specialEquipment,
+            stunts:           scene.stunts,
+            sfx:              scene.sfx,
+            vfx:              scene.vfx,
+            breakdownNotes:   scene.breakdownNotes
+        )) }
     }
 
     private func moveScenesToBoneyard(_ payload: String) {
@@ -799,6 +927,8 @@ struct ContentView: View {
             selectedSceneIDs = [id]
             lastSelectedSceneID = id
         }
+        // The tapped scene is what the inspector shows (#17), whatever the modifiers.
+        selection = .scene(id: id)
     }
 
     private func dragPayload(for scene: Scene) -> NSItemProvider {
@@ -816,10 +946,24 @@ struct ContentView: View {
 
     // MARK: - Detail / main area
 
+    /// The Mac's detail column: the toolbar row over the schedule.
     private var detailView: some View {
-        let state = derived
-        return VStack {
+        VStack {
             toolbarRow
+            scheduleContent
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(10)
+        .background(currentTheme.canvasBackground(isDarkMode: isDarkMode))
+    }
+
+    /// The calendar or the Stripboard, whichever `viewMode` says, wired to the funnel and
+    /// the selection; shared by both layouts. The inspector hooks (`onSelectDay`,
+    /// `selectedDayID`) are live in both, but only the three-column layout shows what
+    /// they select.
+    private var scheduleContent: some View {
+        let state = derived
+        return Group {
             if viewMode == .calendar {
                 CompactMonthCalendarView(
                     shootDays:    shootDaysBinding,
@@ -835,7 +979,7 @@ struct ContentView: View {
                     startDate: startDate,
                     endDate: endDate,
                     selectedSceneIDs: $selectedSceneIDs,
-                    lastSelectedSceneID: $lastSelectedSceneID,
+                    lastSelectedSceneID: lastSelectedSceneBinding,
                     conflictDates: state.conflictDates,
                     conflictSceneIDs: state.conflictSceneIDs,
                     duplicateSceneNumberIDs: state.duplicateSceneNumberIDs,
@@ -849,7 +993,12 @@ struct ContentView: View {
                     },
                     onExportMonthPDF: { month, options in
                         exportMonthPDF(month: month, options: options)
-                    }
+                    },
+                    onSelectDay: { day in selection = .day(id: day.id) },
+                    selectedDayID: selectedDayID,
+                    // Seven columns beside a sidebar and an inspector: the iPad's floor is
+                    // what fits a 13-inch landscape window with both open.
+                    minimumCellWidth: layout == .twoColumn ? 100 : 72
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -860,7 +1009,7 @@ struct ContentView: View {
                     visibleFields: stripboardFields.wrappedValue,
                     showAllDays: stripboardShowAllDays,
                     selectedSceneIDs: $selectedSceneIDs,
-                    lastSelectedSceneID: $lastSelectedSceneID,
+                    lastSelectedSceneID: lastSelectedSceneBinding,
                     conflictDates: state.conflictDates,
                     conflictSceneIDs: state.conflictSceneIDs,
                     duplicateSceneNumberIDs: state.duplicateSceneNumberIDs,
@@ -873,14 +1022,13 @@ struct ContentView: View {
                     },
                     onShootingScheduleExport: { days in
                         showShootingSchedulePDFSavePanel(for: days)
-                    }
+                    },
+                    onSelectDay: { day in selection = .day(id: day.id) },
+                    selectedDayID: selectedDayID
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(10)
-        .background(currentTheme.canvasBackground(isDarkMode: isDarkMode))
     }
 
     // MARK: - Toolbar row
@@ -911,7 +1059,6 @@ struct ContentView: View {
                 statBadge(icon: "calendar", value: "\(scheduledDays.count)", label: "days",   color: .blue)
                 statBadge(icon: "checkmark.circle", value: "\(completedScenesCount)/\(totalScenes)", label: "completed", color: .green)
                 statBadge(icon: "clock",    value: totalEstTime,              label: nil,      color: .purple)
-                let unscheduledCount = allScenes.filter { !$0.isBanner }.count
                 if unscheduledCount > 0 {
                     statBadge(icon: "tray.full", value: "\(unscheduledCount)", label: "unscheduled", color: .orange)
                 }
@@ -1066,7 +1213,7 @@ struct ContentView: View {
         }
     }
 
-    private func statBadge(icon: String, value: String, label: String?, color: Color) -> some View {
+    func statBadge(icon: String, value: String, label: String?, color: Color) -> some View {
         HStack(spacing: 4) {
             Image(systemName: icon).foregroundColor(color).font(.caption)
             Text(value)

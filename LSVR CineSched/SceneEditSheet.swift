@@ -1,5 +1,8 @@
 // SceneEditSheet.swift
-// Modal sheet for editing an existing scene's properties
+// Modal sheet for editing an existing scene's properties. The iPad's inspector column
+// shows the same view (#17): there `editorPresentation` is `.inspector` and the sheet's
+// fixed width and scroll height give way to the column's, until the adaptive form
+// rewrite (#19) replaces the fixed frames themselves.
 
 import SwiftUI
 
@@ -8,6 +11,7 @@ struct SceneEditSheet: View {
     @Binding var isPresented: Bool
     let onSave:   () -> Void
     let onDelete: () -> Void
+    @Environment(\.editorPresentation) private var presentation
 
     // Optional Previous/Next navigation — when supplied, arrow buttons appear
     // next to the title so scenes can be edited in sequence without closing the sheet.
@@ -238,7 +242,7 @@ struct SceneEditSheet: View {
                 }
                 }
             }
-            .frame(maxHeight: 480)
+            .frame(maxHeight: presentation == .inspector ? .infinity : 480)
 
             HStack(spacing: 16) {
                 Button("Delete Scene") {
@@ -263,7 +267,7 @@ struct SceneEditSheet: View {
             }
         }
         .padding(24)
-        .frame(width: 550)
+        .frame(width: presentation == .inspector ? nil : 550)
         .onAppear {
             populateFields()
             focusDurationField()
@@ -280,8 +284,11 @@ struct SceneEditSheet: View {
 
     /// Duration is the field users almost always need to correct — even on imported
     /// scenes where every field already has a default value — so focus starts there
-    /// instead of landing on whatever the first empty field happens to be.
+    /// instead of landing on whatever the first empty field happens to be. Not in the
+    /// inspector, where the editor appears on every tap of a strip and focusing a field
+    /// would raise the on-screen keyboard over the board each time.
     private func focusDurationField() {
+        guard presentation != .inspector else { return }
         DispatchQueue.main.async {
             focusDurationTrigger = true
         }

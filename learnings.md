@@ -9,6 +9,63 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-20 — The iPad's three columns: a principal toolbar item becomes the document's title menu, the calendar needs its cells narrower than the Mac's, and an XCUITest probe attaches to whatever build is running (#17)
+
+Building the three-column editor (`ContentView(layout: .threeColumn)` with `.inspector`)
+on the iPad Pro 13-inch simulator:
+
+- **One `ContentView`, two bodies, not a second editor.** The Mac's editor owns every
+  piece the iPad needs (the funnel, the bindings, the sheets, the alerts, the commands,
+  the sync monitor), and none of it can live in a view model without a rewrite. So the
+  layout is a parameter, `body` is `if layout == .twoColumn { twoColumnBody } else {
+  threeColumnBody }`, and the Mac branch is the old body verbatim. The pieces both draw
+  are factored out where that was mechanical (`BoneyardListView`, `scheduleContent`).
+- **A `.principal` toolbar item inside a `DocumentGroup` on iPadOS is wrapped in the
+  document title's menu.** The accessibility tree showed the segmented picker *inside* a
+  `StaticText 'The Long Way Home'`, and an XCUITest tap on the "Stripboard" segment opened
+  the Rename / share popover instead of switching views (twice, with and without a
+  `navigationTitle` on the column). `.navigation` placement (leading) is free of it.
+  The infrastructure also mirrors its Back button and title chevron into every column's
+  bar of a `NavigationSplitView`; `navigationBarBackButtonHidden(true)` does not remove
+  the mirror, and `.toolbar(removing: .title)` removes the principal item along with the
+  title, so both are left alone (the mirrored Back closes the document, harmlessly).
+- **The month grid does not fit three columns at the Mac's minimum.** Seven columns of
+  `GridItem(.flexible(minimum: 100))` need 780 pt; a 13-inch iPad in landscape is 1376 pt,
+  and a 300 pt sidebar plus a 380 pt inspector (the width the scene editor's button row
+  needs as it is) leave ~700. The grid then centres and clips both edges rather than
+  shrinking, so the minimum is a parameter (`minimumCellWidth`, 100 on the Mac, 72 on the
+  iPad). At that width the day-cell header truncates its "Day N" badge and the month row
+  its buttons; `fixedSize()` on the badge made the whole cell overflow its column, so it
+  is `lineLimit(1)` + `minimumScaleFactor`, and the user collapses a column for full
+  cells. The badge and the month row want a narrow-width pass (polish milestone).
+- **The scene editor's auto-focus raises the keyboard on every tap in the inspector**
+  (`focusDurationField` on appear), and the keyboard then squeezes the sidebar, a fixed
+  `VStack`, into the space above it. The focus is gated on `editorPresentation`, and the
+  sidebar column gets `.ignoresSafeArea(.keyboard, edges: .bottom)`.
+- **`SceneEditSheet` closes itself after Save as well as Cancel.** In the inspector the
+  `isPresented` binding maps "false" to "clear the selection", which would empty the
+  inspector on every Save; `onSave` sets a one-shot flag the next close consumes. The
+  binding's scene is looked up by id on every get and set (`ProjectData.scene(withID:)`,
+  `locate(sceneID:)`), never by a captured index, so a delete or a drag under the open
+  editor cannot index out of range; the ~30 writes of one Save fold into one gesture.
+- **`xcodebuild test` does not restart an app that is already running**, and the probe's
+  `activate()` attached to the *previous* build twice (the state, the typed text and the
+  old layout were all still there). Terminate, `simctl install` the new bundle, `openurl`
+  the fixture, then `test-without-building` (`.dd/reopen.sh` was the throwaway helper).
+  `XCUIScreen.main.screenshot()` in landscape writes the portrait framebuffer; `sips -r
+  270` turns it upright. `simctl clone` refuses a booted device (another agent had the
+  iPad booted); `simctl create` with the same device type and runtime is the equivalent.
+- **Long press.** `.contextMenu` is the long-press menu on iOS with no change: the
+  strips', the event chips' and the day header's menus all opened from
+  `press(forDuration:)` in the probe. Except through a `Button`: a long press on the
+  day cell's date `Button` fired the button on release and never showed the header's
+  menu, so with an inspector the date is a label with `onTapGesture` (the Mac keeps the
+  Button). An XCUITest `press` on an element the layout truncated to zero width (the
+  weekday beside a narrow cell's badge) hangs the run in "scroll to visible"; press a
+  neighbour or a coordinate instead.
+
+---
+
 ## 2026-09-19 — Conflict versions after review: a `perform` is not a write, the writer is where "written" is known, and an extension does not inherit `nonisolated` (#15)
 
 Applying the review of the #15 wiring (ADR 0004, amendment of 2026-09-19):

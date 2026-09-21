@@ -12,7 +12,8 @@
 //  scene value). On iOS, iPadOS and visionOS (#12, ADR 0006) the same `DocumentGroup`
 //  opens one file at a time from the system's launch screen (title, New Project, Import
 //  Script…, Import Project… (#13), recents, the document browser), which starts in the
-//  CineSched folder in iCloud Drive.
+//  CineSched folder in iCloud Drive, into `ProjectEditor` (#17): the three-column
+//  editor in regular width, the minimal editor in compact width.
 
 import SwiftUI
 #if os(macOS)
@@ -62,11 +63,11 @@ struct CineSchedApp: App {
 
     var body: some SwiftUI.Scene {
         // Platform seam: the Mac runs the document lifecycle with its full editor as the
-        // window content and the app-wide menus; the other platforms run it with the
-        // minimal editor and the system's launch screen until their own editors land
-        // (#1, M3/M4). Both halves make the document the same way, and only through
-        // `ProjectDocument`, so the file, the undo funnel and the palette adoption are one
-        // code path.
+        // window content and the app-wide menus; the other platforms run it with
+        // `ProjectEditor` (the three-column editor in regular width, #17; the minimal
+        // editor in compact width until M4) and the system's launch screen. Both halves
+        // make the document the same way, and only through `ProjectDocument`, so the
+        // file, the undo funnel and the palette adoption are one code path.
         #if os(macOS)
         DocumentGroup(editor: { document in
             // A legacy .json is never edited in place: its contents move to an untitled
@@ -93,7 +94,7 @@ struct CineSchedApp: App {
         .commands { menus }
         #else
         DocumentGroup(editor: { document in
-            MinimalProjectEditor(document: document)
+            ProjectEditor(document: document)
                 .accentColor(currentTheme.primaryAccent(isDarkMode: isDarkMode))
         }, makeDocument: { configuration, context in
             // New Project and an opened file alike start from the template; an opened

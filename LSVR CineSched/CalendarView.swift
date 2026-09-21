@@ -40,6 +40,28 @@ struct DropIndicatorView: View {
     }
 }
 
+// MARK: - Selecting into the inspector
+
+/// A single tap that exists only where there is an inspector to select into (#17): the
+/// iPad editor passes the action, the Mac passes nil and its cells and day headers keep
+/// exactly the gestures they had. Applied outside a double-tap gesture the single tap
+/// fires on the first tap and the double tap on the second, which is the intended pair:
+/// select, then open the full editor. Shared by the calendar's day cell and the
+/// Stripboard's day header.
+struct SelectOnTap: ViewModifier {
+    let action: (() -> Void)?
+
+    func body(content: Content) -> some View {
+        if let action {
+            content
+                .contentShape(Rectangle())
+                .onTapGesture(count: 1, perform: action)
+        } else {
+            content
+        }
+    }
+}
+
 struct CombinedDayDropDelegate: DropDelegate {
     let dayId: UUID
     let scenes: [Scene]
@@ -178,6 +200,11 @@ struct DayCellView: View {
     let onSetDayType: (ShootDay, DayType) -> Void
     let onSetDayTypeForWeekday: (ShootDay, DayType) -> Void
     let onClearDayType: (ShootDay) -> Void
+    /// The iPad's inspector (#17): a single tap on the cell or its date selects the day
+    /// into it, and the selected day's cell is outlined in the accent color. Nil and
+    /// false on the Mac, which has no inspector.
+    var onSelectDay: (() -> Void)? = nil
+    var isInspected: Bool = false
 
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("CineSchedTheme") private var currentTheme: AppTheme = .blue
@@ -199,6 +226,7 @@ struct DayCellView: View {
     private var borderColor: Color {
         if dayDropTargetId == day.id { return .green }
         if dropTargetDayId == day.id { return .red }
+        if isInspected { return .accentColor }
         if !day.dayType.isShootable { return dayTypeColor.opacity(0.5) }
         if isShootDay { return currentTheme.shootDayBorderColor(isDarkMode: colorScheme == .dark) }
         return .primary.opacity(0.12)
@@ -228,13 +256,14 @@ struct DayCellView: View {
         .cornerRadius(8)
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(borderColor, lineWidth: isTarget ? 2 : 1)
+                .stroke(borderColor, lineWidth: isTarget || isInspected ? 2 : 1)
         )
         .opacity(draggingDayId == day.id ? 0.4 : 1.0)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
             onOpenDayDetail()
         }
+        .modifier(SelectOnTap(action: onSelectDay))
         .onDrop(of: [UTType.text.identifier], delegate: CombinedDayDropDelegate(
             dayId: day.id,
             scenes: visibleScenes,
@@ -263,37 +292,34 @@ struct DayCellView: View {
                     }
                     .help("Drag to swap this day's scenes, call sheet, day type, and note with another date")
 
-                Button {
-                    onOpenDayDetail()
-                } label: {
-                    HStack(spacing: 3) {
-                        let cal = Calendar.current
-                        let dayOfMonth = cal.component(.day, from: day.date)
-                        let weekdayStr = localizedShortWeekday(day.date)
-
-                        Text("\(dayOfMonth)")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundColor(day.dayType.isShootable ? .primary : dayTypeColor)
-
-                        Text(weekdayStr)
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-
-                        if day.hasCallSheetData {
-                            Circle()
-                                .fill(Color.blue)
-                                .frame(width: 5, height: 5)
-                        }
+                if let onSelectDay {
+                    // With an inspector the date is the day's "select" target, a tap on
+                    // a label rather than a Button: a long press on a Button fires the
+                    // button and never reaches the header's context menu, and the date
+                    // is what a finger lands on. The sheet stays on double tap and in
+                    // the menu.
+                    dateLabel
+                        .contentShape(Rectangle())
+                        .onTapGesture(perform: onSelectDay)
+                } else {
+                    Button {
+                        onOpenDayDetail()
+                    } label: {
+                        dateLabel
                     }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
 
                 Spacer(minLength: 2)
 
                 if let dayNumber, isShootDay {
                     Text("\(L("Day")) \(dayNumber)")
                         .font(.system(size: 9.5, weight: .bold))
+                        // In a narrow cell the weekday beside it gives way first and the
+                        // badge shrinks, rather than wrapping one letter per line.
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .layoutPriority(1)
                         .foregroundColor(currentTheme.primaryAccent(isDarkMode: colorScheme == .dark))
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1.5)
@@ -346,6 +372,32 @@ struct DayCellView: View {
             dayTypePicker("\(L("Set Every")) \(localizedFullWeekday(day.date))", current: nil) { onSetDayTypeForWeekday(day, $0) }
             if !day.dayType.isShootable || !day.dayNote.isEmpty {
                 Button(L("Clear Day Type")) { onClearDayType(day) }
+            }
+        }
+    }
+
+    /// The day of the month, its weekday and the call-sheet dot.
+    private var dateLabel: some View {
+        HStack(spacing: 3) {
+            let cal = Calendar.current
+            let dayOfMonth = cal.component(.day, from: day.date)
+            let weekdayStr = localizedShortWeekday(day.date)
+
+            Text("\(dayOfMonth)")
+                .font(.system(size: 13, weight: .bold))
+                // Two digits stay on one line in the iPad's narrower cells.
+                .fixedSize()
+                .foregroundColor(day.dayType.isShootable ? .primary : dayTypeColor)
+
+            Text(weekdayStr)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+
+            if day.hasCallSheetData {
+                Circle()
+                    .fill(Color.blue)
+                    .frame(width: 5, height: 5)
             }
         }
     }
@@ -492,6 +544,15 @@ struct CompactMonthCalendarView: View {
     /// Month PDF export, handed the displayed month and the confirmed options; the
     /// exporter call and the save panel live with the other exports in ContentView.
     let onExportMonthPDF: (Date, MonthPDFOptions) -> Void
+    /// The iPad's inspector (#17): a single tap on a day cell or its date hands the day
+    /// here, and the day whose id this is gets the selected outline. The Mac passes
+    /// neither; its cells keep the double-tap sheet only.
+    var onSelectDay: ((ShootDay) -> Void)? = nil
+    var selectedDayID: UUID? = nil
+    /// The narrowest a day column may go. The Mac's 100 is what its window minimum has
+    /// always been; the iPad's three columns leave the calendar less than seven of those
+    /// in landscape, so its editor passes a smaller floor rather than clipping the grid.
+    var minimumCellWidth: CGFloat = 100
 
     // View Mode Switcher: this window's, seeded from the last (see WindowPreference.swift)
     @WindowPreference("CineSchedCalendarViewMode") private var calendarViewMode: CalendarViewMode = .monthGrid
@@ -657,6 +718,9 @@ struct CompactMonthCalendarView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
+        // Beside the iPad's sidebar and inspector the row is narrower than its labels;
+        // they truncate rather than break mid-word into two-line buttons.
+        .lineLimit(1)
     }
 
     private var onlyActualShootDays: [(offset: Int, element: ShootDay)] {
@@ -693,7 +757,7 @@ struct CompactMonthCalendarView: View {
 
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: true) {
-                    let columns = Array(repeating: GridItem(.flexible(minimum: 100), spacing: 8), count: 7)
+                    let columns = Array(repeating: GridItem(.flexible(minimum: minimumCellWidth), spacing: 8), count: 7)
                     // Computed once per redraw, not once per cell: with a few hundred days
                     // the per-cell versions were a measurable share of every drop (#34).
                     let numbers     = dayNumbers
@@ -1082,7 +1146,9 @@ struct CompactMonthCalendarView: View {
             onHandleDayTypeMove: { sourceDayId in moveDayType(from: sourceDayId, toDayId: day.id) },
             onSetDayType: { targetDay, type in setDayType(targetDay, to: type) },
             onSetDayTypeForWeekday: { targetDay, type in setDayTypeForWeekday(targetDay, to: type) },
-            onClearDayType: { targetDay in clearDayType(targetDay) }
+            onClearDayType: { targetDay in clearDayType(targetDay) },
+            onSelectDay: onSelectDay.map { select in { select(day) } },
+            isInspected: selectedDayID == day.id
         )
     }
 

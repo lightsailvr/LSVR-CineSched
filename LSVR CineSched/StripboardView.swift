@@ -37,6 +37,10 @@ struct StripboardView: View {
     let onSceneChanged: () -> Void
     let onCallSheetExport: (ShootDay) -> Void
     let onShootingScheduleExport: ([ShootDay]) -> Void
+    /// The iPad's inspector (#17): a single tap on a day header hands the day here, and
+    /// the day whose id this is gets the selected outline. The Mac passes neither.
+    var onSelectDay: ((ShootDay) -> Void)? = nil
+    var selectedDayID: UUID? = nil
 
     // Editing state — mirrors CompactMonthCalendarView's
     @State private var editingDayId:      UUID?
@@ -432,9 +436,11 @@ struct StripboardView: View {
     private func daySection(day: ShootDay, dayIndex: Int) -> some View {
         let visibleScenes = day.scenes.filter { !$0.isCalendarEvent }
         let isSelectedTarget = dayDropTargetId == day.id || dropTargetDayId == day.id
+        let isInspected = selectedDayID == day.id
         VStack(alignment: .leading, spacing: 0) {
             dayHeader(day: day)
                 .background(Color.gray.opacity(colorScheme == .dark ? 0.22 : 0.12))
+                .modifier(SelectOnTap(action: onSelectDay.map { select in { select(day) } }))
 
             Divider().opacity(0.4)
 
@@ -457,8 +463,9 @@ struct StripboardView: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(
                     dayDropTargetId == day.id ? Color.green :
-                    dropTargetDayId == day.id ? Color.red : Color.primary.opacity(0.2),
-                    lineWidth: isSelectedTarget ? 2.5 : 1
+                    dropTargetDayId == day.id ? Color.red :
+                    isInspected ? Color.accentColor : Color.primary.opacity(0.2),
+                    lineWidth: isSelectedTarget ? 2.5 : isInspected ? 2 : 1
                 )
         )
         .onDrop(of: [UTType.text.identifier], delegate: CombinedDayDropDelegate(
