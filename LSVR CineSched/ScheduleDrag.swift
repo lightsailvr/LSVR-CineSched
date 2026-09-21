@@ -18,7 +18,11 @@
 // places scenes before a strip or at the end of a day whether they come from the Boneyard,
 // the same day or another day (a reorder is the difference the system reports, applied
 // through the same function); `returnToBoneyard` is the drop on the Boneyard. The views
-// wrap each in one edit gesture so a drag undoes as one step.
+// wrap each in one edit gesture so a drag undoes as one step. The iPhone's moves (#25)
+// are three more over the same arrays: `reorderStrips` turns a list's `onMove` offsets
+// into one `moveScenes`, `addScenes` lands the checked Boneyard scenes in display order,
+// and `swapDays` exchanges everything two days hold (the day handle's swap, as a pure
+// function the phone's Swap with Day calls; the Mac's two private copies are untouched).
 //
 // The payload is never persisted: it lives for the length of one drag, so its shape is
 // free to change (no `CodingKeys` promise, unlike the project file).
@@ -182,6 +186,74 @@ enum ScheduleMoves {
         }
         guard !returned.isEmpty else { return false }
         boneyard.append(contentsOf: returned)
+        return true
+    }
+
+    // MARK: The iPhone's moves (#25)
+
+    /// A list's reorder as one move: `displayed` is the strip ids the list shows for the
+    /// day (its scenes without the calendar events, in order), `source` and `destination`
+    /// are what `onMove` reports (the offsets lifted, and the offset of the strip they land
+    /// before, `displayed.count` for the end). Becomes a `moveScenes` before that strip,
+    /// so a strip the list does not show keeps its place. Returns false, changing nothing,
+    /// when the day is unknown, the offsets name nothing, or the order would not change.
+    @discardableResult
+    static func reorderStrips(_ displayed: [UUID], fromOffsets source: IndexSet, toOffset destination: Int,
+                              in dayID: UUID, days: inout [ShootDay]) -> Bool {
+        let moving = source.compactMap { displayed.indices.contains($0) ? displayed[$0] : nil }
+        guard !moving.isEmpty, let dayIndex = days.firstIndex(where: { $0.id == dayID }) else { return false }
+
+        let anchor: SceneDropDestination.Position = displayed.indices.contains(destination)
+            ? .before(displayed[destination])
+            : .end
+        var reordered = days
+        var noBoneyard: [Scene] = []
+        guard moveScenes(moving, to: SceneDropDestination(dayID: dayID, position: anchor), days: &reordered, boneyard: &noBoneyard)
+        else { return false }
+        // Judge "changed" by the order the list shows: a drop back onto a strip's own
+        // place can still hop it over a hidden event, which is no move to the user.
+        let shown = Set(displayed)
+        guard reordered[dayIndex].scenes.map(\.id).filter(shown.contains) != displayed else { return false }
+        days = reordered
+        return true
+    }
+
+    /// Add Scenes: the checked Boneyard scenes land at the end of the day in the order the
+    /// Boneyard shows them (`displayOrder`, the sorted Boneyard's ids), not the order they
+    /// were checked in. An id outside `displayOrder` (a scheduled scene, a stale check) is
+    /// ignored. Returns false, changing nothing, when nothing lands.
+    @discardableResult
+    static func addScenes(_ selected: Set<UUID>, inDisplayOrder displayOrder: [UUID], to dayID: UUID,
+                          days: inout [ShootDay], boneyard: inout [Scene]) -> Bool {
+        let ordered = displayOrder.filter { selected.contains($0) }
+        guard !ordered.isEmpty else { return false }
+        return moveScenes(ordered, to: SceneDropDestination(dayID: dayID), days: &days, boneyard: &boneyard)
+    }
+
+    /// Swap with day: exchanges everything the two days hold — scenes (the calendar events
+    /// among them), the call sheet, the day type and the day note — while each day keeps
+    /// its date and its id, the "nothing is anchored to a date" invariant the Mac's day
+    /// handle applies (`StripboardView.handleDayRearrange`, `CalendarView.swapDayContents`,
+    /// which remain their own copies). Returns false, changing nothing, for the same day
+    /// twice or an unknown id.
+    @discardableResult
+    static func swapDays(_ first: UUID, _ second: UUID, in days: inout [ShootDay]) -> Bool {
+        guard first != second,
+              let a = days.firstIndex(where: { $0.id == first }),
+              let b = days.firstIndex(where: { $0.id == second })
+        else { return false }
+        let scenes    = days[a].scenes
+        let callSheet = days[a].callSheet
+        let dayType   = days[a].dayType
+        let dayNote   = days[a].dayNote
+        days[a].scenes    = days[b].scenes
+        days[a].callSheet = days[b].callSheet
+        days[a].dayType   = days[b].dayType
+        days[a].dayNote   = days[b].dayNote
+        days[b].scenes    = scenes
+        days[b].callSheet = callSheet
+        days[b].dayType   = dayType
+        days[b].dayNote   = dayNote
         return true
     }
 }
