@@ -8,11 +8,12 @@ show the sync indicator and the conflict notice (#12–#15, ADR 0006). In regula
 Vision Pro) the editor is `ContentView` in its three-column layout with a trailing inspector
 (#17, the foundation of milestone 3 of #1); in compact width (iPhone, a narrow iPad pane) the
 iPhone editor (#24, the foundation of milestone 4): a tab view whose Days tab is the
-Stripboard as a list of day cards under a week strip, with a read-only Day screen, and
-whose Production tab (#28) holds every Mac menu command as rows, whose Boneyard tab (#27)
-lists the unscheduled scenes with the Mac's sorts, a filter, multi-select Send to Day and a
-New Scene form, and whose Search tab (#27) finds any scene and opens it or shows it in
-Days or the Boneyard. Nothing else about those platforms is placeholder.
+Stripboard as a list of day cards under a week strip, with a Day screen that moves (#25)
+and edits (#26) everything about a day, whose Production tab (#28) holds every Mac menu
+command as rows, whose Boneyard tab (#27) lists the unscheduled scenes with the Mac's
+sorts, a filter, multi-select Send to Day and a New Scene form, and whose Search tab (#27)
+finds any scene and opens it or shows it in Days or the Boneyard. Nothing else about those
+platforms is placeholder.
 Read `CONTEXT.md` for the glossary and system map before touching the code, and `learnings.md`
 for things that have already cost time.
 
@@ -112,15 +113,19 @@ the build inputs outside it, see Working agreements):
   for the other layouts: the document and `edit(_:_:)` (the same `perform` under an
   `EditGesture`, handed to the tabs as a `ProjectEdit` closure; `edit(_:coalescing:_:)`,
   handed down as `CoalescedProjectEdit`, for a gesture the caller keeps across calls, the
-  title's typing burst and a color slot's picks; `beginEditGesture()` for #25's and #26's
-  multi-write actions, and the "open one if none is open" closure the Production tab's
-  character renames take), the `SyncMonitor` (its indicator is a toolbar item at the
-  root, which lands in the document infrastructure's bar), the `scenePalette` environment
-  at the root, the `DerivedScheduleState` cache (for the Boneyard sort it holds as the
-  Mac's app-wide `CineSchedBoneyardSort` preference, #27), `.pdfExportPresentation($exportPreview)`
-  with the `exportPreview` request the Production tab (#28) and #26 set, the cross-tab
-  jumps (`scrollToDate` into the Days list, `revealBoneyardSceneID` into the Boneyard,
-  which the Search tab's Show in Days / Show in Boneyard set with the tab switch), and the
+  title's typing burst, a color slot's picks and the Day screen's note;
+  `beginEditGesture()` for the multi-write actions, and the "open one if none is open"
+  closure the Production tab's character renames and `PhoneDayEdits` take), the
+  `SyncMonitor` (its indicator is a toolbar item at the root, which lands in the
+  document infrastructure's bar), the `scenePalette` environment at the root, the
+  `DerivedScheduleState` cache (for the Boneyard sort it holds as the Mac's app-wide
+  `CineSchedBoneyardSort` preference, #27), `.pdfExportPresentation($exportPreview)` with
+  the `exportPreview` request the Production tab (#28) and the call sheet's Export PDF
+  (#26, a failure is the `alertMessage` alert) set, the moves (`PhoneMoves`, `moveSheet`,
+  #25) and the day edits (`PhoneDayEdits`, `editSheet`, #26), each presented over the
+  editor by its own modifier, the cross-tab jumps (`scrollToDate` into the Days list,
+  `revealBoneyardSceneID` into the Boneyard, which the Search tab's Show in Days / Show in
+  Boneyard set with the tab switch), and the
   `ProjectCommands` for the iPad's menu bar in a narrow window (#22): published as the
   focused scene value and into `ActiveProjectCommands` by `appearsActive`, every closure a
   switch to the Production tab plus a `ProductionCommand` in the `productionCommand`
@@ -208,22 +213,78 @@ the build inputs outside it, see Working agreements):
   long-press drag reorders a strip within its day (`onMove` → `PhoneMoves.reorder`); a
   cross-day drop is not possible in a sectioned `List` (learnings 2026-09-21 #25), so
   cross-day moves are the strip's Send to Day swipe/menu; the day header's long-press menu
-  is Open Day / Add Scenes… / Swap with Day… (#25).
+  is Open Day / Edit Call Sheet… / Add Banner… / Add Event… (#26) / Add Scenes… / Swap
+  with Day… (#25). The edits (#26) come through the same `PhoneStripActions` as the Day
+  screen (a strip's tap opens its editor) and `PhoneDayEdits` (an event chip's tap opens
+  the event, its long press edits or deletes it); the Stripboard Fields setting is read
+  here (`@AppStorage`), decoded once per body and handed to every row and to the Day
+  screen.
 - `DayScreen.swift`: the Day screen (#24), a navigation destination for one day id, read
   from the document on every body (so it follows edits and shows an empty state if the
-  day left the range): the header (`DaySummary`, with the day's ⋯ menu — Add Scenes…,
-  Swap with Day… — #25), the day type and note, the call sheet card, the calendar events
-  and the strips, one `Section` per `MARK`. The Strips section reorders with drag handles
-  (`listReordering`/`onMove` → `PhoneMoves.reorder`) behind a Reorder/Done toggle, and
-  has an Add Scenes… row (#25); #26 adds its edits. Otherwise read-only.
+  day left the range): the header (`DaySummary`, with the day's ⋯ menu — Edit Call
+  Sheet…, Add Banner…, Add Event… (#26), Add Scenes…, Swap with Day… (#25)), the day
+  type and note, the call sheet card, the calendar events and the strips, one `Section`
+  per `MARK`. The Strips section reorders with drag handles (`listReordering`/`onMove`
+  → `PhoneMoves.reorder`) behind a Reorder/Done toggle, and has Add Scenes… (#25) and
+  Add Banner… rows. The edits (#26), through `PhoneDayEdits`: the type is a menu
+  `Picker` (one edit per pick), the note a `TextField` written live through
+  `editCoalescing` under one `EditGesture` per focus session (the Production tab's title
+  rule; the trimmed note is committed as the session ends), Clear Day Type when either
+  is set; the call sheet card is one `Button` into `CallSheetEditor` with an Export Call
+  Sheet PDF row under it; an event row opens `CalendarEventInputSheet`, swipes to Delete
+  and has Edit Event / Delete Event on its long press, with an Add Event… row; a strip's
+  tap opens its editor (`PhoneStripActions.open`).
 - `PhoneStripRow.swift`: the strip both phone lists draw (#24): `PhoneStripRow` (a script
-  scene on its `Scene.stripColor(in:)`, a banner or auto-meal on `bannerColor(for:)`;
+  scene on its `Scene.stripColor(in:)`, with one chip per field of the app-wide
+  Stripboard Fields setting that has a value, `visibleFields`, decoded once per list
+  body by `DaysTab` and never per row, #26; a banner or auto-meal on `bannerColor(for:)`;
   `rowColor(for:palette:)` for the list row behind it), `PhoneEventChip`, `StripPreview`
   (the long-press preview: number, slugline, cast, summary), the `ProjectEdit` typealias,
-  and `PhoneStripActions` with `stripContextMenu(for:)` and `stripSwipeActions(for:)`,
-  the one place each list's menu items and swipe actions are built, applied by
-  `stripInteractions(_:scene:)`; #25 put the moves there (Open Day, Send to Day… and
-  Return to Boneyard in the menu; the same two as the trailing swipe), #26 adds its edits.
+  and `PhoneStripActions` (day, `edit`, `moves`, `dayEdits`, `openDay`) with `open(_:)`
+  (the tap: the scene editor, the banner input, Set Time for an auto-meal),
+  `stripContextMenu(for:)`, `stripLeadingSwipeActions(for:)` and
+  `stripSwipeActions(for:)`, the one place each list's tap, menu items and swipe actions
+  are built, applied by `stripInteractions(_:scene:)` (`onTapGesture`, `.contextMenu`
+  with the preview, both swipe edges with `allowsFullSwipe: false`). #25 put the moves
+  there (Open Day, Send to Day…, Return to Boneyard in the menu; Boneyard and Send to Day
+  on the trailing swipe); #26 the edits: Edit Scene / Edit Banner, Set Time…, Duplicate
+  Scene and Delete Banner in the menu, Edit and Set Time on the leading swipe, Duplicate
+  (a script scene) or Delete (a custom banner) on the trailing one. An auto-meal offers
+  Set Time only: a deleted one would return at the next sync while its call sheet time
+  stands.
+- `PhoneDayEdits.swift`: the day and strip edits the iPhone makes (#26), one
+  `PhoneDayEdits` value `PhoneEditor` wires (`edit`, `beginGesture`, `present`,
+  `exportCallSheet`) and hands the Days list, the Day screen and the strip actions:
+  `setDayType`, `clearDayType`, `saveScene` (by id, under the gesture so a Duplicate in
+  the same turn folds in), `deleteUnscheduledScene`, `duplicateScene`,
+  `saveNoticeStrip` (a banner or event replaced in place or appended), `deleteNoticeStrip`,
+  `applyStripTime`, `saveCallSheet` (under the gesture, so Export PDF's save and the
+  preview are one step), each one `edit` over `DayEdits`; and the editors a list asks for
+  (`presentSceneEditor(sceneID:dayID:)`, `presentBannerEditor`, `presentEventEditor`,
+  `presentSetTime`, `presentCallSheet`, `presentEditor(for:dayID:)` for a tap), a
+  `PhoneEditSheet` request `PhoneEditor` holds and `phoneEditSheets` presents over the
+  editor, so a sheet outlives the row that asked. The content binds every editor by id
+  and reads the document each body; `PhoneDaySceneEditor` is `SceneEditSheet` with
+  Previous / Next over the day's script scenes, Delete as the Mac's sheets do it (a
+  scheduled scene back to the Boneyard through `PhoneMoves.returnToBoneyard`, a Boneyard
+  scene deleted) and `onDuplicate`.
+- `DayEdits.swift`: the pure part of those edits (#26, `DayEditsTests`): `Scene.duplicated()`
+  (the Mac Stripboard's copy: new id, "(Copy)", the same number, lengths, cast, summary
+  and breakdown tags, none of the scheduling state; the Mac's `duplicateScene` now calls
+  it) and, on `ProjectData`, `setDayType`, `setDayNote` (trimmed), `clearDayType` (a plain
+  shoot day with no note; the phone's days are the range, so nothing is removed),
+  `addNoticeStrip` (a banner or event appended; a script scene refused),
+  `deleteNoticeStrip` (removed outright, never through the Boneyard — the Mac's Delete
+  Banner leaves an invisible banner in `allScenes`), `applyStripTime` (the strip
+  replaced in place; a fixed time on the lunch strip is the call sheet's new lunch, with
+  the auto-meal sync in the same edit), `saveCallSheet` (the day replaced by id and
+  synced) and `duplicateScene(withID:)`. Each returns false or nil and changes nothing
+  when its target is gone.
+- `QuickTimeEditSheet.swift`: Set Time (#26), the Stripboard's "Set Time…" rebuilt as an
+  adaptive form on a `QuickTimeDraft` (`EditorDrafts.swift`): automatic cascade or a
+  fixed start, the estimate as two steppers, the old sheet's preview line; Save is
+  disabled until a fixed time parses. The same `QuickTimeEditSheet(scene:onSave:onCancel:)`
+  the Mac's Stripboard presents (moved out of `StripboardView.swift`).
 - `PhoneMoves.swift`: the schedule moves the iPhone makes (#25), one `PhoneMoves` value
   `PhoneEditor` wires and hands the tabs and the Day screen (and #27's Boneyard tab):
   `reorder` (a list's `onMove` offsets → `ScheduleMoves.reorderStrips`), `sendToDay`,
@@ -275,11 +336,15 @@ the build inputs outside it, see Working agreements):
   system bar) and `EditorRowSummary` (a row that opens a page: title, detail, caption, badge).
 - `EditorDrafts.swift`: the editors' drafts (#19), pure: `SceneDraft` (every field of the
   scene editor as strings, validation, `applied(to:)`), `BannerDraft` (`setType`,
-  `makeBanner()`), `CalendarEventDraft` (`makeEvent()` keeps an edited event's id) and
-  `NewSceneDraft` (#27: the Mac's New Scene fields as strings, its validation, an
-  estimate derived from the pages when none is typed, and the time of day read off the
-  slugline through `FinalDraftParser.TimeOfDay` when the picker is nil, `makeScene()`). A
-  view holds one in `@State` and writes it back as one assignment (`EditorDraftsTests`).
+  `makeBanner()`; with #26 `init(banner:)` reads an existing banner back and
+  `applied(to:)` keeps its id and fixed start, so the input edits too),
+  `CalendarEventDraft` (`makeEvent()` keeps an edited event's id), `NewSceneDraft` (#27:
+  the Mac's New Scene fields as strings, its validation, an estimate derived from the
+  pages when none is typed, and the time of day read off the slugline through
+  `FinalDraftParser.TimeOfDay` when the picker is nil, `makeScene()`) and `QuickTimeDraft`
+  (#26: the Set Time sheet's fields, the old sheet's seeding and preview, `isValid`,
+  `applied(to:)`). A view holds one in `@State` and writes it back as one assignment
+  (`EditorDraftsTests`).
   `CallSheetDrafts.swift` (#20): `CallSheetDraft` (a day's call sheet with the pre-fills
   the old sheet made on appear, the location, cast-call and crew-call list mutations,
   `applied(to:)`) and `ProductionSetupDraft` (the setup, the three rosters, a member's
@@ -287,9 +352,11 @@ the build inputs outside it, see Working agreements):
   dropped on write (`CallSheetDraftsTests`).
 - The five adaptive editors (#19): `SceneEditSheet` (the scene editor: every sheet and the
   inspector; Previous / Next in the header when supplied; the trash, Cancel and Save
-  Changes row; follows an external change to its scene while untouched),
-  `DayDetailSheet` (the day detail: day type and note, the actions as rows, call schedule,
-  events, scenes; Done), `BannerInputSheet`, `CalendarEventInputSheet`, `SendToDaySheet`.
+  Changes row, plus a Duplicate Scene button when `onDuplicate` is supplied (#26, the
+  phone; nil at every Mac call site); follows an external change to its scene while
+  untouched), `DayDetailSheet` (the day detail: day type and note, the actions as rows,
+  call schedule, events, scenes; Done), `BannerInputSheet` (add, or edit with
+  `initialBanner`, #26), `CalendarEventInputSheet`, `SendToDaySheet`.
   Each is `EditorChrome { header } content: { Form(...).formStyle(.grouped) } footer: {
   buttons }` with `.editorContainer(Self.sheetSize)`; the call sites in `CalendarView`,
   `StripboardView`, `ContentView` and the inspector need nothing per platform.
@@ -680,9 +747,13 @@ compact iPad window),
 (from the Boneyard, within a day, across days, before a strip or at the end, back to the
 Boneyard; the iPhone's `reorderStrips` from `onMove` offsets, `addScenes` in display
 order, `swapDays` and its inverse, #25) in `ScheduleDragTests`,
-`SceneDraft`, `BannerDraft`, `CalendarEventDraft` and `NewSceneDraft` (`EditorDraftsTests`:
-what each reads, validation, the value written back, the Custom type's blank-means-none
-rule, the new scene's estimate from its pages and its type from the slugline),
+`Scene.duplicated()` and the `ProjectData` day edits (`DayEditsTests`: the Mac's copy
+pinned field by field, the type and note, a notice strip added, replaced and deleted, Set
+Time with the lunch rule, the call sheet save with its sync, each refusing a gone target),
+`SceneDraft`, `BannerDraft` (reading an existing banner back, `applied(to:)` keeping its
+id), `CalendarEventDraft`, `NewSceneDraft` and `QuickTimeDraft` (`EditorDraftsTests`: what each reads,
+validation, the value written back, the Custom type's blank-means-none rule, the new
+scene's estimate from its pages and its type from the slugline),
 `SceneSearch` and `BoneyardSelection` (`SceneSearchTests`: the blank query, every field,
 the number's exact-or-prefix rule, cast trimmed and case-insensitive, notice strips never,
 the results' order and locations, the selection's display order; the tabs themselves have

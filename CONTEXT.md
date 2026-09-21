@@ -6,8 +6,9 @@ scenes, drag scenes onto shoot days, track cast availability, and export industr
 the product today; one target also builds iOS, iPadOS and visionOS, which open, create and
 autosave projects from the CineSched folder in iCloud Drive (#12) into the three-column
 editor with an inspector in regular width (#17) and the iPhone editor in compact width
-(#24: the Days list, the week strip and the Day screen; #28: the Production tab; #27: the
-Boneyard tab and the Search tab) while the port (#1) is in progress.
+(#24: the Days list, the week strip and the Day screen; #25: its moves; #26: its edits;
+#28: the Production tab; #27: the Boneyard tab and the Search tab) while the port (#1) is
+in progress.
 
 This file is the glossary and system map. Use these terms exactly in issues, code, and tests.
 Architecture decisions live in `docs/adr/`. Hard-won surprises live in `learnings.md`.
@@ -79,7 +80,8 @@ Film-production terms first, then app-specific ones.
 | **Days list** | The Days tab (`DaysTab`): the Stripboard as a scrolling list of **day cards** under the **week strip**, driven by the Stripboard's own row function (`stripboardRows` with `showAllDays` off), so gap folding, event-only days and typed days behave as on the Mac. A day card is its header (the `DaySummary`: production day number, date, day type badge, scene count, pages, general call, events, note; a tap opens the **Day screen**), its event chips and its strips with the time cascade; a **gap card** stands for a run of empty days and expands on a tap (each expanded card has a Hide empty days row that folds the run back). The week strip, the month popover and the Today control scroll it to a date (`dayScrollTarget`; a date folded into a gap opens the gap first). |
 | **Week strip** | The seven days, Sunday first (a lineage fact), of one week above the Days list (`WeekStrip`, pure): each cell its date, the script scene count (a dot for an event-only day), the day type's tint, a ring on today, dimmed and inert outside the production range. Chevrons page by week; the month title opens the **month popover** (a graphical date picker over the production range) and a picked date scrolls the list. The strip follows the earliest day card on screen. |
 | **Today control** | The tab bar accessory: one tap lands the Days list on `todayTarget` — the shoot day dated today, else the first day after today, else the last day of the range (nothing for a project without days) — and names which ("Day 4 · Mon Sep 21", "Next: …", "Last: …") while expanded; the word alone beside the minimized bar. |
-| **Day screen** | Everything about one shoot day on the iPhone (`DayScreen`), a navigation destination (not a sheet) bound to the day by id: the header (`DaySummary`, with the day's ⋯ menu of whole-day moves — Add Scenes…, Swap with Day…), the day type and note, the **call sheet card** (general call, ready to shoot, lunch, snack, dinner, wrap, basecamp), the calendar events and the strips with the cascade. The Strips section reorders with drag handles behind a Reorder/Done toggle and has an Add Scenes… row (#25). #26 adds the day-and-strip edits. |
+| **Day screen** | Everything about one shoot day on the iPhone (`DayScreen`), a navigation destination (not a sheet) bound to the day by id: the header (`DaySummary`, with the day's ⋯ menu — Edit Call Sheet…, Add Banner…, Add Event…, Add Scenes…, Swap with Day…), the day type (a menu) and note (a field, one undo step per focus session), the **call sheet card** (general call, ready to shoot, lunch, snack, dinner, wrap, basecamp; a tap opens the call sheet editor, a row under it exports the PDF), the calendar events (a tap edits, a swipe deletes, Add Event… appends) and the strips with the cascade (a tap opens the strip's editor). The Strips section reorders with drag handles behind a Reorder/Done toggle and has Add Scenes… (#25) and Add Banner… (#26) rows. |
+| **Day edit** | A change to a day or one of its strips made from the iPhone (#26): the day type and note, a banner or calendar event added, edited or deleted (never through the Boneyard), a strip's **Set Time** (a fixed start and duration; on the lunch strip the call sheet's lunch follows, with the auto-meal sync in the same edit), the call sheet (its Save syncs the auto-meal strips in the same edit), a scene's fields from the scene editor, and **Duplicate Scene** (a copy titled "(Copy)" into the Boneyard, the Mac Stripboard's rule). `PhoneDayEdits` (wired by `PhoneEditor`, handed to the lists and the strip actions) runs each as one `edit` over the pure `DayEdits` functions, and presents the editors (`SceneEditSheet` by id with Previous / Next over the day's script scenes, `BannerInputSheet`, `CalendarEventInputSheet`, `QuickTimeEditSheet`, `CallSheetEditor`) as sheets over the editor. A strip's tap, long-press menu and both swipe edges (`PhoneStripActions`) are where the edits live: Edit, Set Time…, Duplicate Scene, Delete Banner beside the moves; no swipe completes on its own. An auto-meal strip offers Set Time only, because a deleted one returns at the next sync while its call sheet time stands. |
 | **Production tab** | The iPhone editor's third tab (`ProductionTab`, #28): every Mac menu command that is not about one strip or one day, as rows of a grouped list in five sections. Production: Production Setup, Scan for Conflicts (the conflicted scene count on the row; a report row jumps to Days at that date), Lock Schedule or Unlock Schedule (one row, switching with the lock's state), the Schedule Lock Report, the **Breakdown Browser**. Appearance: Color Legend, Customize Scene Colors, Stripboard Fields. Project: the title, the production range with Shift Schedule and Update Calendar (confirmed first when scenes would return to the Boneyard, through the **range preview**). Export: the six documents into the export presentation, the month one after a month choice and its options. Import: Import Script…, whose summary comes before the one write that adds the scenes to the Boneyard. Every row presents an adaptive editor, report or setting that already exists; the tab adds no behaviour of its own. |
 | **Production command** | `ProductionCommand` (#28): what the menu bar of a narrow iPad window asks the Production tab to do (open the setup, scan, browse, lock, unlock, the reports, the appearance sheets, import, the four keyed exports). `PhoneEditor` sets it with the tab switch; the tab runs it on the next change or on appear and clears it, so the sheets' state stays in the tab. |
 | **Breakdown Browser** | The scene editor stepped over every scene of the project in **script order** with Previous and Next, on the Mac (Production ▸ Breakdown Browser…) and the iPhone's Production tab. Its pure part on the phone is `BreakdownBrowser` (#28): the scene ids in order (Boneyard first, then the days, once each, sorted by `scriptOrderKey`, banners included as the Mac counts them), the stepping, the successor after a delete (next, else previous), and the by-id write-back (`ProjectData.replaceScene`, `removeScene(withID:)`); the phone drives `SceneEditSheet` by id, so a scene edited, moved or undone under the open browser is the current one. Save closes, Previous and Next save and step, Delete removes the scene outright (a scheduled one too, the Mac's rule) and steps. |
@@ -124,9 +126,11 @@ PhoneEditor.swift         The iPhone editor (#24): the tab view (Days, Boneyard,
                           the project commands for the iPad's menu bar in a narrow window (#28). Platform-free.
   DaysTab.swift                    the Days list: the week strip and month popover over the day and gap cards
                                    (stripboardRows), scrolling to a date, the Day screen as its destination.
-  DayScreen.swift                  the Day screen: header, day type and note, call sheet card, events, strips.
-  PhoneStripRow.swift              the strip row both lists draw, the event chip, the long-press preview, and
-                                   PhoneStripActions (the one place a strip's menu items and swipe actions are built).
+  DayScreen.swift                  the Day screen: header, day type and note, call sheet card, events, strips;
+                                   every day edit (#26) through PhoneDayEdits.
+  PhoneStripRow.swift              the strip row both lists draw (with the Stripboard Fields chips), the event chip,
+                                   the long-press preview, and PhoneStripActions (the one place a strip's tap,
+                                   menu items and swipe actions are built: the moves, #25, and the edits, #26).
   BoneyardTab.swift                the Boneyard tab (#27): the sorted, filtered Boneyard as strips, the editor on
                                    tap, the Mac's menu on long press, swipe Send to Day / Delete, Select for a
                                    multi-selection sent to a day in display order, "+" for the New Scene form.
@@ -135,6 +139,13 @@ PhoneEditor.swift         The iPhone editor (#24): the tab view (Days, Boneyard,
   PhoneSceneEditor.swift           SceneEditSheet as the phone's tabs open it (#27): by id, Save through
                                    replaceScene, the Mac's Delete rule, optional Previous / Next.
   NewSceneSheet.swift              the New Scene form (#27), an adaptive editor over NewSceneDraft.
+  PhoneDayEdits.swift              the iPhone's day edits (#26): type, note, notice strips, Set Time, the call
+                                   sheet, a scene's fields, Duplicate Scene, each one edit; and the editors it
+                                   presents over the editor (the scene editor by id, banner, event, Set Time,
+                                   call sheet).
+DayEdits.swift            The pure day edits (#26): Scene.duplicated() and the ProjectData mutations behind
+                          PhoneDayEdits, tested in DayEditsTests.
+QuickTimeEditSheet.swift  Set Time as an adaptive form on QuickTimeDraft (#26); the Mac's Stripboard presents it too.
   ProductionTab.swift              the Production tab (#28): the Mac's Production, View and File menu commands
                                    as rows (setup, conflicts, lock, lock report, breakdown browser; legend,
                                    colors, fields; title and range; the six exports; import script), each
@@ -173,7 +184,7 @@ PlatformEditorContainer.swift  Seam: the editorContainer modifier sizing an adap
 EditorChrome.swift        The adaptive editors' shared chrome (header, grouped form, footer buttons), the color
                           swatch row, the prompted text editor, and the stacked title, page modifier and row
                           summary of the list editors (#20).
-EditorDrafts.swift        The editors' drafts (SceneDraft, BannerDraft, CalendarEventDraft, NewSceneDraft), pure.
+EditorDrafts.swift        The editors' drafts (SceneDraft, BannerDraft, CalendarEventDraft, NewSceneDraft, QuickTimeDraft), pure.
 CallSheetDrafts.swift     The call sheet's and the production setup's drafts (pre-fills, list mutations, the
                           character renames, one value back), pure (#20).
 CallSheetEditor.swift, ProductionSetupSheet.swift   The two list editors: forms with detail pages (#20).
@@ -188,7 +199,7 @@ ProjectCodec.swift        The one project encoder/decoder (pretty JSON, ISO date
 ProjectDocument.swift     The project document (27 Document protocol), URL reader/writer, perform undo funnel,
                           UTType.cineschedProject, ProjectData.newProject (the File ▸ New template).
 CalendarView.swift        Month grid / full-schedule scroll, drag & drop, day cells. Holds the shared drop plumbing.
-StripboardView.swift      Strip schedule (the cascade from DayTimeline) and auto-meal sync.
+StripboardView.swift      Strip schedule (the cascade from DayTimeline) and auto-meal sync; Set Time is QuickTimeEditSheet.
 ScheduleDrag.swift        The one typed drag payload every schedule drag carries and the pure moves a drop makes (#18).
 ScheduleClipboard.swift   Copy, Cut and Paste of scenes as pure moves over the project, and the payload's pasteboard bytes (#22).
   ContentView+Clipboard.swift      wires them to the system's Edit items through the pasteboard responder.

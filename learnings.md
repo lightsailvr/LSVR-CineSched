@@ -55,6 +55,51 @@ from `XCUIScreen.main.screenshot().pngRepresentation` to a host path passed as
 - Left as is: the Mac's Duplicate Scene does not carry `realLocation` into the copy; the
   phone's copy of that private rule does (a duplicate on the phone keeps its set), noted
   in the report rather than changed on the Mac.
+---
+
+## 2026-09-21 — The iPhone's day edits: a combined strip is one element labelled with commas, a tap gesture and a `List` drag coexist, the Mac's Delete Banner hides a banner in the file, and a probe's Back must be the inner bar's (#26)
+
+Making everything about a day editable from the Day screen and the Days list on the
+iPhone 17 simulator, with the #24 probe recipe (fixture from a throwaway unit test,
+`simctl install`, `openurl`, XCUITest `activate()` with `-parallel-testing-enabled NO`),
+seeding the Stripboard Fields preference with `simctl spawn <sim> defaults write
+com.lsvr.LSVR-CineSched CineSchedStripboardFields "cast,props"` before the open so the
+fields gap could be seen closed:
+
+- **A strip row with `accessibilityElement(children: .combine)` is one element whose
+  label joins its texts with ", "** ("101, EXT. UNIVERSAL …, 4/8, 07:30 AM – 08:15 AM,
+  0:45, Cast: …"), so `staticTexts["101 …"]` finds nothing; query
+  `descendants(matching: .any)` with `label BEGINSWITH '101,'`. A chip that sets its own
+  `accessibilityLabel` inside a combined parent contributes both that label and its
+  child text unless it also ignores its children (`accessibilityElement(children:
+  .ignore)` first).
+- **`onTapGesture` on a `List` row coexists with the row's `onMove` long-press drag,
+  its `.contextMenu` and both `swipeActions` edges**: a tap opens the editor, a ~0.7 s
+  press lifts the drag (a slow drag between two fully visible rows reordered; a drop
+  aimed under the tab bar's accessory did not), a ~1.2 s stationary press opens the menu.
+  No `Button` around the strip was needed, which keeps the row's colour and the drag.
+- **The Mac's Delete Banner appends the banner to `allScenes`** (its `removeFromDay` →
+  `removeScene` returns everything that is not a calendar event), where the Boneyard's
+  display filters banners out, so the file keeps an invisible strip. The phone's
+  `deleteNoticeStrip` removes it outright; the visible outcome is the same.
+- **A `Section(String) { … } footer: { … }` does not exist**: a section with a footer
+  takes `header:` and `footer:` builders, or the compiler reports a missing `content:`.
+- **In a probe, `app.navigationBars.buttons.firstMatch` is the document's outer Back**,
+  which closes the document (the launch screen's document browser follows, and every
+  later test finds nothing). The Day screen's own Back is the inner bar's: query
+  `navigationBars` with `identifier != '<document title>'`. A field whose value equals
+  its placeholder (the banner input's default "Notice") reads as text, so a
+  "clear if not blank" helper that compares to the placeholder types into it instead.
+- **A grouped `Form` in a medium detent shows about three sections of the Set Time
+  sheet**; the picker (`radioGroupPickerStyle` → `.inline` on iOS) is two rows, the
+  steppers two more, and the preview scrolls into view or the sheet expands to large.
+  `QuickTimeDraft.isValid` gates Save on a fixed time that parses, which the old sheet
+  never checked (it stored "eleven" and the cascade silently ignored it).
+- **Undo verification used the #25 throwaway toolbar button** (`undoManager?.undo()`,
+  removed before commit): a scene's slugline and a props tag saved together undid in
+  one step, a typed day note in one, and a call sheet's general call with the retitled
+  GENERAL CALL strip in one; shake and the three-finger swipe are the same
+  `UndoManager` on a device.
 
 ---
 
