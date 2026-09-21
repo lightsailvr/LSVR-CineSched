@@ -9,6 +9,47 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-21 — A `simultaneousGesture(SpatialEventGesture())` over the editor kills every `Button` under it on iPadOS 27; `canRedo` posts a checkpoint; XCUITest's `isEnabled` lags the bar (#17, #22)
+
+Matt's first device pass of M3: the iPad toolbar's sidebar and inspector toggles, the
+Calendar/Stripboard picker and Undo did nothing to a finger, while the View, Production
+and Export menus opened. Reproduced with an XCUITest probe (synthesized touches) and
+bisected in one build:
+
+- **The cause was #22's press recorder**: `content.simultaneousGesture(SpatialEventGesture()
+  .onChanged { … })` at the editor's root, added to read a press's kind and modifier keys.
+  A simultaneous gesture is not supposed to claim anything, but with it in place a
+  `Button` under it (toolbar items, the segmented `Picker`, the calendar's own buttons)
+  responded to the press and never fired its action; `Menu`s survived because they open
+  on touch-down. Turning the modifier off restored every button. The recorder is now a
+  `UIGestureRecognizer` subclass on the window (`PlatformPressObserver`, a seam) that
+  reads `UITouch.type` and `UIEvent.modifierFlags` in `touchesBegan` and sets `state =
+  .failed` at once, with `cancelsTouchesInView` off and `shouldRecognizeSimultaneouslyWith`
+  true: it sees every press and the touch continues as if it were not there. The Mac
+  installs nothing. Per-issue agents did not catch this because every probe of the toolbar
+  (#17, #20, #21, #23) ran before #22 landed, and #22's own probe drove the commands with
+  keyboard shortcuts; a rebased branch needs a touch pass of what it did not change.
+- **`onModifierKeysChanged` is not the way out on iOS**: it exists in the SDK interface
+  but is `@available(iOS, unavailable)`; the compiler says so only at build time.
+- **`UndoManager.canRedo` (and `canUndo`) post `NSUndoManagerCheckpoint`**, so a handler
+  for that notification that reads them re-enters itself forever ("process main thread
+  busy for 30 s" from XCUITest). The toolbar's Undo/Redo availability is `@State`
+  refreshed from `NSUndoManagerDidCloseUndoGroup`, `DidUndoChange`, `DidRedoChange` and the
+  document's change count, never from the checkpoint. Reading `canUndo` live inside the
+  toolbar builder had left the buttons with the enabled state of whatever redraw last
+  happened to run (#17's report noted it; it read as "Undo doesn't work" on the device).
+- **XCUITest's `isEnabled` on a toolbar button lags the real bar**: after the undo the
+  probe read Redo as disabled for seconds while the screenshot showed it enabled, and a
+  key event made the snapshot catch up. Trust a screenshot of the bar over the
+  accessibility snapshot for enabled state; trust the snapshot for existence and frames.
+- The content column's leading Back arrow is the document infrastructure's mirror of the
+  sidebar's (2026-09-20 #17); it closes the document. It read as "does nothing" only
+  because it was a `Button`. Closing a document opened through `simctl openurl` lands on
+  the system's document browser ("Create Document"), not the app's launch scene; a cold
+  launch shows the launch scene (New Project, More…).
+
+---
+
 ## 2026-09-20 — The M3 review round: a drop must not re-widen from a `Set`, an inspector's Delete is the sheet's Delete, and "Mac unchanged" means nil callbacks, not unused ones (#17, #18, #20, #22, #23)
 
 What the standards and spec reviews of the seven M3 branches caught after each had

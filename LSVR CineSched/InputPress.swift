@@ -5,19 +5,18 @@
 // multi-selection, which then drags, copies and acts as a group, while a finger or a
 // Pencil (no modifier keys) selects one strip; the Mac has always read the keys from
 // `NSEvent`, and the iPad had no way to read them at a tap (`ModifierKeys`, a seam,
-// answered "none"). SwiftUI's tap gestures still carry no modifiers on iOS, but the 27
-// SDK's `SpatialEventGesture` (iOS 18) reports every press with its `kind` and its
-// `modifierKeys`, so one gesture at the editor's root records the latest press and the
-// seam reads it back when a strip's tap fires (a press begins before its tap ends).
+// answered "none"). SwiftUI's tap gestures still carry no modifiers on iOS, so an
+// observer at the editor's root records the latest press (`PlatformPressObserver`, a
+// seam: a UIKit recognizer on the window that reads each touch's type and the event's
+// modifier flags and fails at once) and the seam reads it back when a strip's tap fires
+// (a press begins before its tap ends). It was a `SpatialEventGesture` first; as a
+// `simultaneousGesture` over the editor it swallowed every `Button` under it on iPadOS 27.
 //
 // The drag itself cannot be told apart: `draggable` and `DragSession` carry no input kind
 // on 27.0, and the `GestureInputKinds` filter (`TapGesture(count:inputKinds:)`,
 // `DragGesture(inputKinds:)`) only restricts which inputs a gesture accepts. So the
 // distinction is made at the press that selects; the system's own lift (a long press by
 // touch and Pencil, an immediate drag by pointer) is unchanged.
-//
-// Platform-free except for the mapping of the event's kind, which lives in the
-// `ModifierKeys` seam because `.pencil` is an iOS-only case.
 
 import SwiftUI
 
@@ -66,25 +65,20 @@ final class InputPressRecorder {
     }
 }
 
-// MARK: - The gesture
+// MARK: - The observer
 
 /// Records every press's kind and modifiers as it begins, without claiming it: the taps,
-/// long presses and drags below keep working as they do. Off where the platform polls
-/// its flags instead (`enabled` false), so the Mac carries no gesture it does not need.
+/// long presses, drags and buttons below keep working as they do. Off where the platform
+/// polls its flags instead (`enabled` false), so the Mac installs nothing.
 struct InputPressRecording: ViewModifier {
     let enabled: Bool
 
     func body(content: Content) -> some View {
         if enabled {
-            content.simultaneousGesture(
-                SpatialEventGesture().onChanged { events in
-                    for event in events where event.phase == .active {
-                        InputPressRecorder.shared.record(
-                            InputPress(kind: ModifierKeys.inputKind(of: event.kind), modifiers: event.modifierKeys)
-                        )
-                    }
-                }
-            )
+            content.background {
+                PressObserver { press in InputPressRecorder.shared.record(press) }
+                    .frame(width: 0, height: 0)
+            }
         } else {
             content
         }

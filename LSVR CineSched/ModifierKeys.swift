@@ -3,11 +3,10 @@
 // clicked. The Boneyard, calendar and Stripboard all use ⌘-click / ⇧-click for
 // multi-select, and SwiftUI's tap gestures don't report modifiers, so the Mac reads
 // `NSEvent.modifierFlags` directly. iOS and visionOS have nothing to poll, so there the
-// answer comes from the latest press the editor's root recorded through
-// `SpatialEventGesture` (InputPress.swift, #22): the keys a pointer's click carried, and
+// answer comes from the latest press the editor's root observed (InputPress.swift,
+// `PlatformPressObserver`, #22): the keys a pointer's click carried, and
 // none for a finger or a Pencil, so a touch is a plain single select as before and a
-// trackpad or mouse with a hardware keyboard multi-selects like the Mac's. The mapping
-// of the event's kind is here too, because `.pencil` exists only on iOS.
+// trackpad or mouse with a hardware keyboard multi-selects like the Mac's.
 
 import SwiftUI
 #if os(macOS)
@@ -30,29 +29,11 @@ enum ModifierKeys {
         #endif
     }
 
-    /// Whether the editor's root should record presses for `current` (the Mac polls the
-    /// event instead and needs no gesture in the way of its own).
+    /// Whether the editor's root should observe presses for `current` (the Mac polls the
+    /// event instead and installs nothing).
     #if os(macOS)
     static let recordsPresses = false
     #else
     static let recordsPresses = true
     #endif
-
-    /// The app's input kind for a spatial event's.
-    static func inputKind(of kind: SpatialEventCollection.Event.Kind) -> InputKind {
-        #if os(iOS)
-        switch kind {
-        case .touch:   return .touch
-        case .pencil:  return .pencil
-        case .pointer: return .pointer
-        default:       return .other
-        }
-        #else
-        switch kind {
-        case .touch:   return .touch
-        case .pointer: return .pointer
-        default:       return .other
-        }
-        #endif
-    }
 }

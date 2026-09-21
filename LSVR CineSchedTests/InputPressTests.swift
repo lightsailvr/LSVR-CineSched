@@ -35,9 +35,4 @@ struct InputPressTests {
         recorder.record(InputPress(kind: .pointer, modifiers: [.shift]))
         #expect(recorder.latest == InputPress(kind: .pointer, modifiers: [.shift]))
     }
-
-    @Test func theEventKindsMapToTheAppsKinds() {
-        #expect(ModifierKeys.inputKind(of: .touch)   == .touch)
-        #expect(ModifierKeys.inputKind(of: .pointer) == .pointer)
-    }
 }

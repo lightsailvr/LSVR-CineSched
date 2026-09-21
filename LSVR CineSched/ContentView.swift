@@ -17,6 +17,13 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// What the three-column toolbar's Undo and Redo buttons show (#17); see
+/// `ContentView.undoAvailability`.
+struct UndoAvailability: Equatable {
+    var canUndo = false
+    var canRedo = false
+}
+
 // MARK: - Schedule View Mode
 
 enum ScheduleViewMode: String, CaseIterable {
@@ -171,6 +178,11 @@ struct ContentView: View {
     /// the binding, and without a token each would be its own undo step.
     @State private var titleGesture = EditGesture()
     @FocusState private var titleFieldFocused: Bool
+    /// Whether the undo manager can undo and redo, for the three-column toolbar's two
+    /// buttons (#17). Held as state and refreshed from the manager's notifications
+    /// rather than read live in the toolbar builder: a live read rendered stale (Redo
+    /// stayed disabled after an undo on the iPad although the manager could redo).
+    @State private var undoAvailability = UndoAvailability()
     /// The color editor's open step: a ColorPicker writes on every movement of the wheel,
     /// so the token stays while one slot is being edited and changes with the slot (see
     /// `setPaletteColor`). Cleared when the sheet closes.
@@ -338,13 +350,13 @@ struct ContentView: View {
             } label: {
                 Label(L("Undo"), systemImage: "arrow.uturn.backward")
             }
-            .disabled(!(undoManager?.canUndo ?? false))
+            .disabled(!undoAvailability.canUndo)
             Button {
                 undoManager?.redo()
             } label: {
                 Label(L("Redo"), systemImage: "arrow.uturn.forward")
             }
-            .disabled(!(undoManager?.canRedo ?? false))
+            .disabled(!undoAvailability.canRedo)
 
             Menu {
                 Toggle(L("Show Cast in Calendar"), isOn: $showCastOnCards)
@@ -525,7 +537,8 @@ struct ContentView: View {
     private func applyLifecycle<Content: View>(_ content: Content) -> some View {
         content
             // The kind and modifier keys of every press, for the selection's ⌘ and ⇧
-            // where there are no flags to poll (#22, InputPress.swift).
+            // where there are no flags to poll (#22, InputPress.swift). An observer, not
+            // a gesture: one over the whole editor swallowed every Button on iPadOS 27.
             .recordsInputPresses()
             .focusedSceneValue(\.projectCommands, projectCommands)
             // The same commands for the iPad's menu bar, by window activity (#22).
@@ -551,10 +564,19 @@ struct ContentView: View {
             // selection is real state that has to be trimmed here.
             .onChange(of: document.changeCount) { _, _ in
                 pruneSelection()
+                refreshUndoAvailability()
             }
             .onChange(of: document.restoreCount) { _, _ in
                 seedRangePickers()
             }
+            // The manager says when its stacks changed: after an edit's group closes, after
+            // an undo and after a redo. The change count above fires during the undo,
+            // before the redo is on the stack. Not `NSUndoManagerCheckpoint`: reading
+            // `canRedo` posts one, so that handler would call itself forever.
+            .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidCloseUndoGroup)) { refreshUndoAvailability(after: $0) }
+            .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidUndoChange)) { refreshUndoAvailability(after: $0) }
+            .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidRedoChange)) { refreshUndoAvailability(after: $0) }
+            .onChange(of: undoManager.map(ObjectIdentifier.init), initial: true) { _, _ in refreshUndoAvailability() }
             .onChange(of: titleFieldFocused) { _, focused in
                 if !focused { titleGesture = EditGesture() }
             }
@@ -811,6 +833,14 @@ struct ContentView: View {
     }
 
     // MARK: - Selection and cast helpers
+
+    /// Re-reads `canUndo`/`canRedo` into `undoAvailability`; `notification` limits the
+    /// manager notifications to this window's manager.
+    private func refreshUndoAvailability(after notification: Notification? = nil) {
+        if let notification, let sender = notification.object as? UndoManager, sender !== undoManager { return }
+        let next = UndoAvailability(canUndo: undoManager?.canUndo ?? false, canRedo: undoManager?.canRedo ?? false)
+        if next != undoAvailability { undoAvailability = next }
+    }
 
     /// Drops selected IDs that are no longer in the project. Writes the selection only when
     /// something was dropped, so the usual edit does not invalidate the view a second time.

@@ -194,11 +194,14 @@ the build inputs outside it, see Working agreements):
 - `InputPress.swift`: which input pressed the board last (#22): `InputKind` (touch, pencil,
   pointer, other), `InputPress` (kind and modifiers; `selectionModifiers` is the click's for
   a pointer, none for a finger or a Pencil), `InputPressRecorder.shared` and the
-  `recordsInputPresses()` modifier, a `SpatialEventGesture` at the editor's root that
-  records every press without claiming it (`InputPressTests`). `ModifierKeys.current` reads
-  it on iOS and visionOS, so ⌘-click and ⇧-click multi-select with a trackpad or mouse
-  there; the Mac keeps polling `NSEvent` and carries no gesture. `draggable` and
-  `DragSession` report no input kind on 27.0; the distinction is made at the press.
+  `recordsInputPresses()` modifier, which places `PressObserver` (the
+  `PlatformPressObserver` seam) in the editor's background (`InputPressTests`).
+  `ModifierKeys.current` reads it on iOS and visionOS, so ⌘-click and ⇧-click multi-select
+  with a trackpad or mouse there; the Mac keeps polling `NSEvent` and installs nothing.
+  Never a SwiftUI gesture at the root: a `simultaneousGesture(SpatialEventGesture())` over
+  the editor swallowed every `Button` under it on iPadOS 27 (toolbar toggles, the segmented
+  picker, the calendar's buttons). `draggable` and `DragSession` report no input kind on
+  27.0; the distinction is made at the press.
 - `ContentView+Inspector.swift`: the three-column layout's trailing column: the project
   statistics when nothing is selected, `SceneEditSheet` bound to the selected scene by id
   (Save is one gesture, Cancel and Delete clear the selection), `DayDetailSheet` for the
@@ -330,8 +333,10 @@ the build inputs outside it, see Working agreements):
   `DaysOutOfDaysExporter`) draw on it and build everywhere (its header comment is the recipe
   for writing one). `Fountain*`, `FinalDraftParser`, `HighlandArchiveReader`: importers.
 - Platform seams (ADR 0003): `FilePanels`, `SelectAllTextField`, `WindowAccessor`, `ModifierKeys`
-  (the Mac polls `NSEvent`; the others read the recorded press, and the event-kind mapping
-  lives here because `.pencil` is iOS-only), `PlatformPasteboardResponder` (the first
+  (the Mac polls `NSEvent`; the others read the recorded press), `PlatformPressObserver`
+  (how that press is recorded: a `UIGestureRecognizer` on the window that reads each
+  touch's type and the event's modifier flags in `touchesBegan` and fails at once, so it
+  never claims a touch; nothing on the Mac), `PlatformPasteboardResponder` (the first
   responder that answers Edit ▸ Cut, Copy and Paste for scenes with `NSPasteboard` or
   `UIPasteboard`; SwiftUI's `copyable` family needs the focus system, which the iPad engages
   only for a hardware keyboard, #22),
