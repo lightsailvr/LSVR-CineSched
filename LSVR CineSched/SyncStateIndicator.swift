@@ -1,7 +1,7 @@
 // SyncStateIndicator.swift
 // The sync state beside the project title (#14) and, in the same spot, the conflict
-// notice (#15). Platform-free SwiftUI: the Mac's toolbar row and the minimal editor's
-// title section both place it next to the title. Subtle by design: an SF Symbol and a
+// notice (#15). Platform-free SwiftUI: the Mac's toolbar row, the iPad's toolbar and the
+// iPhone editor's document bar (#24) all place it beside the title. Subtle by design: an SF Symbol and a
 // caption in the secondary color, animated only while a transfer is in progress, and
 // nothing at all (no space) for a file outside iCloud or an untitled document, where
 // `SyncMonitor.state` is nil.

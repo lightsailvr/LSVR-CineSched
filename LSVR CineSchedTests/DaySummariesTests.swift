@@ -135,6 +135,15 @@ struct DaySummariesTests {
         #expect(saturday.days.map(\.date) == strip.days.map(\.date))
     }
 
+    @Test func weekStartIgnoresTheCalendarsFirstWeekday() {
+        var mondayFirst = calendar
+        mondayFirst.firstWeekday = 2
+        // Wed Nov 4 -> Sun Nov 1, whatever the calendar says a week starts on.
+        #expect(calendar.component(.day, from: WeekStrip.weekStart(containing: november(4), calendar: mondayFirst)) == 1)
+        #expect(WeekStrip.weekStart(containing: november(1), calendar: mondayFirst) == calendar.startOfDay(for: november(1)))
+        #expect(WeekStrip.weekStart(containing: november(7, hour: 23), calendar: mondayFirst) == calendar.startOfDay(for: november(1)))
+    }
+
     @Test func weekStripKnowsThePreviousAndNextWeek() {
         let strip = WeekStrip(containing: november(4), shootDays: [], today: november(4), calendar: calendar)
         #expect(calendar.component(.day, from: strip.previousWeekDate) == 25)   // Oct 25, a Sunday

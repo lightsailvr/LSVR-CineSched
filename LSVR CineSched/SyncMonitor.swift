@@ -500,7 +500,7 @@ extension View {
     /// Runs `monitor` for `document` for as long as this view is on screen: attaches the
     /// environment's undo manager (and again when it changes), starts on appear, stops
     /// on disappear, and feeds the document's change, restore and written counts and the
-    /// scene phase. `ContentView` and `MinimalProjectEditor` apply it once, at their
+    /// scene phase. `ContentView` and `PhoneEditor` apply it once, at their
     /// root, beside their own reactions to the same counts.
     func syncMonitored(_ monitor: SyncMonitor, document: ProjectDocument) -> some View {
         modifier(SyncMonitoring(monitor: monitor, document: document))

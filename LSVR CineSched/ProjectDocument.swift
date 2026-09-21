@@ -4,7 +4,7 @@
 // itself, so reading, writing, undo and (later) conflict decisions all speak one value
 // type. `DocumentGroup` in CineSchedApp makes one per window on the Mac (#8), where
 // `ContentView` edits it, and one per open file on iOS and visionOS (#12), where
-// `MinimalProjectEditor` does until the full editors land.
+// `ProjectEditor` picks the editor by width (`ContentView` or `PhoneEditor`, #17, #24).
 //
 // Three seams, each testable on its own:
 //   - `ProjectDocumentReader` / `ProjectDocumentWriter`: URL in, `ProjectData` out (and

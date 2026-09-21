@@ -13,7 +13,7 @@
 //  the same `DocumentGroup` opens one file at a time from the system's launch screen
 //  (title, New Project, Import Script…, Import Project… (#13), recents, the document
 //  browser), which starts in the CineSched folder in iCloud Drive, into `ProjectEditor`
-//  (#17): the three-column editor in regular width, the minimal editor in compact width.
+//  (#17): the three-column editor in regular width, the iPhone editor in compact width (#24).
 //  The same `menus` go on that scene too (#22): iPadOS 27 shows them in its menu bar (a
 //  hardware keyboard's shortcuts, or the bar revealed from the top of the screen), with
 //  the system's File and Edit items, so New, Open, Save, Undo, Redo, Cut, Copy, Paste, the

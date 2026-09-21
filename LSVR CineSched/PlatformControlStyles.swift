@@ -1,8 +1,9 @@
 // PlatformControlStyles.swift
 // Platform seam: the three control styles the Mac UI uses that don't exist in UIKit-land
-// (`.checkbox` toggles, `.radioGroup` pickers, `.borderlessButton` menus). Views call
-// these helpers instead of the styles directly, so they keep the Mac look on the Mac and
-// fall back to the platform default elsewhere without a conditional at each call site.
+// (`.checkbox` toggles, `.radioGroup` pickers, `.borderlessButton` menus), and the one
+// list style the iPhone editor uses that AppKit-land lacks (`.insetGrouped`, #24). Views
+// call these helpers instead of the styles directly, so they keep the Mac look on the Mac
+// and fall back to the platform default elsewhere without a conditional at each call site.
 
 import SwiftUI
 
@@ -31,6 +32,17 @@ extension View {
         menuStyle(.borderlessButton)
         #else
         self
+        #endif
+    }
+
+    /// `.listStyle(.insetGrouped)` where it exists (iOS, visionOS): the iPhone's Days list
+    /// and Day screen draw each day as a card (#24). The Mac, which never shows them,
+    /// gets its `.inset` list.
+    func insetGroupedListStyle() -> some View {
+        #if os(macOS)
+        listStyle(.inset)
+        #else
+        listStyle(.insetGrouped)
         #endif
     }
 }

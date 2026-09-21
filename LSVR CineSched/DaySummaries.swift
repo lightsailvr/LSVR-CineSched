@@ -90,11 +90,17 @@ struct WeekStrip: Equatable {
     let previousWeekDate: Date
     let nextWeekDate:     Date
 
+    /// The start of the Sunday that begins the week containing `date`, from the Gregorian
+    /// weekday component (1 = Sunday) so the calendar's `firstWeekday` plays no part.
+    static func weekStart(containing date: Date, calendar: Calendar) -> Date {
+        let day     = calendar.startOfDay(for: date)
+        let weekday = calendar.component(.weekday, from: day)
+        return calendar.date(byAdding: .day, value: -(weekday - 1), to: day) ?? day
+    }
+
     init(containing reference: Date, shootDays: [ShootDay], today: Date, calendar: Calendar) {
-        let referenceDay = calendar.startOfDay(for: reference)
-        let weekday      = calendar.component(.weekday, from: referenceDay)   // 1 = Sunday
-        let sunday       = calendar.date(byAdding: .day, value: -(weekday - 1), to: referenceDay) ?? referenceDay
-        let todayStart   = calendar.startOfDay(for: today)
+        let sunday     = Self.weekStart(containing: reference, calendar: calendar)
+        let todayStart = calendar.startOfDay(for: today)
 
         start = sunday
         days  = (0..<7).map { offset in
