@@ -8,6 +8,11 @@
 // string. Before #18 the payload was one of three `NSString` encodings ("day:", "daytype:"
 // or comma-joined scene ids) read back through `NSItemProvider` in two drop delegates.
 //
+// The same payload is what Copy and Cut put on the pasteboard (#22), as its one kind that
+// carries scenes by value rather than by id: a paste may land in another project, where
+// the ids mean nothing, so the copies travel whole and are inserted with fresh ids
+// (ScheduleClipboard.swift). A drag never carries that kind today.
+//
 // The drop side is here too, as pure functions over `[ShootDay]` and the Boneyard, so the
 // calendar and the Stripboard apply the same move and a test can pin it: `moveScenes`
 // places scenes before a strip or at the end of a day whether they come from the Boneyard,
@@ -51,6 +56,9 @@ nonisolated struct ScheduleDragPayload: Codable, Hashable, Identifiable, Sendabl
         case dayType(dayID: UUID)
         /// A calendar-event chip on the Stripboard: moves the event to the day it lands on.
         case calendarEvent(id: UUID, dayID: UUID)
+        /// Scenes by value, from Copy or Cut (#22): what a paste inserts, as new scenes
+        /// with new ids, wherever it lands. Nothing on the board is addressed by it.
+        case sceneCopies([Scene])
     }
 
     var kind: Kind
@@ -70,17 +78,25 @@ nonisolated struct ScheduleDragPayload: Codable, Hashable, Identifiable, Sendabl
         case .day(let id):              return id
         case .dayType(let dayID):       return dayID
         case .calendarEvent(let id, _): return id
+        case .sceneCopies(let scenes):  return scenes.first?.id ?? UUID()
         }
     }
 
     /// The scene ids a drop moves, whatever the kind called them: the scenes of a scenes
-    /// payload, the event of an event payload, nothing for a day or a band.
+    /// payload, the event of an event payload, nothing for a day, a band or copies (a
+    /// copy's scenes are not on this board; they are inserted, not moved).
     var sceneIDs: [UUID] {
         switch kind {
         case .scenes(let ids, _):       return ids
         case .calendarEvent(let id, _): return [id]
-        case .day, .dayType:            return []
+        case .day, .dayType, .sceneCopies: return []
         }
+    }
+
+    /// The scenes a paste inserts: the copies of a copies payload, nothing otherwise.
+    var copiedScenes: [Scene] {
+        if case .sceneCopies(let scenes) = kind { return scenes }
+        return []
     }
 }
 
