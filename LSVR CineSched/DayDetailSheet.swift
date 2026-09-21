@@ -51,7 +51,7 @@ struct DayDetailSheet: View {
     private var sheetSize: EditorSheetSize {
         isShootDay
             ? EditorSheetSize(width: 700, height: 640, compactDetents: [.large])
-            : EditorSheetSize(width: 540, height: 460, compactDetents: [.medium, .large])
+            : EditorSheetSize(width: 540, height: 520, compactDetents: [.medium, .large], fitsHeight: true)
     }
 
     private func commitNote() {
