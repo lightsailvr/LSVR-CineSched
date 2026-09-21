@@ -68,6 +68,50 @@ the fixture, `test-without-building` with `-parallel-testing-enabled NO`):
   so it was left alone as the brief allowed. `updateProductionRange` sends a dropped day's
   banners to the Boneyard with its scenes (they are not calendar events); the range
   preview counts script scenes only, so the confirmation does not call a lunch a scene.
+---
+
+## 2026-09-21 — The iPhone's moves: a `List` reorders within a section but never carries a drag across sections, and shake-to-undo has no XCUITest hook (#25)
+
+Adding reorder, cross-day drag, Send to Day, Add Scenes and Swap with Day to the Days list
+and the Day screen, on the iPhone 17 simulator with the #24 probe recipe:
+
+- **A row's or a section's `.dropDestination(for:)` inside a `List` is never targeted on
+  iOS 27, and `onInsert(of:)` never fires for a drag that started in another section.** A
+  strip is `.draggable`, and dragging it *lifts* (the floating row is visible), but a drop
+  onto another day's card reverts: instrumented with a file log, neither the row
+  `dropDestination`'s `isTargeted`/action, nor `onInsert`, nor the destination day's
+  `onMove` ever ran (the log file was never created). Only the *originating* section's
+  `ForEach.onMove` fires, and only for a drop that stays inside that same `ForEach` — i.e.
+  a reorder within one day. So within-day drag-reorder works in the Days list (long press
+  ~0.5 s to lift; a shorter press scrolls) and on the Day screen (edit mode, drag handles),
+  but cross-day drag is not achievable in a `List`. It would need a `ScrollView`/`LazyVStack`
+  with the #18 `draggable`/`dropDestination` pattern — but `.swipeActions` require a `List`,
+  and Send to Day / Return to Boneyard swipes are required, so the list stays and Send to
+  Day (swipe + menu) is the cross-day move. Do not spend hours re-attempting the drag; the
+  platform does not support it in a sectioned `List`.
+- **`List` `onMove` needs no `EditButton`/edit mode for a long-press reorder**; the handle-
+  based reorder (edit mode via the `editMode` environment, a seam because `EditMode` is
+  `@available(macOS, unavailable)`) is the explicit affordance the Day screen uses so the
+  reorder is discoverable, but the same `.onMove` also accepts a plain long-press drag,
+  which is what the Days list offers.
+- **A `.draggable` row and a `.contextMenu` on the same row coexist**: a ~0.5–0.6 s press
+  lifts the drag, a ~1.2 s stationary press opens the menu (same as the Stripboard, #18).
+- **Shake-to-undo cannot be driven from XCUITest**: `XCUIDevice` has no `shake` selector
+  (`responds(to: "shake")` is false), and `simctl spawn … notifyutil -p
+  com.apple.UIKit.SimulatorShake` did nothing to the app. To prove "one move = one undo
+  step" I added a throwaway toolbar button that calls `undoManager?.undo()` (removed before
+  commit) and asserted the board returned to its prior order after one tap. On device the
+  same one `perform`/`EditGesture` per move is what a shake or the three-finger swipe
+  reverses. Auto-meal sync runs inside the same edit, so a move that shifts a call/lunch
+  strip still undoes in one step.
+- **The swipe action and the tab bar can share a label** ("Boneyard" is both a swipe
+  action and the Boneyard tab): in a probe, filter `app.buttons["Boneyard"]` by
+  `frame.minY < app.tabBars.firstMatch.frame.minY` to hit the swipe action, or use
+  `app.tabBars.buttons[...]` for the tab.
+- **`SendToDaySheet` did the double duty for Swap with Day**: the same day-picker form with
+  a different title, subtitle, action label and an `unavailableDayID` that the action
+  refuses — additive params with defaults that reproduce the Mac's call sites, so no Mac
+  call site changed.
 
 ---
 
