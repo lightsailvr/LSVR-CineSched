@@ -125,6 +125,18 @@ the build inputs outside it, see Working agreements):
   Each is `EditorChrome { header } content: { Form(...).formStyle(.grouped) } footer: {
   buttons }` with `.editorContainer(Self.sheetSize)`; the call sites in `CalendarView`,
   `StripboardView`, `ContentView` and the inspector need nothing per platform.
+- The shared settings and reports (#21), the same shape with no draft, because each is
+  live or read-only: `StripboardFieldsSheet` (the fields picker; writes the app-wide
+  `@AppStorage` selection through its binding as each switch flips, so the board behind
+  updates live; `FieldToggleRow`, the icon-label-hint switch the month options share),
+  `SceneColorSettingsSheet` (one `ColorPicker` row per palette slot, each pick through
+  `onSetColor` into the project's palette via `perform`, one undo step per slot),
+  `ColorLegendView` (the nine legend rows, the swatches read from the `scenePalette`
+  environment so a customized project shows its own colors), `ConflictReportSheet` and
+  `ScheduleLockReportSheet` (rows that jump to a date, `ContentUnavailableView` for the
+  empty states), `ImportSummaryView` (below) and `MonthPDFOptionsSheet` (the calendar's
+  export options, in `CalendarView`). No fixed frames: the sizes are each view's
+  `EditorSheetSize`, applied only by the Mac seam.
 - `BoneyardListView.swift`: the Boneyard list (strip rows, drag out, drop back, tooltip,
   double-tap editor, context menu) as a view both layouts draw; every action is a closure
   `ContentView` wires to the selection, the sheets and the funnel.

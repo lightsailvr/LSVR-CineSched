@@ -1,7 +1,10 @@
 // StripboardFieldsSheet.swift
-// Picker for which scene fields the Stripboard prints on every strip. Toggles write straight
-// through the binding, so the board behind the sheet updates as each box is ticked — same
-// live-preview feel as SceneColorSettingsSheet.
+// Picker for which scene fields the Stripboard prints on every strip (#21: one adaptive
+// `Form`, the same on every platform). Toggles write straight through the binding, so
+// the board behind the sheet updates as each switch flips — the same live-preview feel
+// as SceneColorSettingsSheet. The selection is the app-wide `@AppStorage` preference
+// (StripboardFieldSettings), by design: it is a view preference, not project data.
+// Only the size around the form changes per container (`editorContainer`).
 
 import SwiftUI
 
@@ -9,61 +12,57 @@ struct StripboardFieldsSheet: View {
     @Binding var selectedFields: Set<StripboardField>
     let onDismiss: () -> Void
 
+    /// The Mac frame the fixed-frame sheet had.
+    static let sheetSize = EditorSheetSize(width: 520, height: 560, compactDetents: [.large])
+
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(L("Stripboard Fields")).font(.title2).fontWeight(.bold)
-                    Text(L("Choose what each strip shows beside the scene heading. Fields a scene leaves blank are skipped."))
-                        .font(.caption).foregroundColor(.secondary)
-                }
-                Spacer()
-                Button { onDismiss() } label: {
-                    Image(systemName: "xmark.circle.fill").font(.title2).foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(20)
-
-            Divider()
-
-            ScrollView {
-                VStack(spacing: 6) {
+        EditorChrome {
+            EditorTitle(
+                title:    L("Stripboard Fields"),
+                subtitle: L("Choose what each strip shows beside the scene heading. Fields a scene leaves blank are skipped.")
+            )
+        } content: {
+            Form {
+                Section {
                     ForEach(StripboardField.allCases) { field in
-                        Toggle(isOn: binding(for: field)) {
-                            HStack(spacing: 10) {
-                                Image(systemName: field.icon)
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 20)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(field.label).font(.body)
-                                    Text(field.detail).font(.caption).foregroundColor(.secondary)
-                                }
-                                Spacer()
-                            }
-                        }
-                        .checkboxToggleStyle()
-                        .padding(10)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(Color.gray.opacity(0.08)))
+                        FieldToggleRow(isOn: binding(for: field), icon: field.icon, label: field.label, detail: field.detail)
                     }
                 }
-                .padding(20)
             }
-
-            Divider()
-
-            HStack {
-                Button(L("Reset to Default")) { selectedFields = StripboardField.defaultSelection }
-                Button(L("Select All")) { selectedFields = Set(StripboardField.allCases) }
-                Button(L("Select None")) { selectedFields = [] }
-                Spacer()
-                Button(L("Done")) { onDismiss() }
-                    .buttonStyle(.borderedProminent)
+            .formStyle(.grouped)
+        } footer: {
+            // The three bulk actions, then Done. Where the row is too narrow for four
+            // buttons (an iPhone), the bulk actions fold into one menu.
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    bulkButtons
+                    Spacer()
+                    doneButton
+                }
+                HStack {
+                    Menu {
+                        bulkButtons
+                    } label: {
+                        Label(L("Selection"), systemImage: "checklist")
+                    }
+                    Spacer()
+                    doneButton
+                }
             }
-            .padding(16)
         }
-        .frame(width: 520, height: 560)
+        .editorContainer(Self.sheetSize)
+    }
+
+    @ViewBuilder
+    private var bulkButtons: some View {
+        Button(L("Reset to Default")) { selectedFields = StripboardField.defaultSelection }
+        Button(L("Select All")) { selectedFields = Set(StripboardField.allCases) }
+        Button(L("Select None")) { selectedFields = [] }
+    }
+
+    private var doneButton: some View {
+        Button(L("Done")) { onDismiss() }
+            .buttonStyle(.borderedProminent)
     }
 
     private func binding(for field: StripboardField) -> Binding<Bool> {
@@ -73,5 +72,33 @@ struct StripboardFieldsSheet: View {
                 if isOn { selectedFields.insert(field) } else { selectedFields.remove(field) }
             }
         )
+    }
+}
+
+// MARK: - Field toggle row
+
+/// One switch in a grouped form with the field's icon, its name and a one-line hint
+/// under it. The Stripboard picker and the month PDF options dialog list the same
+/// fields with the same words, so they share the row.
+struct FieldToggleRow: View {
+    @Binding var isOn: Bool
+    let icon:   String
+    let label:  String
+    let detail: String
+
+    var body: some View {
+        Toggle(isOn: $isOn) {
+            Label {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(label)
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } icon: {
+                Image(systemName: icon)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 }

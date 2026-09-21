@@ -1,8 +1,10 @@
 // MonthPDFOptionsSheet.swift
-// Options dialog shown before the month PDF save panel: which per-scene details the
-// breakdown pages print. Toggles write straight through the bindings (they land in
-// UserDefaults via @AppStorage in CalendarView), so the choice sticks between exports —
-// same pattern as StripboardFieldsSheet.
+// Options dialog shown before the month PDF export: which per-scene details the
+// breakdown pages print (#21: one adaptive `Form`, the same on every platform).
+// Toggles write straight through the bindings (they land in UserDefaults via
+// @AppStorage in CalendarView), so the choice sticks between exports — same pattern
+// as StripboardFieldsSheet, whose field rows it shares. Only the size around the form
+// changes per container (`editorContainer`).
 
 import SwiftUI
 
@@ -13,87 +15,81 @@ struct MonthPDFOptionsSheet: View {
     let onCancel: () -> Void
     let onExport: () -> Void
 
+    /// The Mac frame: the height the fixed-frame sheet had, 40 pt wider so the five
+    /// footer buttons stay one row beside the chrome's padding.
+    static let sheetSize = EditorSheetSize(width: 560, height: 600, compactDetents: [.large])
+
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(L("Month PDF Options")).font(.title2).fontWeight(.bold)
-                    Text(L("Choose what the breakdown pages print for every scene. Fields a scene leaves blank are skipped."))
-                        .font(.caption).foregroundColor(.secondary)
+        EditorChrome {
+            EditorTitle(
+                title:    L("Month PDF Options"),
+                subtitle: L("Choose what the breakdown pages print for every scene. Fields a scene leaves blank are skipped.")
+            )
+        } content: {
+            Form {
+                Section {
+                    FieldToggleRow(isOn: $includePageCount,
+                                   icon: "doc.text",
+                                   label: L("Page Count"),
+                                   detail: L("The scene's script length in eighths, e.g. 2/8 pgs"))
+                    FieldToggleRow(isOn: $includeEstimatedTime,
+                                   icon: "clock",
+                                   label: L("Estimated Time"),
+                                   detail: L("The scene's estimated shooting time"))
                 }
-                Spacer()
-                Button { onCancel() } label: {
-                    Image(systemName: "xmark.circle.fill").font(.title2).foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(20)
-
-            Divider()
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 6) {
-                    optionRow(isOn: $includePageCount,
-                              icon: "doc.text",
-                              label: L("Page Count"),
-                              detail: L("The scene's script length in eighths, e.g. 2/8 pgs"))
-                    optionRow(isOn: $includeEstimatedTime,
-                              icon: "clock",
-                              label: L("Estimated Time"),
-                              detail: L("The scene's estimated shooting time"))
-
-                    Text(L("Breakdown Fields"))
-                        .font(.caption).fontWeight(.semibold).foregroundColor(.secondary)
-                        .padding(.top, 10)
-
+                Section {
                     ForEach(StripboardField.allCases) { field in
-                        optionRow(isOn: binding(for: field),
-                                  icon: field.icon,
-                                  label: field.label,
-                                  detail: field.detail)
+                        FieldToggleRow(isOn: binding(for: field), icon: field.icon, label: field.label, detail: field.detail)
                     }
+                } header: {
+                    Text(L("Breakdown Fields"))
                 }
-                .padding(20)
             }
-
-            Divider()
-
-            HStack {
-                Button(L("Reset to Default")) {
-                    selectedFields = MonthPDFOptions.default.fields
-                    includePageCount = MonthPDFOptions.default.includePageCount
-                    includeEstimatedTime = MonthPDFOptions.default.includeEstimatedTime
+            .formStyle(.grouped)
+        } footer: {
+            // The three bulk actions, then Cancel and Export. Where the row is too narrow
+            // for five buttons (an iPhone), the bulk actions fold into one menu.
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    bulkButtons
+                    Spacer()
+                    cancelButton
+                    exportButton
                 }
-                Button(L("Select All")) { selectedFields = Set(StripboardField.allCases) }
-                Button(L("Select None")) { selectedFields = [] }
-                Spacer()
-                Button(L("Cancel")) { onCancel() }
-                Button(L("Export…")) { onExport() }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
+                HStack {
+                    Menu {
+                        bulkButtons
+                    } label: {
+                        Label(L("Selection"), systemImage: "checklist")
+                    }
+                    Spacer()
+                    cancelButton
+                    exportButton
+                }
             }
-            .padding(16)
         }
-        .frame(width: 520, height: 600)
+        .editorContainer(Self.sheetSize)
     }
 
-    private func optionRow(isOn: Binding<Bool>, icon: String, label: String, detail: String) -> some View {
-        Toggle(isOn: isOn) {
-            HStack(spacing: 10) {
-                Image(systemName: icon)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.secondary)
-                    .frame(width: 20)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(label).font(.body)
-                    Text(detail).font(.caption).foregroundColor(.secondary)
-                }
-                Spacer()
-            }
+    @ViewBuilder
+    private var bulkButtons: some View {
+        Button(L("Reset to Default")) {
+            selectedFields = MonthPDFOptions.default.fields
+            includePageCount = MonthPDFOptions.default.includePageCount
+            includeEstimatedTime = MonthPDFOptions.default.includeEstimatedTime
         }
-        .checkboxToggleStyle()
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.gray.opacity(0.08)))
+        Button(L("Select All")) { selectedFields = Set(StripboardField.allCases) }
+        Button(L("Select None")) { selectedFields = [] }
+    }
+
+    private var cancelButton: some View {
+        Button(L("Cancel")) { onCancel() }
+    }
+
+    private var exportButton: some View {
+        Button(L("Export…")) { onExport() }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
     }
 
     private func binding(for field: StripboardField) -> Binding<Bool> {

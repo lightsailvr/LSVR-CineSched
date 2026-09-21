@@ -9,6 +9,53 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-20 — Settings and reports as forms: a live editor needs no draft, a `Toggle` row's label is not a tap target on iOS, and `ViewThatFits` keeps a five-button footer a row on the Mac and a menu on a phone (#21)
+
+Rebuilding the Stripboard fields picker, Customize Scene Colors, the Color Legend, the
+conflict report, the Schedule Lock Report, the import summary and the Month PDF Options
+on the #19 chrome (`EditorChrome` + `editorContainer`), verified on the iPad Pro 13-inch
+simulator through a throwaway XCUITest (`.dd/I21Probe.swift`, the #19 recipe) and the
+Vision Pro and Mac unit suites:
+
+- **Not every adaptive editor has a draft.** The #19 rule (draft in `@State`, one
+  assignment on Save) is for editors with a Save. These seven are live (every switch or
+  color pick writes at once, through `@AppStorage` or `perform`) or read-only (the
+  reports, the legend, the summary), so the view binds straight to what it was handed
+  and the chrome, the grouped `Form` and `editorContainer` are the whole change. Nothing
+  new in `EditorDrafts.swift`; no new pure logic, so no new tests, only the existing ones
+  (the palette's per-slot undo in `ProjectDocumentTests`, `LaunchImportTests`).
+- **A `Toggle` row in an iOS grouped form flips only on the switch control**; a tap on
+  its label does nothing, as in Settings. XCUITest's `tap()` on the combined `Switch`
+  element (the whole row, 548 pt wide) landed on the label twice and changed nothing;
+  `coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()` hits the control.
+  The live update behind the sheet is checkable from the tree: the strip's "Downtown
+  Tower" chip is absent before the flip and present after it.
+- **`ViewThatFits(in: .horizontal)` with the full button row first and a `Menu` of the
+  bulk actions second** is a footer that stays the Mac's four or five buttons where they
+  fit and folds to one menu where they do not, with no `#if os` and no size class. The
+  chrome's 20 pt side padding is 4 pt more per side than the old sheets' 16, so the Month
+  PDF Options row (five bordered buttons) went from "fits at 520" to borderline; that
+  sheet's Mac frame is 560 wide rather than trusting the fallback.
+- **`ContentUnavailableView` inside a `Section` with `.listRowBackground(Color.clear)`**
+  is the empty state for a report in a grouped form (no conflicts, no lock, no changes):
+  the system's placeholder, centred in the sheet's content area on the iPad.
+- **The launch screen's summary sheet loses its `.presentationSizing(.form)` at the call
+  site**: `editorContainer` applies the form sizing on iPad and Vision Pro (and detents on
+  iPhone) itself, and a second `presentationSizing` on the presenting side would fight it.
+  The Mac branch of the seam never runs there (the Mac compiles the flow and never shows
+  it), so `EditorSheetSize(width: 460, height: 460)` is the Mac's Done-mode frame only.
+- **`ColorPicker(label, selection:)` as a form row** is the native per-slot editor on every
+  platform: a labelled row with the well at the trailing edge on iPad and Vision Pro, a
+  label with a color well on the Mac; the `Binding<Color>` over `palette.color(for:)` and
+  `onSetColor(slot, hex)` is unchanged, so the per-slot undo gesture in `ContentView` and
+  its tests are untouched.
+- **`app.launch()` from the probe lands on the launch screen** (the document is not
+  restored), which is what the import summary needs; the #13 picker path (`DOC.sidebar.item.On My iPad`
+  ▸ `CineSched, Container` ▸ the file's cell by label) still holds on 27.0, and Cancel on
+  the summary leaves the launch screen as it was.
+
+---
+
 ## 2026-09-20 — Adaptive editors: a sheet's own size class is compact on the iPad, a fitted form sheet collapses around a `Form`, and a width-capped field is a dead zone on touch (#19)
 
 Rebuilding the scene editor, the day detail, the banner and calendar event inputs and Send

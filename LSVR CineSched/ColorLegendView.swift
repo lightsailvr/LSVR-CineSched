@@ -1,127 +1,92 @@
 // ColorLegendView.swift
-// Color legend explaining Movie Magic Scheduling strip colors in CineSched.
+// Color legend explaining the Movie Magic Scheduling strip color code CineSched uses
+// (#21: one adaptive `Form`, the same on every platform). Each row names a slot of the
+// palette and draws that slot's color from the project's palette (the `scenePalette`
+// environment the editor sets at its root), so a project with customized colors sees
+// the colors its board actually shows; with the standard code the swatches are the
+// ones the legend always drew. Only the size around the form changes per container
+// (`editorContainer`).
 
 import SwiftUI
 
 struct ColorLegendView: View {
     @ObservedObject private var l10n = LocalizationManager.shared
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePalette) private var palette
+
+    /// The Mac frame the fixed-frame sheet had.
+    static let sheetSize = EditorSheetSize(width: 440, height: 500, compactDetents: [.large])
 
     struct LegendItem: Identifiable {
-        let id = UUID()
-        let color: Color
+        /// The palette slot the swatch is read from.
+        let slot: SceneColorSlot
         let title: String
         let description: String
+
+        var id: String { slot.rawValue }
     }
 
     private var legendItems: [LegendItem] {
         [
-            LegendItem(
-                color: Color(hex: "F3F4F6"),
-                title: "INT. DAY",
-                description: L("Day scenes taking place inside a building, room, or vehicle.")
-            ),
-            LegendItem(
-                color: Color(hex: "FEF08A"),
-                title: "EXT. DAY",
-                description: L("Day scenes taking place outdoors under sunlight.")
-            ),
-            LegendItem(
-                color: Color(hex: "86EFAC"),
-                title: "INT. NIGHT",
-                description: L("Night scenes taking place inside a building or room.")
-            ),
-            LegendItem(
-                color: Color(hex: "93C5FD"),
-                title: "EXT. NIGHT",
-                description: L("Night scenes taking place outside in the dark.")
-            ),
-            LegendItem(
-                color: Color(hex: "FFE4C4"),
-                title: "INT. AFTERNOON",
-                description: L("Afternoon scenes taking place indoors.")
-            ),
-            LegendItem(
-                color: Color(hex: "FDBA74"),
-                title: "EXT. AFTERNOON",
-                description: L("Afternoon scenes outdoors during golden hour.")
-            ),
-            LegendItem(
-                color: Color(hex: "FDE68A"),
-                title: "DAWN",
-                description: L("Magic hour scenes taking place during sunrise.")
-            ),
-            LegendItem(
-                color: Color(hex: "E9D5FF"),
-                title: "DUSK",
-                description: L("Magic hour scenes taking place during sunset.")
-            ),
-            LegendItem(
-                color: Color(hex: "D1D5DB"),
-                title: "CUSTOM / NOTICE",
-                description: L("Company moves, meal breaks, holidays, or special non-scene strips.")
-            )
+            LegendItem(slot: .intDay,       title: "INT. DAY",
+                       description: L("Day scenes taking place inside a building, room, or vehicle.")),
+            LegendItem(slot: .extDay,       title: "EXT. DAY",
+                       description: L("Day scenes taking place outdoors under sunlight.")),
+            LegendItem(slot: .intNight,     title: "INT. NIGHT",
+                       description: L("Night scenes taking place inside a building or room.")),
+            LegendItem(slot: .extNight,     title: "EXT. NIGHT",
+                       description: L("Night scenes taking place outside in the dark.")),
+            LegendItem(slot: .intAfternoon, title: "INT. AFTERNOON",
+                       description: L("Afternoon scenes taking place indoors.")),
+            LegendItem(slot: .extAfternoon, title: "EXT. AFTERNOON",
+                       description: L("Afternoon scenes outdoors during golden hour.")),
+            LegendItem(slot: .intDawn,      title: "DAWN",
+                       description: L("Magic hour scenes taking place during sunrise.")),
+            LegendItem(slot: .intDusk,      title: "DUSK",
+                       description: L("Magic hour scenes taking place during sunset.")),
+            LegendItem(slot: .custom,       title: "CUSTOM / NOTICE",
+                       description: L("Company moves, meal breaks, holidays, or special non-scene strips."))
         ]
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Label(L("Color Legend"), systemImage: "paintpalette.fill")
-                    .font(.headline)
-                Spacer()
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-
-            Text(L("Standard Movie Magic Scheduling color code used across the Stripboard, Calendar, and Boneyard."))
-                .font(.caption)
-                .foregroundColor(.secondary)
-
-            Divider()
-
-            ScrollView {
-                VStack(spacing: 8) {
+        EditorChrome {
+            EditorTitle(
+                title:    L("Color Legend"),
+                subtitle: L("Standard Movie Magic Scheduling color code used across the Stripboard, Calendar, and Boneyard.")
+            )
+        } content: {
+            Form {
+                Section {
                     ForEach(legendItems) { item in
-                        HStack(spacing: 10) {
-                            RoundedRectangle(cornerRadius: 3)
-                                .fill(item.color)
-                                .frame(width: 28, height: 20)
+                        HStack(spacing: 12) {
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(palette.color(for: item.slot))
+                                .frame(width: 32, height: 22)
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 3)
+                                    RoundedRectangle(cornerRadius: 4)
                                         .stroke(Color.black.opacity(0.2), lineWidth: 0.5)
                                 )
-
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(item.title)
-                                    .font(.system(size: 11, weight: .bold))
+                                    .font(.subheadline.bold())
                                 Text(item.description)
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.secondary)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
-                            Spacer()
                         }
-                        .padding(6)
-                        .background(Color.gray.opacity(0.06))
-                        .cornerRadius(5)
+                        .accessibilityElement(children: .combine)
                     }
                 }
             }
-
-            Divider()
-
+            .formStyle(.grouped)
+        } footer: {
             HStack {
                 Spacer()
                 Button(L("Close")) { dismiss() }
                     .buttonStyle(.borderedProminent)
             }
         }
-        .padding(18)
-        .frame(width: 440, height: 500)
+        .editorContainer(Self.sheetSize)
     }
 }

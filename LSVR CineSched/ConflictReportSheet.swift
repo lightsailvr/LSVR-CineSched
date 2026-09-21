@@ -1,8 +1,10 @@
 // ConflictReportSheet.swift
 // Lists every scene where a scheduled character's actor is marked unavailable in
-// Production Setup. Conflicts are also detected continuously in the background (the
-// affected scene strips turn red on the calendar as soon as a conflict exists) — this
-// sheet is for pulling up the full list on demand, e.g. before locking a schedule.
+// Production Setup (#21: one adaptive `Form`, the same on every platform). Conflicts
+// are also detected continuously in the background (the affected scene strips turn red
+// on the calendar as soon as a conflict exists) — this sheet is for pulling up the full
+// list on demand, e.g. before locking a schedule. A row jumps the schedule to its date.
+// Only the size around the form changes per container (`editorContainer`).
 
 import SwiftUI
 
@@ -11,68 +13,73 @@ struct ConflictReportSheet: View {
     let onSelectDate: (Date) -> Void
     let onDismiss: () -> Void
 
+    /// The Mac frame the fixed-frame sheet had.
+    static let sheetSize = EditorSheetSize(width: 420, height: 460, compactDetents: [.medium, .large])
+
+    private var summary: String {
+        conflicts.isEmpty
+            ? L("No conflicts found")
+            : "\(conflicts.count) \(conflicts.count == 1 ? L("conflict") : L("conflicts")) \(L("found"))"
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Schedule Conflicts").font(.title2).fontWeight(.bold)
-                    Text(conflicts.isEmpty
-                         ? "No conflicts found"
-                         : "\(conflicts.count) conflict\(conflicts.count == 1 ? "" : "s") found")
-                        .font(.subheadline).foregroundColor(conflicts.isEmpty ? .secondary : .red)
-                }
-                Spacer()
-                Button { onDismiss() } label: {
-                    Image(systemName: "xmark.circle.fill").font(.title2).foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
+        EditorChrome {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L("Schedule Conflicts"))
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                Text(summary)
+                    .font(.subheadline)
+                    .foregroundStyle(conflicts.isEmpty ? AnyShapeStyle(.secondary) : AnyShapeStyle(.red))
             }
-            .padding(20)
-
-            Divider()
-
-            if conflicts.isEmpty {
-                VStack(spacing: 8) {
-                    Spacer()
-                    Image(systemName: "checkmark.circle").font(.largeTitle).foregroundColor(.green)
-                    Text("Nobody scheduled against their own unavailable dates.")
-                        .font(.subheadline).foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                    Spacer()
-                }
-                .padding(30)
-            } else {
-                ScrollView {
-                    VStack(spacing: 0) {
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
+        } content: {
+            Form {
+                if conflicts.isEmpty {
+                    Section {
+                        ContentUnavailableView {
+                            Label(L("No Conflicts"), systemImage: "checkmark.circle")
+                                .foregroundStyle(.green)
+                        } description: {
+                            Text(L("Nobody scheduled against their own unavailable dates."))
+                        }
+                        .listRowBackground(Color.clear)
+                    }
+                } else {
+                    Section {
                         ForEach(conflicts) { conflict in
-                            Button { onSelectDate(conflict.date) } label: {
+                            Button {
+                                onSelectDate(conflict.date)
+                            } label: {
                                 HStack {
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(formattedDate(conflict.date)).fontWeight(.medium)
+                                        Text(formattedDate(conflict.date))
+                                            .fontWeight(.medium)
                                         Text("\(conflict.actorDisplayName) — \(conflict.sceneTitle)")
-                                            .font(.caption).foregroundColor(.secondary)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
                                     }
                                     Spacer()
                                     Image(systemName: "exclamationmark.triangle.fill")
-                                        .foregroundColor(.red)
+                                        .foregroundStyle(.red)
                                 }
-                                .padding(.vertical, 8).padding(.horizontal, 16)
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
-                            Divider()
+                            .help(L("Jump to this date"))
                         }
                     }
                 }
             }
-
-            Divider()
+            .formStyle(.grouped)
+        } footer: {
             HStack {
                 Spacer()
-                Button("Close") { onDismiss() }.buttonStyle(.bordered)
+                Button(L("Close")) { onDismiss() }
+                    .buttonStyle(.bordered)
             }
-            .padding(16)
         }
-        .frame(width: 420, height: 460)
+        .editorContainer(Self.sheetSize)
     }
 }

@@ -1,10 +1,12 @@
 // SceneColorSettingsSheet.swift
-// Lets the user override any of the industry-standard scene strip colors. Since #11 the
-// colors belong to the project, not the device: each pick goes straight to `onSetColor`,
-// which the editor routes through the document's edit funnel, so the board behind the
-// sheet updates live (the same feel as StripboardFieldsSheet) and every change undoes.
+// Lets the user override any of the industry-standard scene strip colors (#21: one
+// adaptive `Form`, the same on every platform). Since #11 the colors belong to the
+// project, not the device: each pick goes straight to `onSetColor`, which the editor
+// routes through the document's edit funnel, so the board behind the sheet updates live
+// (the same feel as StripboardFieldsSheet) and every change undoes, one step per slot.
 // The sheet keeps no copy of the palette; it draws the one it is handed, so an Undo
-// while it is open shows in the pickers too.
+// while it is open shows in the pickers too. Only the size around the form changes per
+// container (`editorContainer`).
 
 import SwiftUI
 
@@ -15,53 +17,33 @@ struct SceneColorSettingsSheet: View {
     let onReset: () -> Void
     let onDismiss: () -> Void
 
-    private let columns = [GridItem(.adaptive(minimum: 220), spacing: 12)]
+    /// The Mac frame the fixed-frame sheet had.
+    static let sheetSize = EditorSheetSize(width: 520, height: 480, compactDetents: [.large])
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(L("Customize Scene Colors")).font(.title2).fontWeight(.bold)
-                    Text(L("These colors are saved with the project and used by every device and export."))
-                        .font(.caption).foregroundColor(.secondary)
-                }
-                Spacer()
-                Button { onDismiss() } label: {
-                    Image(systemName: "xmark.circle.fill").font(.title2).foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(20)
-
-            Divider()
-
-            ScrollView {
-                LazyVGrid(columns: columns, spacing: 12) {
+        EditorChrome {
+            EditorTitle(
+                title:    L("Customize Scene Colors"),
+                subtitle: L("These colors are saved with the project and used by every device and export.")
+            )
+        } content: {
+            Form {
+                Section {
                     ForEach(SceneColorSlot.allCases) { slot in
-                        HStack(spacing: 10) {
-                            ColorPicker("", selection: binding(for: slot), supportsOpacity: false)
-                                .labelsHidden()
-                            Text(slot.label)
-                            Spacer()
-                        }
-                        .padding(10)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(Color.gray.opacity(0.08)))
+                        ColorPicker(slot.label, selection: binding(for: slot), supportsOpacity: false)
                     }
                 }
-                .padding(20)
             }
-
-            Divider()
-
+            .formStyle(.grouped)
+        } footer: {
             HStack {
                 Button(L("Reset All to Defaults")) { onReset() }
                 Spacer()
                 Button(L("Done")) { onDismiss() }
                     .buttonStyle(.borderedProminent)
             }
-            .padding(16)
         }
-        .frame(width: 520, height: 480)
+        .editorContainer(Self.sheetSize)
     }
 
     /// Reads from the palette and writes through `onSetColor`; `hexString` rounds a pick

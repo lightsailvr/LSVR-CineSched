@@ -259,12 +259,13 @@ private struct LaunchImportPresentation: ViewModifier {
             )
             .sheet(isPresented: summaryPresented) {
                 if case .reviewing(let result) = flow.stage {
+                    // Sized by the summary's own container (#21): a form sheet on iPad
+                    // and Vision Pro, detents on iPhone.
                     ImportSummaryView(
                         result:    result,
                         onDismiss: { flow.cancelReview() },
                         onConfirm: { flow.confirmReview() }
                     )
-                    .presentationSizing(.form)
                 }
             }
             .alert(L("Import Failed"), isPresented: failurePresented) {
