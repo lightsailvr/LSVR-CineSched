@@ -25,7 +25,7 @@ starts with a header comment saying why the seam exists and what the non-Mac sid
 | Press observer | `PlatformPressObserver.swift` | An empty `NSView`; the Mac polls the event | A `UIGestureRecognizer` on the window that records each touch's `type` and the event's `modifierFlags` in `touchesBegan` and fails at once, never claiming a touch. Replaced a `SpatialEventGesture` over the editor, which swallowed every `Button` under it on iPadOS 27 |
 | Mac-only control styles | `PlatformControlStyles.swift` | `.checkbox`, `.radioGroup`, `.borderlessButton`; `.inset` for the phone lists | Platform defaults; `.insetGrouped` for the iPhone editor's lists (#24) |
 | Tab bar accessory | `PlatformTabAccessory.swift` | Nothing (the Mac's window is never compact) | iOS: `tabBarMinimizeBehavior(.onScrollDown)` and `tabViewBottomAccessory` carrying the iPhone editor's Today control (#24); visionOS: nothing, both are unavailable there and its windows are never compact |
-| List edit mode | `PlatformListEditing.swift` | Nothing (the Day screen never shows) | `listReordering(_:)`: the `editMode` environment key, `@available(macOS, unavailable)`, so the Day screen's Strips list shows drag handles for its `onMove` reorder (#25) |
+| List edit mode | `PlatformListEditing.swift` | Nothing (the phone's lists never show) | `listReordering(_:)` and `listSelecting(_:)`: the `editMode` environment key, `@available(macOS, unavailable)`, so the Day screen's Strips list shows drag handles for its `onMove` reorder (#25) and the Boneyard tab's list shows selection circles for its multi-select Send to Day (#27) |
 | Semantic backgrounds | `PlatformColors.swift` | `windowBackgroundColor` / `controlBackgroundColor` | UIKit system backgrounds |
 | Window tabbing and root view | `CineSchedApp.swift` | `allowsAutomaticWindowTabbing = false`, `ContentView` and the menus (the Dark Mode item is the Mac's), the app delegate; the same `menus` builder serves both scenes (#22) | `ProjectEditor` (#17: `ContentView`'s three-column layout in regular width, `PhoneEditor` in compact, #24) and the system's `DocumentGroupLaunchScene` (#12; `PlatformPlaceholderView` until then) |
 | Readable document types | `PlatformDocumentTypes.swift` | `.cinesched` and legacy `.json` (the viewer role, ADR 0005) | `.cinesched` only (ADR 0006) |
@@ -53,10 +53,11 @@ Rules that follow from this:
   `Color.controlBackground`, `FilePanels.chooseFile`) rather than the platform API, so the
   views themselves carry no conditionals.
 - Color arithmetic goes through SwiftUI's `Color.Resolved`, not `NSColor` / `UIColor`.
-- Every exporter call site lives in `ContentView+PDFExports.swift`, so lifting the exporter
-  gate later is a change to the exporters and that one file. (Since #23 each call site builds
-  a `PDFExportRequest` and the seam says where it goes, so the same bytes reach the Mac's
-  panel and the iPad's share sheet.)
+- Every exporter call site lives in `ContentView+PDFExports.swift` (the Mac, the iPad and
+  the Vision Pro editor) or `PhoneExports.swift` (the iPhone editor, M4), so lifting the
+  exporter gate later is a change to the exporters and those two files. (Since #23 each call
+  site builds a `PDFExportRequest` and the seam says where it goes, so the same bytes reach
+  the Mac's panel and the iPad's share sheet.)
 
 ## Consequences
 

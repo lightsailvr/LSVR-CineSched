@@ -9,6 +9,56 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-21 — The M4 review round: two branches built the same editor twice, a private rule copied is a rule diverged, and an untouched pages field saved one eighth (the fix-up pass)
+
+What the standards and spec reviews of the five M4 branches caught after each had passed
+its own probe, and what the fix-up pass found on top, driven by the #24 probe recipe on an
+iPhone 17 clone (a throwaway unit test writes the fixture — run it on the *simulator*: the
+Mac test host is sandboxed and cannot write to the scratchpad, and its container is not
+readable from outside either; `simctl openurl` opens the file only on a cold launch; a
+throwaway `ProbeUndo` toolbar button stands in for shake-to-undo):
+
+- **Two parallel tickets each built a scene editor for the phone** (#26's day-aware one,
+  #27's tab one), because the brief told #27 to reuse #26's "if landed". They had not met
+  when either shipped, so the fold-in is the review's job: one `PhoneSceneEditor` with
+  `siblingIDs` for what Previous / Next step (the day's script scenes read live, or the
+  rows a tab showed at the tap), presented by every tab through `PhoneDayEdits`.
+- **A "private rule copied" is a rule diverged.** The Boneyard tab's Duplicate carried
+  `realLocation` where the Mac's, the Stripboard's and `Scene.duplicated()` do not, and
+  the #27 report recorded it as deliberate; `PhoneStripRow` copied `BannerStripRow`'s fill
+  and label rules minus the meal-keyword darkening and read `bannerTitle` first; the
+  Production tab carried `ContentView`'s rename, lock and unlock verbatim; `knownLocations`
+  existed four times and the "Day N · date" label four times. Each is now one pure
+  function (`BannerAppearance`, `ProductionEdits`, `ProjectData.knownLocations`,
+  `DaySummary.label`) with a test that pins the Mac's output; the Mac's own copies of
+  `renameCastCharacter` / `lockSchedule` / `populateBreakdownBrowserScenes` /
+  `handleDayRearrange` stay until a pinning test lets each switch over (see the report's
+  follow-ups).
+- **A rule the phone "does not need" still needs its range.** `clearDayType` said the
+  phone's days are the range, so nothing is dropped; but `updateProductionRange` keeps
+  typed days, events and call sheets past the range's edges and the Mac's calendar makes
+  such days, so the inspector's rule (an emptied day outside the pickers' range goes)
+  applies. The pickers' state moved from the Production tab to `PhoneEditor` so the Day
+  screen can read it; the probe showed the Nov 10 travel day vanish on Clear Day Type
+  after the range was applied as Nov 2–6, and one undo bring it back.
+- **`SceneDraft` shrank a whole-page scene to an eighth on every untouched Save**, on
+  every platform since #19: `formatEighths(8)` is "1", and `parseToEighths("1")` is one
+  eighth (the New Scene rule, learnings #27). The probe saw "1/8 pgs" after Next and
+  Duplicate. The draft keeps the seeded text and value and writes the value back while
+  the text is untouched. Worth a device check on the Mac too.
+- **Cross-day moves on the phone are Move to Next Day / Move to Previous Day** (Matt's
+  decision): "adjacent" is the next entry of `shootDays`, so an empty or typed day is
+  still "tomorrow" (the fixture's Nov 10 travel day is Nov 6's next day, which is why
+  Nov 6's swipe still offered Next Day in the probe). A `List` `onMove` reorder needs no
+  `.draggable` on the rows; the payload with no drop destination was removed and the
+  long-press drag (a 0.55 s press then the drag; 0.8 s opened the menu) still reorders.
+- **The Update Calendar confirmation is a popover on the iPhone with no Cancel button in
+  the tree**; a tap outside it is Cancel. A `DatePicker(.date)` row's "Date Picker" button
+  is found reliably through its cell (`cells.containing(label CONTAINS "Start Date")`),
+  never by index: with one row scrolled off, index 0 is the other picker.
+
+---
+
 ## 2026-09-21 — The Boneyard and Search tabs: `.searchable` under a hidden bar shows no field, the mirrored bar can be emptied piece by piece, a `List(selection:)` needs edit mode but not a Button-free row, and a bare integer is eighths (#27)
 
 Building the Boneyard tab (sorts, filter, multi-select Send to Day, New Scene) and the
@@ -52,9 +102,11 @@ from `XCUIScreen.main.screenshot().pngRepresentation` to a host path passed as
   A `swipeUp()` on the Days list scrolls about two day cards; a
   `press(forDuration:thenDragTo:withVelocity: .slow, thenHoldForDuration:)` between two
   normalized coordinates scrolls a controllable distance.
-- Left as is: the Mac's Duplicate Scene does not carry `realLocation` into the copy; the
-  phone's copy of that private rule does (a duplicate on the phone keeps its set), noted
-  in the report rather than changed on the Mac.
+- ~~Left as is: the Mac's Duplicate Scene does not carry `realLocation` into the copy; the
+  phone's copy of that private rule does.~~ The review caught the divergence: the Boneyard
+  tab's Duplicate is `ProjectData.duplicateScene(withID:)` (`Scene.duplicated()`, the Mac's
+  copy pinned in `DayEditsTests`) like every other Duplicate on the phone, so the set is not
+  carried anywhere.
 ---
 
 ## 2026-09-21 — The iPhone's day edits: a combined strip is one element labelled with commas, a tap gesture and a `List` drag coexist, the Mac's Delete Banner hides a banner in the file, and a probe's Back must be the inner bar's (#26)
