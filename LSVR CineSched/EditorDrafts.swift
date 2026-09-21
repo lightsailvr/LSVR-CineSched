@@ -1,12 +1,14 @@
 // EditorDrafts.swift
 // The drafts the adaptive editors edit (#19): the plain values a scene editor, the
-// banner input and the calendar event input hold between opening and Save, with what
-// each reads from the model and the one value it writes back. Pure and view-free, so
-// every conversion (eighths to "1 7/8" and back, minutes to "2:30", comma lists, the
-// Custom type's blank-means-none rule) is pinned in `EditorDraftsTests`. A view keeps
-// one draft in `@State`, repopulates it when its subject changes, and on Save assigns
-// `draft.applied(to:)` (or `makeBanner()` / `makeEvent()`) to its binding **once**, so a
-// Save is one `perform` and one undo step by construction (learnings, 2026-09-17 #9).
+// banner input, the calendar event input and the iPhone's new-scene form (#27) hold
+// between opening and Save, with what each reads from the model and the one value it
+// writes back. Pure and view-free, so every conversion (eighths to "1 7/8" and back,
+// minutes to "2:30", comma lists, the Custom type's blank-means-none rule, the time of
+// day read off a slugline) is pinned in `EditorDraftsTests`. A view keeps one draft in
+// `@State`, repopulates it when its subject changes, and on Save assigns
+// `draft.applied(to:)` (or `makeBanner()` / `makeEvent()` / `makeScene()`) to its
+// binding **once**, so a Save is one `perform` and one undo step by construction
+// (learnings, 2026-09-17 #9).
 
 import Foundation
 
@@ -225,5 +227,76 @@ struct CalendarEventDraft: Equatable {
         )
         if let existingID { event.id = existingID }
         return event
+    }
+}
+
+// MARK: - New scene (#27)
+
+/// What the iPhone's New Scene form holds (`NewSceneSheet`): the fields the Mac's
+/// `NewSceneInputView` has, as strings, validated its way (a title is required, the
+/// number may be blank, a length may be blank but not malformed), and one `makeScene()`
+/// that builds the Boneyard scene the Mac's form builds: an estimate typed is taken as
+/// typed, else it is derived from the pages (fifteen minutes an eighth), else none.
+/// One thing the Mac's form does not do: with the type picker at its default (nil) the
+/// time of day is read off the slugline, as the script importers read it
+/// (`FinalDraftParser.TimeOfDay`), so "INT. KITCHEN - NIGHT" is a night scene without a
+/// second tap; a slugline naming none is a day scene, and a picked type wins.
+struct NewSceneDraft: Equatable {
+    var sceneNumber:   String = ""
+    var title:         String = ""
+    var realLocation:  String = ""
+    var duration:      String = ""
+    var estimatedTime: String = ""
+    /// The picker's choice; nil is the default, the type read off the slugline.
+    var dayNightType:  DayNightType? = nil
+
+    // MARK: Validation
+
+    var parsedEighths: Int? { FractionParser.parseToEighths(duration) }
+    var parsedMinutes: Int? { TimeParser.parseToMinutes(estimatedTime) }
+
+    var durationIsValid:      Bool { parsedEighths != nil || duration.isEmpty }
+    var estimatedTimeIsValid: Bool { parsedMinutes != nil || estimatedTime.isEmpty }
+
+    var isValid: Bool {
+        !title.trimmingCharacters(in: .whitespaces).isEmpty && durationIsValid && estimatedTimeIsValid
+    }
+
+    // MARK: The type
+
+    /// The scene's time of day: the picker's choice, else the slugline's.
+    var resolvedDayNightType: DayNightType {
+        dayNightType ?? Self.dayNightType(inSlugline: title)
+    }
+
+    /// The time of day a slugline names, folded onto `DayNightType` the way the Final
+    /// Draft mapping folds it (unknown reads as day).
+    static func dayNightType(inSlugline slugline: String) -> DayNightType {
+        switch FinalDraftParser.TimeOfDay(from: slugline) {
+        case .night:         return .night
+        case .dawn:          return .dawn
+        case .dusk:          return .dusk
+        case .afternoon:     return .afternoon
+        case .day, .unknown: return .day
+        }
+    }
+
+    // MARK: Writing
+
+    /// The new Boneyard scene, a fresh id each call.
+    func makeScene() -> Scene {
+        let eighths = parsedEighths ?? 0
+        let minutes: Int
+        if let typed = parsedMinutes { minutes = typed }
+        else if eighths > 0          { minutes = TimeParser.estimatedMinutes(forEighths: eighths) }
+        else                         { minutes = 0 }
+        return Scene(
+            title:         title,
+            sceneNumber:   sceneNumber.trimmingCharacters(in: .whitespaces),
+            duration:      eighths,
+            estimatedTime: minutes,
+            dayNightType:  resolvedDayNightType,
+            realLocation:  realLocation.trimmingCharacters(in: .whitespaces)
+        )
     }
 }

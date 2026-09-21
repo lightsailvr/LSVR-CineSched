@@ -322,4 +322,110 @@ struct EditorDraftsTests {
         #expect(a != nil)
         #expect(a?.id != b?.id)
     }
+
+    // MARK: - New scene draft (#27)
+
+    @Test func newSceneDraftStartsBlankWithTheTypeFromTheSlugline() {
+        let draft = NewSceneDraft()
+        #expect(draft.sceneNumber   == "")
+        #expect(draft.title         == "")
+        #expect(draft.realLocation  == "")
+        #expect(draft.duration      == "")
+        #expect(draft.estimatedTime == "")
+        #expect(draft.dayNightType  == nil, "nil is the picker's default: the type read from the slugline")
+        #expect(!draft.isValid, "a blank title cannot be added")
+    }
+
+    /// The Mac's form needs a title and well-formed lengths; the number may be blank
+    /// (the Mac allows it) and a blank length is fine.
+    @Test func newSceneDraftValidatesLikeTheMacsForm() {
+        var draft = NewSceneDraft()
+        draft.title = "INT. KITCHEN - NIGHT"
+        #expect(draft.isValid, "a title alone is enough; number and lengths may be blank")
+
+        draft.duration = "one page"
+        #expect(!draft.durationIsValid)
+        #expect(!draft.isValid)
+        draft.duration = "1 7/8"
+        #expect(draft.durationIsValid)
+        #expect(draft.parsedEighths == 15)
+
+        draft.estimatedTime = "2:75"
+        #expect(!draft.estimatedTimeIsValid)
+        #expect(!draft.isValid)
+        draft.estimatedTime = "2:30"
+        #expect(draft.estimatedTimeIsValid)
+        #expect(draft.parsedMinutes == 150)
+        #expect(draft.isValid)
+
+        draft.title = "   "
+        #expect(!draft.isValid)
+    }
+
+    @Test func newSceneDraftMakesTheSceneTheMacsFormMakes() {
+        var draft = NewSceneDraft()
+        draft.sceneNumber   = " 12A "
+        draft.title         = "EXT. YARD - DAY"
+        draft.realLocation  = " Back lot "
+        draft.duration      = "2 1/8"
+        draft.estimatedTime = "45"
+        draft.dayNightType  = .night
+        let scene = draft.makeScene()
+        #expect(scene.sceneNumber   == "12A")
+        #expect(scene.title         == "EXT. YARD - DAY")
+        #expect(scene.realLocation  == "Back lot")
+        #expect(scene.duration      == 17)
+        #expect(scene.estimatedTime == 45)
+        #expect(scene.dayNightType  == .night, "the picker's explicit choice wins over the slugline")
+        #expect(scene.cast.isEmpty)
+        #expect(!scene.isBanner)
+        #expect(!scene.isCalendarEvent)
+        #expect(draft.makeScene().id != scene.id, "every make is a new scene")
+    }
+
+    /// With no estimate typed, the Mac's form estimates from the page count (fifteen
+    /// minutes an eighth; a bare number is eighths, so "8" is one page); with no pages
+    /// either, the scene has no estimate.
+    @Test func newSceneDraftEstimatesFromThePagesWhenNoTimeIsTyped() {
+        var draft = NewSceneDraft()
+        draft.title    = "INT. BAR - NIGHT"
+        draft.duration = "8"
+        #expect(draft.makeScene().estimatedTime == TimeParser.estimatedMinutes(forEighths: 8))
+        #expect(draft.makeScene().estimatedTime == 120)
+        #expect(draft.makeScene().duration      == 8)
+
+        draft.duration = ""
+        #expect(draft.makeScene().estimatedTime == 0)
+        #expect(draft.makeScene().duration      == 0)
+
+        draft.duration      = "8"
+        draft.estimatedTime = "20"
+        #expect(draft.makeScene().estimatedTime == 20, "a typed estimate is taken as typed")
+    }
+
+    /// The picker at its default reads the time of day off the slugline the way the
+    /// script importers do; a slugline that names none reads as day.
+    @Test func newSceneDraftReadsTheTimeOfDayOffTheSlugline() {
+        var draft = NewSceneDraft()
+        draft.title = "INT. KITCHEN - NIGHT"
+        #expect(draft.resolvedDayNightType == .night)
+        #expect(draft.makeScene().dayNightType == .night)
+        draft.title = "EXT. BEACH - DAWN"
+        #expect(draft.resolvedDayNightType == .dawn)
+        draft.title = "EXT. PIER - DUSK"
+        #expect(draft.resolvedDayNightType == .dusk)
+        draft.title = "INT. OFFICE - AFTERNOON"
+        #expect(draft.resolvedDayNightType == .afternoon)
+        draft.title = "INT. OFFICE - DAY"
+        #expect(draft.resolvedDayNightType == .day)
+        draft.title = "INT. OFFICE - CONTINUOUS"
+        #expect(draft.resolvedDayNightType == .day, "unknown reads as day, the importers' rule")
+        draft.title = "ext. street - night"
+        #expect(draft.resolvedDayNightType == .night, "case does not matter")
+
+        // The picker's choice, once made, is what the scene gets.
+        draft.dayNightType = .custom
+        #expect(draft.resolvedDayNightType == .custom)
+        #expect(draft.makeScene().dayNightType == .custom)
+    }
 }
