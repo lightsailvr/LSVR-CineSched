@@ -57,3 +57,19 @@ private struct EditorContainerModifier: ViewModifier {
         #endif
     }
 }
+
+// MARK: - Detail pages
+
+extension View {
+    /// A page of an editor's own navigation stack (#20: the call sheet's cast and crew
+    /// calls, the setup's rosters). The chrome's header is the title and the Back button
+    /// of a pushed page, so the bar the stack would draw on iOS and visionOS is hidden;
+    /// the Mac draws no bar inside a sheet, and the placement does not exist there.
+    func editorNavigationBarHidden() -> some View {
+        #if os(macOS)
+        self
+        #else
+        toolbar(.hidden, for: .navigationBar)
+        #endif
+    }
+}

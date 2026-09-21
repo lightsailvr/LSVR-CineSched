@@ -113,10 +113,18 @@ the build inputs outside it, see Working agreements):
   background), `EditorTitle`, `ColorSwatchRow` (the banner's and the event's colors) and
   `FormTextEditor` (a `TextEditor` row with a prompt). The buttons live in the view, not a
   navigation bar, so the inspector column, the sheets and the Mac show them the same way.
+  For an editor whose lists push detail pages (#20): `EditorStackTitle` (the title at the
+  root; Back and the page's title on a page), `editorStackPage()` (no system Back, no
+  system bar) and `EditorRowSummary` (a row that opens a page: title, detail, caption, badge).
 - `EditorDrafts.swift`: the editors' drafts (#19), pure: `SceneDraft` (every field of the
   scene editor as strings, validation, `applied(to:)`), `BannerDraft` (`setType`,
   `makeBanner()`) and `CalendarEventDraft` (`makeEvent()` keeps an edited event's id). A
   view holds one in `@State` and writes it back as one assignment (`EditorDraftsTests`).
+  `CallSheetDrafts.swift` (#20): `CallSheetDraft` (a day's call sheet with the pre-fills
+  the old sheet made on appear, the location, cast-call and crew-call list mutations,
+  `applied(to:)`) and `ProductionSetupDraft` (the setup, the three rosters, a member's
+  unavailable ranges, `renamedCharacters(against:)`, `applied(to:)`); rows left blank are
+  dropped on write (`CallSheetDraftsTests`).
 - The five adaptive editors (#19): `SceneEditSheet` (the scene editor: every sheet and the
   inspector; Previous / Next in the header when supplied; the trash, Cancel and Save
   Changes row; follows an external change to its scene while untouched),
@@ -137,6 +145,15 @@ the build inputs outside it, see Working agreements):
   empty states), `ImportSummaryView` (below) and `MonthPDFOptionsSheet` (the calendar's
   export options, in `CalendarView`). No fixed frames: the sizes are each view's
   `EditorSheetSize`, applied only by the Mac seam.
+- The two list editors (#20), the same shape with a `NavigationStack` around the form:
+  `CallSheetEditor` (a day's call sheet: the times, hospital, weather, basecamp, the
+  day's locations and the notes as sections; the cast calls and crew calls as rows that
+  push a page per entry; Export PDF, Cancel, Save at the root, Remove and Done on a page;
+  the same initializer the Mac's call sites in `CalendarView`, `StripboardView` and the
+  inspector always had) and `ProductionSetupSheet` (the company, the contacts, the lunch
+  default; the cast, crew and location rosters as rows that push a page per member, the
+  cast member's with the unavailable date ranges; Save reports the character renames
+  through `onCharacterRenamed` before its one write).
 - `BoneyardListView.swift`: the Boneyard list (strip rows, drag out, drop back, tooltip,
   double-tap editor, context menu) as a view both layouts draw; every action is a closure
   `ContentView` wires to the selection, the sheets and the funnel.
@@ -287,7 +304,9 @@ the build inputs outside it, see Working agreements):
   such modifier), `PlatformExportPresentation` (whether an export opens the preview sheet
   with Share or the Mac's save panel, and PDFKit's `PDFView` wrapped for SwiftUI on each
   view layer), `PlatformEditorContainer` (an adaptive editor's sheet: the Mac's fixed
-  frame, the iPhone's detents, form sizing on iPad and visionOS), `LegacyProjectHandoff`,
+  frame, the iPhone's detents, form sizing on iPad and visionOS; and
+  `editorNavigationBarHidden()`, which hides the bar of an editor's own navigation stack
+  where there is one), `LegacyProjectHandoff`,
   `MacAppDelegate`, plus the
   editor/launch-scene choice, the tabbing choice and the delegate adaptor in `CineSchedApp`.
   These are the only files allowed to contain `#if os(...)`.
@@ -312,7 +331,14 @@ the build inputs outside it, see Working agreements):
   the seam sizes the sheet and the inspector shows the form as it is. Labelled short fields
   are `LabeledContent(label) { TextField(...).multilineTextAlignment(.trailing) }` with no
   width cap (a capped field leaves a dead zone in the row on touch); full-width text fields
-  carry their label as the `TextField` label and their example as the `prompt`.
+  carry their label as the `TextField` label and their example as the `prompt`. A list
+  whose entries have more fields than a row can show (#20) is a `ForEach` of
+  `NavigationLink(value:)` rows (`EditorRowSummary`) inside a `NavigationStack(path:)`
+  that wraps only the form, with the page's fields bound by id (never a captured index);
+  the header is `EditorStackTitle` (Back and the page's title while a page is up), the
+  footer switches to Remove and Done, every page gets `editorStackPage()`, and an Add row
+  appends a blank entry and pushes its page, with the draft dropping rows left blank.
+  No `.toolbar`, `.navigationTitle` or `navigationBarTitleDisplayMode` in an editor.
 - **Mutating schedule state from a child view**: call `onBeforeSceneChange()` first (opens the edit
   gesture), mutate through the binding, then `onSceneChanged()` (closes it). The binding's setter is
   what runs `perform`; the gesture only decides that several writes are one undo step. Inside
@@ -408,6 +434,9 @@ signed-in device (the manual two-device test in issue #15),
 Boneyard) in `ScheduleDragTests`,
 `SceneDraft`, `BannerDraft` and `CalendarEventDraft` (`EditorDraftsTests`: what each reads,
 validation, the value written back, the Custom type's blank-means-none rule),
+`CallSheetDraft` and `ProductionSetupDraft` (`CallSheetDraftsTests`: every pre-fill on
+opening, each list mutation, the character renames reported, every field written back with
+the unshown ones carried, an untouched draft writing an equal value, blank rows dropped),
 `ScriptImport.parse`, `LaunchImport` and `LaunchImportFlow` driven through its callbacks
 (`LaunchImportTests`: one parse per format, the script → new project step, the legacy `.json`
 read against `ProjectCodec` with the source bytes pinned, and every cancellation path),

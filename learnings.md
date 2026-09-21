@@ -9,6 +9,52 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-20 — List editors: a `NavigationStack` around the form alone keeps the chrome, the header owns Back, and an XCUITest's `buttons["Back"]` is the window's (#20)
+
+Rebuilding the call sheet editor and Production Setup as forms whose cast, crew and roster
+rows push a detail page, verified on the iPad Pro 13-inch simulator through a throwaway
+XCUITest (`.dd/I20Probe.swift`, the #19 recipe: `build-for-testing`, terminate, `simctl
+install`, `openurl` the fixture, `test-without-building` with `-parallel-testing-enabled
+NO`):
+
+- **Wrap only the `Form` in the `NavigationStack`, not the chrome.** `EditorChrome`'s
+  header and footer then stay put while a page slides in under them, so Back lives in the
+  header (`EditorStackTitle`) and the footer switches to Remove / Done. That is also what
+  makes it platform-free: the Mac draws no navigation bar inside a sheet (a pushed page
+  there would have no Back at all), and on iOS the bar is hidden through the seam
+  (`editorNavigationBarHidden`, `.toolbar(.hidden, for: .navigationBar)`; the placement
+  does not exist on macOS) so the document infrastructure cannot mirror its own Back
+  into it (#23) and the two never double up. `navigationBarBackButtonHidden(true)` is
+  cross-platform and goes on every page as well.
+- **A form sheet on iPadOS 27 with a hidden bar and a stack inside sizes itself normally**
+  (`presentationSizing(.form)` unchanged); the push animation runs inside the sheet.
+- **`app.buttons["Back"].firstMatch` in the probe hit the window's mirrored Back**, not the
+  editor's, and dismissed the sheet (the editor is a sheet over a `NavigationSplitView`
+  whose columns all carry a mirrored Back, 2026-09-20 #17). The header's Back carries
+  `accessibilityIdentifier("EditorStackBack")` for that; label-only queries are ambiguous
+  in a document window.
+- **`simctl` tests write into a clone.** `xcodebuild test` on the iPad ran on "Clone 1 of
+  iPad Pro 13-inch (M5) #20" and the fixture the test wrote into the app's Documents
+  vanished with it; `-parallel-testing-enabled NO` keeps the run (and the file) on the
+  named device. The device is shut down when the run ends; boot it again before
+  `get_app_container` or `openurl`.
+- **The keyboard stays up after typing into a form row** and the sheet shifts to keep the
+  field visible, so a swipe on the app hits the wrong scroll view; tap
+  `app.keyboards.buttons["Hide keyboard"]` (the iPad's dismiss key), then swipe the
+  form's own `collectionViews.firstMatch` with `.slow` velocity (a fast swipe scrolled
+  past the rows, and rows off-screen are not in the tree).
+- **The one-step undo held**: a lunch time typed in the Stripboard's call sheet editor
+  moved the auto LUNCH strip (01:00 PM → 02:15 PM, the header's meal time with it), and
+  one Undo restored both with Undo then disabled; the Stripboard's `onSave` sync writes
+  in the gesture the binding's write opened, as before.
+- **`CastMember`, `CrewMember`, `Location` have a `let id` minted in `init`**, so a draft
+  cannot reconstruct one with an old id; the pages bind by looking the id up on every get
+  and set, and a removal under an open page reads back as a blank placeholder until the
+  pop. `renamedCharacters(against:)` matches the roster by those ids, so a member added
+  and named in the same session is never a "rename".
+
+---
+
 ## 2026-09-20 — Settings and reports as forms: a live editor needs no draft, a `Toggle` row's label is not a tap target on iOS, and `ViewThatFits` keeps a five-button footer a row on the Mac and a menu on a phone (#21)
 
 Rebuilding the Stripboard fields picker, Customize Scene Colors, the Color Legend, the

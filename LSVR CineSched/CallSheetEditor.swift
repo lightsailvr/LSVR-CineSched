@@ -1,13 +1,21 @@
 // CallSheetEditor.swift
-// Per-day call sheet editor with basecamp location, scene numbers per actor,
-// cast calls, crew calls, weather, meal milestones, locations, and general notes.
+// The per-day call sheet editor (#20): one adaptive `Form` for every container, in the
+// #19 chrome. The general call and schedule, the milestones and meals, the hospital, the
+// weather, the basecamp and the day's locations, the notes are sections of one form;
+// the cast calls and the crew calls are lists with a row per entry, and each row opens
+// a detail page with the entry's fields, pushed inside the editor's own
+// `NavigationStack` (the chrome's header shows Back and the entry, the footer Remove
+// and Done) so the same view serves the Mac's 780 x 750 sheet, the iPad's form sheet
+// and the iPhone's. The fields are a `CallSheetDraft`, pre-filled the way the old
+// sheet did on appear, and Save assigns `draft.applied(to:)` through the day binding
+// once: one `perform`, one undo step. Export PDF saves the same way first, then hands
+// the saved day to the caller (the Mac's save panel, the iPad's preview, #23); the
+// Stripboard's `onSave` then syncs its auto-meal strips from the new times.
 
 import SwiftUI
 
 struct CallSheetEditor: View {
     @ObservedObject private var l10n = LocalizationManager.shared
-    @AppStorage("CineSchedTheme") private var currentTheme: AppTheme = .blue
-    @Environment(\.colorScheme) private var colorScheme
     @Binding var shootDay: ShootDay
     let productionInfo: ProductionInfo
     @Binding var isPresented: Bool
@@ -16,740 +24,565 @@ struct CallSheetEditor: View {
     let dayNumber: Int?
     let totalProductionDays: Int
 
-    private enum EditorSection: String, CaseIterable {
-        case general   = "General & Schedule"
-        case weather   = "Weather"
-        case locations = "Locations"
-        case cast      = "Cast"
-        case crew      = "Crew"
-        case notes     = "General Notes"
-    }
-
-    @State private var currentSection: EditorSection = .general
-
-    // General & Milestones
-    @State private var generalCallTime:  String = ""
-    @State private var workDaySchedule:  String = ""
-    @State private var quoteOfTheDay:    String = ""
-    @State private var readyToShootTime: String = ""
-    @State private var lunchTime:        String = ""
-    @State private var snackTime:        String = ""
-    @State private var dinnerTime:       String = ""
-    @State private var wrapTime:         String = ""
-    @State private var nearestHospital:  String = ""
-
-    // Weather
-    @State private var weatherTemp:       String = ""
-    @State private var weatherCondition:  String = ""
-    @State private var weatherPrecipWind: String = ""
-    @State private var sunTimes:          String = ""
-
-    // Locations & Basecamp
-    @State private var basecampLocation:   String = ""
-    @State private var locations: [Location] = []
+    @State private var draft: CallSheetDraft
+    @State private var path: [Route] = []
+    // The add-location row (a location has no detail page: name and address only).
     @State private var newLocationName:    String = ""
     @State private var newLocationAddress: String = ""
 
-    // Cast Call
-    @State private var castCallEntries: [CastCallEntry] = []
-    @State private var newCastCharacter: String = ""
-    @State private var newCastActor:     String = ""
+    static let sheetSize = EditorSheetSize(width: 780, height: 750, compactDetents: [.large])
 
-    // Crew Call
-    @State private var crewCallEntries: [CrewCallEntry] = []
-    @State private var newCrewRole:     String = ""
-    @State private var newCrewName:     String = ""
-    @State private var newCrewCallTime: String = ""
-    @State private var newCrewPhone:    String = ""
+    private enum Route: Hashable {
+        case castCall(UUID)
+        case crewCall(UUID)
+    }
 
-    // Unified General Notes
-    @State private var generalObservations: String = ""
+    init(
+        shootDay: Binding<ShootDay>,
+        productionInfo: ProductionInfo,
+        isPresented: Binding<Bool>,
+        onSave: @escaping () -> Void,
+        onExportPDF: @escaping (ShootDay) -> Void,
+        dayNumber: Int?,
+        totalProductionDays: Int
+    ) {
+        _shootDay                = shootDay
+        self.productionInfo      = productionInfo
+        _isPresented             = isPresented
+        self.onSave              = onSave
+        self.onExportPDF         = onExportPDF
+        self.dayNumber           = dayNumber
+        self.totalProductionDays = totalProductionDays
+        // Populated here rather than on appear so the first frame shows the day.
+        _draft = State(initialValue: CallSheetDraft(day: shootDay.wrappedValue, productionInfo: productionInfo))
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
-
-            // Header
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 8) {
-                        Text(dayNumber != nil ? "\(L("Call Sheet")) #\(String(format: "%02d", dayNumber!))" : L("Call Sheet"))
-                            .font(.title2).fontWeight(.bold)
-                        if let dayNumber {
-                            Text("\(L("Day")) \(dayNumber) \(L("of")) \(totalProductionDays)")
-                                .font(.subheadline).fontWeight(.semibold).foregroundColor(.secondary)
-                        }
+        EditorChrome {
+            EditorStackTitle(title: title, subtitle: subtitle, page: pageTitle) {
+                path.removeLast()
+            }
+        } content: {
+            NavigationStack(path: $path) {
+                form
+                    .editorStackPage()
+                    .navigationDestination(for: Route.self) { route in
+                        page(for: route)
+                            .editorStackPage()
                     }
-                    Text(formattedFullDate(shootDay.date)).font(.subheadline).foregroundColor(.secondary)
-                }
-                Spacer()
-                Button { isPresented = false } label: {
-                    Image(systemName: "xmark.circle.fill").font(.title2).foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
             }
-            .padding([.horizontal, .top], 20)
-            .padding(.bottom, 12)
-
-            // Section Picker
-            Picker("", selection: $currentSection) {
-                ForEach(EditorSection.allCases, id: \.self) { section in
-                    Text(L(section.rawValue)).tag(section)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(.horizontal, 20)
-            .padding(.bottom, 12)
-
-            Divider()
-
-            // Main Content Area
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    switch currentSection {
-                    case .general:
-                        generalAndMilestonesView
-                    case .weather:
-                        weatherView
-                    case .locations:
-                        locationsView
-                    case .cast:
-                        castCallTableView
-                    case .crew:
-                        crewCallTableView
-                    case .notes:
-                        productionNotesView
-                    }
-                }
-                .padding(20)
-            }
-
-            Divider()
-
-            // Footer
-            HStack(spacing: 12) {
-                Button(L("Export PDF")) {
-                    saveToDay()
-                    onExportPDF(shootDay)
-                }
-                .buttonStyle(.bordered)
-                .help("Generates a clean call sheet PDF")
-
-                Spacer()
-
-                Button(L("Cancel")) { isPresented = false }
-                    .buttonStyle(.bordered)
-
-                Button(L("Save")) {
-                    saveToDay()
-                    onSave()
-                    isPresented = false
-                }
-                .buttonStyle(.borderedProminent)
-            }
-            .padding(20)
-        }
-        .frame(width: 780, height: 750)
-        .onAppear { populateFields() }
-    }
-
-    // MARK: - Section 1: General & Schedule
-
-    // MARK: - Section 1: General & Schedule
-
-    private var generalAndMilestonesView: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Label(L("General Call & Schedule"), systemImage: "clock.badge.checkmark").font(.headline)
-
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(L("General Call (12h)")).font(.subheadline).foregroundColor(.secondary)
-                    TextField("e.g. 07:30 AM", text: $generalCallTime)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(L("Estimated Schedule")).font(.subheadline).foregroundColor(.secondary)
-                    TextField("e.g. 07:30 AM to 09:30 PM", text: $workDaySchedule)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(L("Quote of the day")).font(.subheadline).foregroundColor(.secondary)
-                TextField("e.g. \"Every great film begins with a great schedule.\"", text: $quoteOfTheDay)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-            }
-
-            Divider()
-
-            Label(L("Milestones & Meal Times (12h format)"), systemImage: "timer").font(.headline)
-            Text(L("Set ready time, meals, and estimated wrap time."))
-                .font(.caption).foregroundColor(.secondary)
-
-            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
-                GridRow {
-                    Text(L("Ready to Shoot (On Set):")).font(.subheadline).foregroundColor(.secondary)
-                    TextField("e.g. 08:00 AM", text: $readyToShootTime).textFieldStyle(RoundedBorderTextFieldStyle())
-                    Text(L("Lunch:")).font(.subheadline).foregroundColor(.secondary)
-                    TextField("e.g. 01:30 PM", text: $lunchTime).textFieldStyle(RoundedBorderTextFieldStyle())
-                }
-                GridRow {
-                    Text(L("Snack:")).font(.subheadline).foregroundColor(.secondary)
-                    TextField("e.g. 05:00 PM", text: $snackTime).textFieldStyle(RoundedBorderTextFieldStyle())
-                    Text(L("Dinner:")).font(.subheadline).foregroundColor(.secondary)
-                    TextField("e.g. 08:30 PM", text: $dinnerTime).textFieldStyle(RoundedBorderTextFieldStyle())
-                }
-                GridRow {
-                    Text(L("Wrap / Fin de Rodaje:")).font(.subheadline).foregroundColor(.secondary)
-                    TextField("e.g. 09:30 PM", text: $wrapTime).textFieldStyle(RoundedBorderTextFieldStyle())
-                    Spacer()
-                    Spacer()
-                }
-            }
-
-            Divider()
-
-            Label(L("Nearest Hospital"), systemImage: "cross.case").font(.headline)
-            TextField("Hospital name, address, emergency phone number", text: $nearestHospital)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-        }
-    }
-
-    // MARK: - Section 2: Weather
-
-    private var weatherView: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Label(L("Weather Forecast & Sun Times"), systemImage: "cloud.sun").font(.headline)
-            Text(L("Fill in weather details for this day. Left blank if not needed."))
-                .font(.caption).foregroundColor(.secondary)
-
-            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
-                GridRow {
-                    Text(L("Temperature:")).font(.subheadline).foregroundColor(.secondary)
-                    TextField("e.g. 68°F - 55°F / 15°C - 12°C", text: $weatherTemp).textFieldStyle(RoundedBorderTextFieldStyle())
-                    Text(L("Sky Condition:")).font(.subheadline).foregroundColor(.secondary)
-                    TextField("e.g. Partly cloudy", text: $weatherCondition).textFieldStyle(RoundedBorderTextFieldStyle())
-                }
-                GridRow {
-                    Text(L("Precipitation & Wind:")).font(.subheadline).foregroundColor(.secondary)
-                    TextField("e.g. Rain: 10%, Wind: 10 km/h", text: $weatherPrecipWind).textFieldStyle(RoundedBorderTextFieldStyle())
-                    Text(L("Sunrise / Sunset:")).font(.subheadline).foregroundColor(.secondary)
-                    TextField("e.g. SUNRISE: 06:45 AM / SUNSET: 07:30 PM", text: $sunTimes).textFieldStyle(RoundedBorderTextFieldStyle())
-                }
-            }
-        }
-    }
-
-    // MARK: - Section 3: Locations & Basecamp
-
-    private var locationsView: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            // Basecamp section
-            VStack(alignment: .leading, spacing: 4) {
-                Label(L("Basecamp Location / Address"), systemImage: "tent").font(.headline)
-                TextField("e.g. Parking Basecamp — 123 Studio Way, Lot B", text: $basecampLocation)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                Text(L("Appears prominently on the call sheet above the hospital."))
-                    .font(.caption).foregroundColor(.secondary)
-            }
-
-            Divider()
-
-            HStack {
-                Label(L("Today's Shooting Locations"), systemImage: "mappin.and.ellipse").font(.headline)
-                Spacer()
-                if !availableRosterLocations.isEmpty {
-                    Menu(L("+ Add from Roster")) {
-                        ForEach(availableRosterLocations) { loc in
-                            Button(loc.name) {
-                                locations.append(loc)
-                            }
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                }
-            }
-
-            Text("Each location is assigned a number (LOC 1, LOC 2...) and appears on scene breakdown.")
-                .font(.caption).foregroundColor(.secondary)
-
-            if locations.isEmpty {
-                Text("No locations added for this day yet.").font(.caption).foregroundColor(.secondary)
+        } footer: {
+            if path.isEmpty {
+                rootFooter
             } else {
-                ForEach(Array(locations.enumerated()), id: \.element.id) { index, loc in
-                    HStack(alignment: .top, spacing: 10) {
-                        Text("LOC \(index + 1)")
-                            .font(.caption).fontWeight(.bold).foregroundColor(.white)
-                            .padding(.horizontal, 6).padding(.vertical, 3)
-                            .background(Color.blue)
-                            .cornerRadius(4)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(loc.name.isEmpty ? "Unnamed Location" : loc.name).fontWeight(.medium)
-                            if !loc.address.isEmpty {
-                                Text(loc.address).font(.caption).foregroundColor(.secondary)
-                            }
-                        }
-                        Spacer()
-                        Button { locations.remove(at: index) } label: {
-                            Image(systemName: "minus.circle").foregroundColor(.red)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(8)
-                    .background(Color.gray.opacity(0.08))
-                    .cornerRadius(6)
-                }
+                pageFooter
             }
+        }
+        .editorContainer(Self.sheetSize)
+    }
 
-            // New manual location
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Add a new location for today:").font(.caption).foregroundColor(.secondary)
-                HStack(spacing: 8) {
-                    TextField("Location name (e.g. Airport Hangar)", text: $newLocationName)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                    TextField("Address (e.g. 123 Runway St, City)", text: $newLocationAddress)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                    Button {
-                        let name = newLocationName.trimmingCharacters(in: .whitespaces)
-                        guard !name.isEmpty else { return }
-                        locations.append(Location(name: name, address: newLocationAddress.trimmingCharacters(in: .whitespaces)))
-                        newLocationName = ""; newLocationAddress = ""
-                    } label: {
-                        Image(systemName: "plus.circle.fill").foregroundColor(.blue).font(.title3)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(newLocationName.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-            }
-            .padding(.top, 8)
+    // MARK: - Header
+
+    private var title: String {
+        if let dayNumber {
+            return "\(L("Call Sheet")) #\(String(format: "%02d", dayNumber))"
+        }
+        return L("Call Sheet")
+    }
+
+    private var subtitle: String {
+        let date = formattedFullDate(shootDay.date)
+        if let dayNumber {
+            return "\(L("Day")) \(dayNumber) \(L("of")) \(totalProductionDays) · \(date)"
+        }
+        return date
+    }
+
+    private var pageTitle: String? {
+        switch path.last {
+        case .castCall(let id):
+            let name = draft.castCalls.first { $0.id == id }?.characterName.trimmingCharacters(in: .whitespaces) ?? ""
+            return name.isEmpty ? L("Cast Call") : name
+        case .crewCall(let id):
+            let entry = draft.crewCalls.first { $0.id == id }
+            let name  = entry?.name.trimmingCharacters(in: .whitespaces) ?? ""
+            let role  = entry?.role.trimmingCharacters(in: .whitespaces) ?? ""
+            return name.isEmpty ? (role.isEmpty ? L("Crew Call") : role) : name
+        case nil:
+            return nil
         }
     }
+
+    // MARK: - Form
+
+    private var form: some View {
+        Form {
+            generalSection
+            milestonesSection
+            hospitalSection
+            weatherSection
+            basecampSection
+            locationsSection
+            castSection
+            crewSection
+            notesSection
+        }
+        .formStyle(.grouped)
+    }
+
+    private var generalSection: some View {
+        Section(L("General Call & Schedule")) {
+            timeField(L("General Call"), example: "07:30 AM", text: $draft.generalCallTime)
+            LabeledContent(L("Estimated Schedule")) {
+                TextField("07:30 AM to 09:30 PM", text: $draft.workDaySchedule)
+                    .multilineTextAlignment(.trailing)
+            }
+            TextField(L("Quote of the Day"), text: $draft.quoteOfTheDay,
+                      prompt: Text(L("e.g. \"Every great film begins with a great schedule.\"")))
+        }
+    }
+
+    private var milestonesSection: some View {
+        Section {
+            timeField(L("Ready to Shoot (On Set)"), example: "08:00 AM", text: $draft.readyToShootTime)
+            timeField(L("Lunch"),                   example: "01:30 PM", text: $draft.lunchTime)
+            timeField(L("Snack"),                   example: "05:00 PM", text: $draft.snackTime)
+            timeField(L("Dinner"),                  example: "08:30 PM", text: $draft.dinnerTime)
+            timeField(L("Wrap / Fin de Rodaje"),    example: "09:30 PM", text: $draft.wrapTime)
+        } header: {
+            Text(L("Milestones & Meal Times"))
+        } footer: {
+            Text(L("12-hour times. The Stripboard's call, meal and wrap strips follow these."))
+        }
+    }
+
+    private var hospitalSection: some View {
+        Section(L("Nearest Hospital")) {
+            TextField(L("Nearest Hospital"), text: $draft.nearestHospital,
+                      prompt: Text(L("Hospital name, address, emergency phone number")))
+        }
+    }
+
+    private var weatherSection: some View {
+        Section {
+            LabeledContent(L("Temperature")) {
+                TextField("68°F - 55°F / 15°C - 12°C", text: $draft.weatherTemp)
+                    .multilineTextAlignment(.trailing)
+            }
+            LabeledContent(L("Sky Condition")) {
+                TextField(L("Partly cloudy"), text: $draft.weatherCondition)
+                    .multilineTextAlignment(.trailing)
+            }
+            LabeledContent(L("Precipitation & Wind")) {
+                TextField("Rain: 10%, Wind: 10 km/h", text: $draft.weatherPrecipWind)
+                    .multilineTextAlignment(.trailing)
+            }
+            LabeledContent(L("Sunrise / Sunset")) {
+                TextField("06:45 AM / 07:30 PM", text: $draft.sunTimes)
+                    .multilineTextAlignment(.trailing)
+            }
+        } header: {
+            Text(L("Weather Forecast & Sun Times"))
+        } footer: {
+            Text(L("Leave blank if not needed."))
+        }
+    }
+
+    private var basecampSection: some View {
+        Section {
+            TextField(L("Basecamp"), text: $draft.basecampLocation,
+                      prompt: Text(L("e.g. Parking Basecamp — 123 Studio Way, Lot B")))
+        } header: {
+            Text(L("Basecamp Location / Address"))
+        } footer: {
+            Text(L("Appears prominently on the call sheet above the hospital."))
+        }
+    }
+
+    // MARK: Locations
 
     private var availableRosterLocations: [Location] {
-        let addedNames = Set(locations.map { $0.name.trimmingCharacters(in: .whitespaces).lowercased() })
-        return productionInfo.locationRoster.filter {
-            !addedNames.contains($0.name.trimmingCharacters(in: .whitespaces).lowercased())
-        }
+        draft.availableRosterLocations(in: productionInfo)
     }
 
-    // MARK: - Section 4: Cast
-
-    private var castCallTableView: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Label(L("Cast Call Times"), systemImage: "person.crop.rectangle.stack").font(.headline)
-                Spacer()
-                Button(L("+ Auto-populate from Scenes")) {
-                    populateCastFromScenes()
-                }
-                .buttonStyle(.bordered)
-                .help("Pulls all characters scheduled today with their assigned actors and scene numbers")
+    private var locationsSection: some View {
+        Section {
+            if draft.locations.isEmpty {
+                Text(L("No locations added for this day yet."))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
-
-            // Table Header
-            HStack(spacing: 4) {
-                Text(L("CHARACTER")).font(.caption2).fontWeight(.bold).frame(width: 85, alignment: .leading)
-                Text(L("ACTOR/ACTRESS")).font(.caption2).fontWeight(.bold).frame(width: 105, alignment: .leading)
-                Text(L("SCENES")).font(.caption2).fontWeight(.bold).frame(width: 55, alignment: .center)
-                Text(L("STATUS")).font(.caption2).fontWeight(.bold).frame(width: 38, alignment: .center)
-                Text(L("PICK UP")).font(.caption2).fontWeight(.bold).frame(width: 60, alignment: .center)
-                Text(L("H/MU")).font(.caption2).fontWeight(.bold).frame(width: 60, alignment: .center)
-                Text(L("ON SET")).font(.caption2).fontWeight(.bold).frame(width: 60, alignment: .center)
-                Text(L("WRAP")).font(.caption2).fontWeight(.bold).frame(width: 60, alignment: .center)
-                Text(L("LOC")).font(.caption2).fontWeight(.bold).frame(width: 34, alignment: .center)
-                Spacer()
+            ForEach(Array(draft.locations.enumerated()), id: \.element.id) { index, location in
+                locationRow(location, number: index + 1)
             }
-            .padding(.horizontal, 8).padding(.vertical, 4)
-            .background(Color.gray.opacity(0.15))
-            .cornerRadius(4)
+            .onDelete { draft.locations.remove(atOffsets: $0) }
 
-            if castCallEntries.isEmpty {
-                Text(L("No cast members listed. Click 'Auto-populate from Scenes' or add one below."))
-                    .font(.caption).foregroundColor(.secondary).padding(.vertical, 8)
-            } else {
-                ForEach(Array(castCallEntries.enumerated()), id: \.element.id) { index, entry in
-                    HStack(spacing: 4) {
-                        TextField(L("CHARACTER"), text: Binding(
-                            get: { castCallEntries[index].characterName },
-                            set: { castCallEntries[index].characterName = $0 }
-                        ))
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .frame(width: 85)
-
-                        TextField(L("ACTOR"), text: Binding(
-                            get: { castCallEntries[index].actorName },
-                            set: { castCallEntries[index].actorName = $0 }
-                        ))
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .frame(width: 105)
-
-                        TextField("1, 4", text: Binding(
-                            get: { castCallEntries[index].sceneNumbers },
-                            set: { castCallEntries[index].sceneNumbers = $0 }
-                        ))
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .frame(width: 55)
-
-                        TextField("E", text: Binding(
-                            get: { castCallEntries[index].ecdt },
-                            set: { castCallEntries[index].ecdt = $0 }
-                        ))
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .frame(width: 38)
-
-                        TextField("07:00 AM", text: Binding(
-                            get: { castCallEntries[index].pickupTime },
-                            set: { castCallEntries[index].pickupTime = $0 }
-                        ))
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .frame(width: 60)
-
-                        TextField("07:30 AM", text: Binding(
-                            get: { castCallEntries[index].hmuWardrobeTime },
-                            set: { castCallEntries[index].hmuWardrobeTime = $0 }
-                        ))
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .frame(width: 60)
-
-                        TextField("08:00 AM", text: Binding(
-                            get: { castCallEntries[index].onSetTime },
-                            set: { castCallEntries[index].onSetTime = $0 }
-                        ))
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .frame(width: 60)
-
-                        TextField("09:30 PM", text: Binding(
-                            get: { castCallEntries[index].wrapTime },
-                            set: { castCallEntries[index].wrapTime = $0 }
-                        ))
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .frame(width: 60)
-
-                        TextField("1", text: Binding(
-                            get: { castCallEntries[index].locationIndex },
-                            set: { castCallEntries[index].locationIndex = $0 }
-                        ))
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .frame(width: 34)
-
-                        Button { castCallEntries.remove(at: index) } label: {
-                            Image(systemName: "minus.circle").foregroundColor(.red)
-                        }
-                        .buttonStyle(.plain)
+            if !availableRosterLocations.isEmpty {
+                Menu {
+                    ForEach(availableRosterLocations) { location in
+                        Button(location.name) { draft.addRosterLocation(location) }
                     }
-                }
-            }
-
-            // Add Cast Member
-            HStack(spacing: 8) {
-                TextField(L("Character"), text: $newCastCharacter)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                TextField(L("Actor Name"), text: $newCastActor)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                Button {
-                    let char = newCastCharacter.trimmingCharacters(in: .whitespaces)
-                    guard !char.isEmpty else { return }
-                    
-                    let scenesForChar = shootDay.scenes.filter { scene in
-                        scene.cast.contains(where: { $0.caseInsensitiveCompare(char) == .orderedSame })
-                    }.map { $0.extractedSceneNumber }.joined(separator: ", ")
-
-                    castCallEntries.append(CastCallEntry(
-                        characterName: char,
-                        actorName: newCastActor.trimmingCharacters(in: .whitespaces),
-                        sceneNumbers: scenesForChar,
-                        ecdt: "E",
-                        pickupTime: "",
-                        hmuWardrobeTime: "",
-                        onSetTime: readyToShootTime.isEmpty ? generalCallTime : readyToShootTime,
-                        wrapTime: dinnerTime,
-                        locationIndex: "1"
-                    ))
-                    newCastCharacter = ""; newCastActor = ""
                 } label: {
-                    Image(systemName: "plus.circle.fill").foregroundColor(.blue).font(.title3)
+                    Label(L("Add from Roster"), systemImage: "list.bullet.rectangle")
                 }
-                .buttonStyle(.plain)
-                .disabled(newCastCharacter.trimmingCharacters(in: .whitespaces).isEmpty)
             }
-            .padding(.top, 6)
+
+            TextField(L("Location Name"), text: $newLocationName, prompt: Text(L("New location, e.g. Airport Hangar")))
+            TextField(L("Address"), text: $newLocationAddress, prompt: Text(L("Address, e.g. 123 Runway St, City")))
+            Button {
+                draft.addLocation(name: newLocationName, address: newLocationAddress)
+                newLocationName    = ""
+                newLocationAddress = ""
+            } label: {
+                Label(L("Add Location"), systemImage: "plus.circle.fill")
+            }
+            .disabled(newLocationName.trimmingCharacters(in: .whitespaces).isEmpty)
+        } header: {
+            Text(L("Today's Shooting Locations"))
+        } footer: {
+            Text(L("Each location is numbered (LOC 1, LOC 2, …) and appears on the scene breakdown."))
         }
     }
 
-    private func populateCastFromScenes() {
-        let chars = shootDay.allCast
-        for char in chars {
-            let matchedActor = productionInfo.castList.first(where: {
-                $0.characterName.caseInsensitiveCompare(char) == .orderedSame
-            })?.actorName ?? ""
-
-            let scenesForChar = shootDay.scenes.filter { scene in
-                scene.cast.contains(where: { $0.caseInsensitiveCompare(char) == .orderedSame })
-            }.map { $0.extractedSceneNumber }.joined(separator: ", ")
-
-            if let existingIdx = castCallEntries.firstIndex(where: { $0.characterName.caseInsensitiveCompare(char) == .orderedSame }) {
-                if castCallEntries[existingIdx].sceneNumbers.isEmpty {
-                    castCallEntries[existingIdx].sceneNumbers = scenesForChar
+    private func locationRow(_ location: Location, number: Int) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text("LOC \(number)")
+                .font(.caption.bold())
+                .foregroundStyle(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(Color.blue)
+                .cornerRadius(4)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(location.name.isEmpty ? L("Unnamed Location") : location.name)
+                    .fontWeight(.medium)
+                if !location.address.isEmpty {
+                    Text(location.address)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                if castCallEntries[existingIdx].actorName.isEmpty {
-                    castCallEntries[existingIdx].actorName = matchedActor
-                }
-            } else {
-                castCallEntries.append(CastCallEntry(
-                    characterName: char,
-                    actorName: matchedActor,
-                    sceneNumbers: scenesForChar,
-                    ecdt: "E",
-                    pickupTime: "",
-                    hmuWardrobeTime: "",
-                    onSetTime: readyToShootTime.isEmpty ? generalCallTime : readyToShootTime,
-                    wrapTime: dinnerTime,
-                    locationIndex: "1"
-                ))
             }
+            Spacer()
+            Button(role: .destructive) {
+                draft.removeLocation(id: location.id)
+            } label: {
+                Image(systemName: "minus.circle")
+                    .foregroundStyle(.red)
+            }
+            .buttonStyle(.borderless)
+            .help(L("Remove Location"))
+            .accessibilityLabel(L("Remove Location"))
         }
     }
 
-    // MARK: - Section 5: Crew
+    // MARK: Cast calls
 
-    private var crewCallTableView: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Label(L("CREW CALL TIMES"), systemImage: "person.3").font(.headline)
-                Spacer()
-                Button(L("Load Crew from Setup")) {
-                    populateCrewFromProductionInfo()
+    private var castSection: some View {
+        Section {
+            Button {
+                draft.populateCast(from: shootDay, productionInfo: productionInfo)
+            } label: {
+                Label(L("Auto-populate from Scenes"), systemImage: "wand.and.stars")
+            }
+            .help(L("Pulls all characters scheduled today with their assigned actors and scene numbers"))
+
+            if draft.castCalls.isEmpty {
+                Text(L("No cast members listed. Auto-populate from the scenes or add one."))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(draft.castCalls) { entry in
+                NavigationLink(value: Route.castCall(entry.id)) {
+                    castCallRow(entry)
                 }
+                .contextMenu {
+                    Button(role: .destructive) {
+                        draft.removeCastCall(id: entry.id)
+                    } label: {
+                        Label(L("Remove"), systemImage: "trash")
+                    }
+                }
+            }
+            .onDelete { draft.castCalls.remove(atOffsets: $0) }
+
+            Button {
+                let id = draft.addCastCall(day: shootDay)
+                path.append(.castCall(id))
+            } label: {
+                Label(L("Add Cast Member"), systemImage: "plus.circle.fill")
+            }
+        } header: {
+            Text(L("Cast Call Times"))
+        }
+    }
+
+    private func castCallRow(_ entry: CastCallEntry) -> some View {
+        let character = entry.characterName.trimmingCharacters(in: .whitespaces)
+        var parts: [String] = []
+        if !entry.sceneNumbers.isEmpty    { parts.append("\(L("Sc.")) \(entry.sceneNumbers)") }
+        if !entry.ecdt.isEmpty            { parts.append(entry.ecdt) }
+        if !entry.pickupTime.isEmpty      { parts.append("\(L("PU")) \(entry.pickupTime)") }
+        if !entry.hmuWardrobeTime.isEmpty { parts.append("\(L("H/MU")) \(entry.hmuWardrobeTime)") }
+        if !entry.onSetTime.isEmpty       { parts.append("\(L("On Set")) \(entry.onSetTime)") }
+        if !entry.wrapTime.isEmpty        { parts.append("\(L("Wrap")) \(entry.wrapTime)") }
+        return EditorRowSummary(
+            title:   character.isEmpty ? L("Unnamed Character") : character,
+            detail:  entry.actorName,
+            caption: parts.joined(separator: " · "),
+            badge:   entry.locationIndex.isEmpty ? nil : "LOC \(entry.locationIndex)"
+        )
+    }
+
+    // MARK: Crew calls
+
+    private var crewSection: some View {
+        Section {
+            Button {
+                draft.loadCrew(from: productionInfo)
+            } label: {
+                Label(L("Load Crew from Setup"), systemImage: "person.3")
+            }
+            .help(L("Loads all crew members from Production Setup with their roles and phone numbers"))
+
+            if draft.crewCalls.isEmpty {
+                Text(L("No crew members added yet. Load the crew from the setup or add one."))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(draft.crewCalls) { entry in
+                NavigationLink(value: Route.crewCall(entry.id)) {
+                    crewCallRow(entry)
+                }
+                .contextMenu {
+                    Button(role: .destructive) {
+                        draft.removeCrewCall(id: entry.id)
+                    } label: {
+                        Label(L("Remove"), systemImage: "trash")
+                    }
+                }
+            }
+            .onDelete { draft.crewCalls.remove(atOffsets: $0) }
+
+            Button {
+                let id = draft.addCrewCall()
+                path.append(.crewCall(id))
+            } label: {
+                Label(L("Add Crew Member"), systemImage: "plus.circle.fill")
+            }
+        } header: {
+            Text(L("Crew Call Times"))
+        }
+    }
+
+    private func crewCallRow(_ entry: CrewCallEntry) -> some View {
+        let name = entry.name.trimmingCharacters(in: .whitespaces)
+        let role = entry.role.trimmingCharacters(in: .whitespaces)
+        var parts: [String] = []
+        if !entry.callTime.isEmpty { parts.append(entry.callTime) }
+        if !entry.phone.isEmpty    { parts.append(entry.phone) }
+        return EditorRowSummary(
+            title:   name.isEmpty ? (role.isEmpty ? L("Unnamed Crew Member") : role) : name,
+            detail:  name.isEmpty ? nil : role,
+            caption: parts.joined(separator: " · ")
+        )
+    }
+
+    // MARK: Notes
+
+    private var notesSection: some View {
+        Section {
+            FormTextEditor(prompt: L("All production notes and instructions in one text block"), text: $draft.notes, minHeight: 140)
+        } header: {
+            Text(L("General Notes"))
+        }
+    }
+
+    // MARK: - Detail pages
+
+    @ViewBuilder
+    private func page(for route: Route) -> some View {
+        switch route {
+        case .castCall(let id):
+            CastCallPage(entry: castCallBinding(id), locations: draft.locations) {
+                draft.refreshSceneNumbers(ofCastCall: id, in: shootDay)
+            }
+        case .crewCall(let id):
+            CrewCallPage(entry: crewCallBinding(id))
+        }
+    }
+
+    /// Looked up by id on every get and set, never by a captured index, so a removal
+    /// under the open page cannot index out of range.
+    private func castCallBinding(_ id: UUID) -> Binding<CastCallEntry> {
+        Binding(
+            get: { draft.castCalls.first { $0.id == id } ?? CastCallEntry(id: id) },
+            set: { new in
+                if let i = draft.castCalls.firstIndex(where: { $0.id == id }) { draft.castCalls[i] = new }
+            }
+        )
+    }
+
+    private func crewCallBinding(_ id: UUID) -> Binding<CrewCallEntry> {
+        Binding(
+            get: { draft.crewCalls.first { $0.id == id } ?? CrewCallEntry(id: id) },
+            set: { new in
+                if let i = draft.crewCalls.firstIndex(where: { $0.id == id }) { draft.crewCalls[i] = new }
+            }
+        )
+    }
+
+    // MARK: - Footers
+
+    private var rootFooter: some View {
+        HStack(spacing: 12) {
+            Button(L("Export PDF")) {
+                let saved = draft.applied(to: shootDay.callSheet)
+                var day   = shootDay
+                day.callSheet = saved
+                shootDay = day
+                onExportPDF(day)
+            }
+            .buttonStyle(.bordered)
+            .help(L("Generates a clean call sheet PDF"))
+
+            Spacer()
+
+            Button(L("Cancel")) { isPresented = false }
                 .buttonStyle(.bordered)
-                .help("Loads all crew members from Production Setup with their roles and phone numbers")
+
+            Button(L("Save")) {
+                save()
+                onSave()
+                isPresented = false
             }
-
-            // Table Header
-            HStack(spacing: 6) {
-                Text(L("DEPARTMENT / ROLE")).font(.caption2).fontWeight(.bold).frame(width: 140, alignment: .leading)
-                Text(L("NAME")).font(.caption2).fontWeight(.bold).frame(maxWidth: .infinity, alignment: .leading)
-                Text(L("CALL TIME")).font(.caption2).fontWeight(.bold).frame(width: 95, alignment: .leading)
-                Text(L("PHONE")).font(.caption2).fontWeight(.bold).frame(width: 110, alignment: .leading)
-                Spacer().frame(width: 24)
-            }
-            .padding(.horizontal, 8).padding(.vertical, 4)
-            .background(Color.gray.opacity(0.15))
-            .cornerRadius(4)
-
-            if crewCallEntries.isEmpty {
-                Text("No crew members added yet. Click 'Load Crew from Setup' or add one below.")
-                    .font(.caption).foregroundColor(.secondary).padding(.vertical, 8)
-            } else {
-                ForEach(Array(crewCallEntries.enumerated()), id: \.element.id) { index, entry in
-                    HStack(spacing: 6) {
-                        TextField("Role (e.g. DP)", text: Binding(
-                            get: { crewCallEntries[index].role },
-                            set: { crewCallEntries[index].role = $0 }
-                        ))
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .frame(width: 140)
-
-                        TextField("Name", text: Binding(
-                            get: { crewCallEntries[index].name },
-                            set: { crewCallEntries[index].name = $0 }
-                        ))
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-
-                        TextField("07:30 AM", text: Binding(
-                            get: { crewCallEntries[index].callTime },
-                            set: { crewCallEntries[index].callTime = $0 }
-                        ))
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .frame(width: 95)
-
-                        TextField("Phone", text: Binding(
-                            get: { crewCallEntries[index].phone },
-                            set: { crewCallEntries[index].phone = $0 }
-                        ))
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .frame(width: 110)
-
-                        Button { crewCallEntries.remove(at: index) } label: {
-                            Image(systemName: "minus.circle").foregroundColor(.red)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-
-            // Add crew member
-            HStack(spacing: 6) {
-                TextField("Role / Function", text: $newCrewRole)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .frame(width: 140)
-                TextField("Name", text: $newCrewName)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                TextField("Call Time", text: $newCrewCallTime)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .frame(width: 95)
-                TextField("Phone", text: $newCrewPhone)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .frame(width: 110)
-                Button {
-                    let role = newCrewRole.trimmingCharacters(in: .whitespaces)
-                    let name = newCrewName.trimmingCharacters(in: .whitespaces)
-                    guard !role.isEmpty || !name.isEmpty else { return }
-                    crewCallEntries.append(CrewCallEntry(
-                        role: role,
-                        name: name,
-                        callTime: newCrewCallTime.isEmpty ? generalCallTime : newCrewCallTime,
-                        phone: newCrewPhone.trimmingCharacters(in: .whitespaces)
-                    ))
-                    newCrewRole = ""; newCrewName = ""; newCrewCallTime = ""; newCrewPhone = ""
-                } label: {
-                    Image(systemName: "plus.circle.fill").foregroundColor(.blue).font(.title3)
-                }
-                .buttonStyle(.plain)
-                .disabled(newCrewRole.trimmingCharacters(in: .whitespaces).isEmpty && newCrewName.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-            .padding(.top, 6)
+            .buttonStyle(.borderedProminent)
         }
     }
 
-    private func populateCrewFromProductionInfo() {
-        for member in productionInfo.crew {
-            if !crewCallEntries.contains(where: { $0.name.caseInsensitiveCompare(member.name) == .orderedSame && $0.role.caseInsensitiveCompare(member.role) == .orderedSame }) {
-                crewCallEntries.append(CrewCallEntry(
-                    role: member.role,
-                    name: member.name,
-                    callTime: generalCallTime.isEmpty ? "07:30 AM" : generalCallTime,
-                    phone: member.phone
-                ))
+    private var pageFooter: some View {
+        HStack(spacing: 12) {
+            Button(role: .destructive) {
+                switch path.last {
+                case .castCall(let id): draft.removeCastCall(id: id)
+                case .crewCall(let id): draft.removeCrewCall(id: id)
+                case nil:               break
+                }
+                path.removeLast()
+            } label: {
+                Label(L("Remove"), systemImage: "trash")
+                    .labelStyle(.iconOnly)
+                    .frame(width: 16, height: 16)
             }
+            .buttonStyle(.bordered)
+            .tint(.red)
+            .help(L("Remove"))
+
+            Spacer()
+
+            Button(L("Done")) { path.removeLast() }
+                .buttonStyle(.borderedProminent)
         }
     }
 
-    // MARK: - Section 6: General Notes (Unified)
+    // MARK: - Helpers
 
-    private var productionNotesView: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Label("General Notes", systemImage: "note.text").font(.headline)
-            Text("Write all production notes and instructions in a single unified text block.")
-                .font(.caption).foregroundColor(.secondary)
-
-            TextEditor(text: $generalObservations)
-                .font(.body)
-                .frame(minHeight: 180)
-                .padding(6)
-                .background(Color.gray.opacity(0.08))
-                .cornerRadius(6)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.gray.opacity(0.2), lineWidth: 1)
-                )
-        }
+    /// The one write: the whole day back through the binding (the binding's setter is
+    /// the trip through the document's edit funnel).
+    private func save() {
+        var day = shootDay
+        day.callSheet = draft.applied(to: shootDay.callSheet)
+        shootDay = day
     }
 
-    // MARK: - Populate / Save
+    private func timeField(_ label: String, example: String, text: Binding<String>) -> some View {
+        LabeledContent(label) {
+            TextField(example, text: text)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+}
 
-    private func populateFields() {
-        generalCallTime    = shootDay.callSheet.generalCallTime
-        workDaySchedule    = shootDay.callSheet.workDaySchedule
-        quoteOfTheDay      = shootDay.callSheet.quoteOfTheDay
-        readyToShootTime   = shootDay.callSheet.readyToShootTime
-        lunchTime          = shootDay.callSheet.lunchTime.isEmpty ? productionInfo.defaultLunchTime : shootDay.callSheet.lunchTime
-        snackTime          = shootDay.callSheet.snackTime
-        dinnerTime         = shootDay.callSheet.dinnerTime
-        wrapTime           = shootDay.callSheet.wrapTime
-        nearestHospital    = shootDay.callSheet.nearestHospital
-        basecampLocation   = shootDay.callSheet.basecampLocation
+// MARK: - Cast call page
 
-        weatherTemp       = shootDay.callSheet.weatherTemp
-        weatherCondition  = shootDay.callSheet.weatherCondition
-        weatherPrecipWind = shootDay.callSheet.weatherPrecipWind
-        sunTimes          = shootDay.callSheet.sunTimes
+/// One cast call's fields. The scene numbers follow the character while blank, so an
+/// entry added from the list gets them once the character is typed.
+private struct CastCallPage: View {
+    @Binding var entry: CastCallEntry
+    let locations: [Location]
+    let onCharacterChanged: () -> Void
 
-        locations = shootDay.callSheet.locations
-
-        // Auto-extract distinct realLocations from today's scenes (no duplicates)
-        for scene in shootDay.scenes {
-            let locName = scene.realLocation.trimmingCharacters(in: .whitespaces)
-            guard !locName.isEmpty else { continue }
-            if !locations.contains(where: { $0.name.caseInsensitiveCompare(locName) == .orderedSame }) {
-                let matchedAddress = productionInfo.locationRoster.first(where: {
-                    $0.name.caseInsensitiveCompare(locName) == .orderedSame
-                })?.address ?? scene.locationAddress
-                locations.append(Location(name: locName, address: matchedAddress))
+    var body: some View {
+        Form {
+            Section(L("Cast Member")) {
+                TextField(L("Character"), text: $entry.characterName, prompt: Text(L("Character")))
+                TextField(L("Actor / Actress"), text: $entry.actorName, prompt: Text(L("Actor / Actress")))
             }
-        }
-
-        if locations.isEmpty && !productionInfo.locationRoster.isEmpty {
-            locations = [productionInfo.locationRoster.first!]
-        }
-
-        castCallEntries   = shootDay.callSheet.castCallEntries
-        if castCallEntries.isEmpty {
-            populateCastFromScenes()
-        } else {
-            // Update sceneNumbers for existing entries
-            for i in 0..<castCallEntries.count {
-                let char = castCallEntries[i].characterName
-                let scenesForChar = shootDay.scenes.filter { scene in
-                    scene.cast.contains(where: { $0.caseInsensitiveCompare(char) == .orderedSame })
-                }.map { $0.extractedSceneNumber }.joined(separator: ", ")
-                if castCallEntries[i].sceneNumbers.isEmpty {
-                    castCallEntries[i].sceneNumbers = scenesForChar
+            Section {
+                LabeledContent(L("Scenes")) {
+                    TextField("1, 4", text: $entry.sceneNumbers)
+                        .multilineTextAlignment(.trailing)
+                }
+                LabeledContent(L("Status")) {
+                    TextField("E", text: $entry.ecdt)
+                        .multilineTextAlignment(.trailing)
+                }
+                LabeledContent(L("Location")) {
+                    TextField("1", text: $entry.locationIndex)
+                        .multilineTextAlignment(.trailing)
+                }
+            } footer: {
+                if locations.isEmpty {
+                    Text(L("Location is the LOC number from today's shooting locations."))
+                } else {
+                    Text(locations.enumerated().map { "LOC \($0.offset + 1): \($0.element.name)" }.joined(separator: " · "))
+                }
+            }
+            Section(L("Times")) {
+                LabeledContent(L("Pick Up")) {
+                    TextField("07:00 AM", text: $entry.pickupTime)
+                        .multilineTextAlignment(.trailing)
+                }
+                LabeledContent(L("H/MU & Wardrobe")) {
+                    TextField("07:30 AM", text: $entry.hmuWardrobeTime)
+                        .multilineTextAlignment(.trailing)
+                }
+                LabeledContent(L("On Set")) {
+                    TextField("08:00 AM", text: $entry.onSetTime)
+                        .multilineTextAlignment(.trailing)
+                }
+                LabeledContent(L("Wrap")) {
+                    TextField("09:30 PM", text: $entry.wrapTime)
+                        .multilineTextAlignment(.trailing)
                 }
             }
         }
+        .formStyle(.grouped)
+        .onChange(of: entry.characterName) { _, _ in onCharacterChanged() }
+    }
+}
 
-        crewCallEntries = shootDay.callSheet.crewCallEntries
-        if crewCallEntries.isEmpty && !productionInfo.crew.isEmpty {
-            populateCrewFromProductionInfo()
-        } else {
-            // Fill in missing names and phone numbers from productionInfo.crew if they were added later
-            for i in 0..<crewCallEntries.count {
-                if let matched = productionInfo.crew.first(where: {
-                    $0.role.caseInsensitiveCompare(crewCallEntries[i].role) == .orderedSame
-                }) {
-                    if crewCallEntries[i].name.trimmingCharacters(in: .whitespaces).isEmpty {
-                        crewCallEntries[i].name = matched.name
-                    }
-                    if crewCallEntries[i].phone.trimmingCharacters(in: .whitespaces).isEmpty {
-                        crewCallEntries[i].phone = matched.phone
-                    }
+// MARK: - Crew call page
+
+private struct CrewCallPage: View {
+    @Binding var entry: CrewCallEntry
+
+    var body: some View {
+        Form {
+            Section(L("Crew Member")) {
+                TextField(L("Department / Role"), text: $entry.role, prompt: Text(L("Role, e.g. DP")))
+                TextField(L("Name"), text: $entry.name, prompt: Text(L("Name")))
+            }
+            Section {
+                LabeledContent(L("Call Time")) {
+                    TextField("07:30 AM", text: $entry.callTime)
+                        .multilineTextAlignment(.trailing)
+                }
+                LabeledContent(L("Phone")) {
+                    TextField(L("Phone"), text: $entry.phone)
+                        .multilineTextAlignment(.trailing)
                 }
             }
         }
-
-        if !shootDay.callSheet.notes.isEmpty {
-            generalObservations = shootDay.callSheet.notes
-        } else if !shootDay.callSheet.productionNotes.isEmpty {
-            generalObservations = shootDay.callSheet.productionNotes.joined(separator: "\n")
-        }
-    }
-
-    /// Writes the fields back as one value. `shootDay` is a binding into the project, so
-    /// every write to it is one trip through the document's edit funnel; one assignment
-    /// keeps Save a single undo step (and a single snapshot compare) rather than
-    /// nineteen (#9).
-    private func saveToDay() {
-        var sheet = shootDay.callSheet
-        sheet.generalCallTime    = generalCallTime
-        sheet.workDaySchedule    = workDaySchedule
-        sheet.quoteOfTheDay      = quoteOfTheDay
-        sheet.readyToShootTime   = readyToShootTime
-        sheet.lunchTime          = lunchTime
-        sheet.snackTime          = snackTime
-        sheet.dinnerTime         = dinnerTime
-        sheet.wrapTime           = wrapTime
-        sheet.basecampLocation   = basecampLocation
-        sheet.nearestHospital    = nearestHospital
-        sheet.weatherTemp        = weatherTemp
-        sheet.weatherCondition   = weatherCondition
-        sheet.weatherPrecipWind  = weatherPrecipWind
-        sheet.sunTimes           = sunTimes
-        sheet.locations          = locations
-        sheet.castCallEntries    = castCallEntries
-        sheet.crewCallEntries    = crewCallEntries
-        sheet.notes              = generalObservations
-        sheet.productionNotes    = generalObservations.isEmpty ? [] : generalObservations.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-        shootDay.callSheet = sheet
+        .formStyle(.grouped)
     }
 }

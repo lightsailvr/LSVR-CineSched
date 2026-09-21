@@ -63,6 +63,93 @@ struct EditorTitle: View {
     }
 }
 
+// MARK: - Stacked title
+
+/// The header of an editor whose lists push detail pages (#20): the editor's title and
+/// subtitle at the root; on a page, a Back button, the page's title and the editor's
+/// title under it. Every container gets the same Back this way: the Mac draws no
+/// navigation bar inside a sheet, and on iOS the stack's bar is hidden
+/// (`editorStackPage`) so the document infrastructure cannot mirror its own Back
+/// button into it (learnings, 2026-09-20 #23).
+struct EditorStackTitle: View {
+    let title:    String
+    var subtitle: String? = nil
+    /// The pushed page's title; nil at the root.
+    var page:     String? = nil
+    let onBack:   () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if let page {
+                Button(action: onBack) {
+                    Image(systemName: "chevron.left")
+                        .frame(width: 16, height: 16)
+                }
+                .buttonStyle(.bordered)
+                .help(L("Back"))
+                .accessibilityLabel(L("Back"))
+                .accessibilityIdentifier("EditorStackBack")
+                EditorTitle(title: page, subtitle: title)
+            } else {
+                EditorTitle(title: title, subtitle: subtitle)
+            }
+        }
+    }
+}
+
+extension View {
+    /// A page inside an editor's navigation stack: no system Back (the chrome's header
+    /// has one) and no system bar where there is one.
+    func editorStackPage() -> some View {
+        navigationBarBackButtonHidden(true)
+            .editorNavigationBarHidden()
+    }
+}
+
+// MARK: - Row summaries
+
+/// A list row that opens a detail page: a title, an optional detail beside it in the
+/// secondary style, a badge at the trailing edge and a caption under them. The rosters
+/// and the call sheet's cast and crew calls use it so their rows read alike.
+struct EditorRowSummary: View {
+    let title:   String
+    var detail:  String? = nil
+    var caption: String? = nil
+    var badge:   String? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(.body.weight(.medium))
+                    .lineLimit(1)
+                if let detail, !detail.isEmpty {
+                    Text(detail)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                if let badge, !badge.isEmpty {
+                    Text(badge)
+                        .font(.caption.bold())
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.accentColor.opacity(0.15))
+                        .foregroundStyle(Color.accentColor)
+                        .cornerRadius(4)
+                }
+            }
+            if let caption, !caption.isEmpty {
+                Text(caption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .contentShape(Rectangle())
+    }
+}
+
 // MARK: - Color swatches
 
 /// The banner and event inputs' color choice: one tappable circle per option, the
