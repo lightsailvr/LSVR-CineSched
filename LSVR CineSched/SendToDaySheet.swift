@@ -4,40 +4,78 @@
 // instead of dragging a strip up or down a long schedule. Uses the same graphical
 // month-calendar control as the native date pickers elsewhere in the app; Send is
 // enabled only while the picked date is one of the schedule's days. Only the size
-// around the form changes per container (`editorContainer`). The iPhone's Swap with Day
-// (#25) is the same picker under its own title, subtitle and action, with the day being
-// swapped unavailable as a pick; the defaults are the labels the Mac's call sites have
-// always shown, which pass nothing new.
+// around the form changes per container (`editorContainer`). The picker has two modes
+// (`Mode`): Send to Day for a number of scenes (the Mac's, and the default of the
+// initializer the Mac's call sites have always used) and the iPhone's Swap with Day (#25),
+// the same picker titled for the exchange, with the day being swapped named in the
+// subtitle and unavailable as a pick.
 
 import SwiftUI
 
 struct SendToDaySheet: View {
-    let shootDays:  [ShootDay]
-    let sceneCount: Int
-    let title:       String
-    let subtitle:    String
-    let actionTitle: String
-    /// A day the picker offers but the action refuses (Swap with Day's own day); nil for none.
-    let unavailableDayID: UUID?
-    let onSelect: (UUID) -> Void
-    let onCancel: () -> Void
+
+    /// What the picked day is for; the title, subtitle and action follow.
+    enum Mode: Hashable {
+        /// Send to Day: `sceneCount` scenes land at the end of the picked day.
+        case send(sceneCount: Int)
+        /// Swap with Day: the picked day exchanges everything with the day `excluding`,
+        /// which the picker offers but the action refuses.
+        case swap(excluding: UUID)
+    }
+
+    let shootDays: [ShootDay]
+    let mode:      Mode
+    let onSelect:  (UUID) -> Void
+    let onCancel:  () -> Void
 
     @State private var selectedDate: Date
 
     static let sheetSize = EditorSheetSize(width: 400, height: 560, compactDetents: [.large])
 
-    init(shootDays: [ShootDay], sceneCount: Int,
-         title: String? = nil, subtitle: String? = nil, actionTitle: String? = nil, unavailableDayID: UUID? = nil,
-         onSelect: @escaping (UUID) -> Void, onCancel: @escaping () -> Void) {
-        self.shootDays        = shootDays
-        self.sceneCount       = sceneCount
-        self.title            = title ?? L("Send to Day")
-        self.subtitle         = subtitle ?? "\(sceneCount) \(sceneCount == 1 ? L("scene") : L("scenes")) \(L("selected"))"
-        self.actionTitle      = actionTitle ?? L("Send")
-        self.unavailableDayID = unavailableDayID
-        self.onSelect         = onSelect
-        self.onCancel         = onCancel
-        _selectedDate = State(initialValue: shootDays.first?.date ?? Date())
+    /// The Mac's initializer: Send to Day for `sceneCount` scenes.
+    init(shootDays: [ShootDay], sceneCount: Int, onSelect: @escaping (UUID) -> Void, onCancel: @escaping () -> Void) {
+        self.init(shootDays: shootDays, mode: .send(sceneCount: sceneCount), onSelect: onSelect, onCancel: onCancel)
+    }
+
+    init(shootDays: [ShootDay], mode: Mode, onSelect: @escaping (UUID) -> Void, onCancel: @escaping () -> Void) {
+        self.shootDays = shootDays
+        self.mode      = mode
+        self.onSelect  = onSelect
+        self.onCancel  = onCancel
+        _selectedDate  = State(initialValue: shootDays.first?.date ?? Date())
+    }
+
+    // MARK: - The mode's words
+
+    private var title: String {
+        switch mode {
+        case .send: return L("Send to Day")
+        case .swap: return L("Swap with Day")
+        }
+    }
+
+    private var subtitle: String {
+        switch mode {
+        case .send(let sceneCount):
+            return "\(sceneCount) \(sceneCount == 1 ? L("scene") : L("scenes")) \(L("selected"))"
+        case .swap(let dayID):
+            let dayNumbers = productionDayNumbers(for: shootDays)
+            let name = shootDays.first { $0.id == dayID }.map { DaySummary.label(dayNumber: dayNumbers[$0.id], date: $0.date) } ?? L("this day")
+            return "\(L("Exchange everything on")) \(name) \(L("with the day you pick"))"
+        }
+    }
+
+    private var actionTitle: String {
+        switch mode {
+        case .send: return L("Send")
+        case .swap: return L("Swap")
+        }
+    }
+
+    /// The day the picker offers but the action refuses (Swap with Day's own day).
+    private var unavailableDayID: UUID? {
+        if case .swap(let dayID) = mode { return dayID }
+        return nil
     }
 
     private var dateRange: ClosedRange<Date> {

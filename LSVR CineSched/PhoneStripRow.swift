@@ -24,13 +24,6 @@
 
 import SwiftUI
 
-// MARK: - Edit funnel type
-
-/// The edit funnel `PhoneEditor` hands down: `edit(name) { data in … }`, the same call
-/// shape as `ContentView.edit(_:_:)`, so a subview writes the project without holding
-/// the document or the undo manager.
-typealias ProjectEdit = (_ actionName: String?, _ change: (inout ProjectData) -> Void) -> Void
-
 // MARK: - Strip row
 
 struct PhoneStripRow: View {

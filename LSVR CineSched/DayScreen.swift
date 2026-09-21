@@ -142,36 +142,12 @@ struct DayScreen: View {
             .lineLimit(1)
     }
 
-    /// The day's menu: the edits that add to the day and open its call sheet (#26), and
-    /// the moves that act on the whole day (#25).
+    /// The day's menu (`PhoneDayMenus.swift`, the Days list header's too): the edits
+    /// that add to the day and open its call sheet (#26), and the moves that act on the
+    /// whole day (#25). No Open Day: this is the day.
     private var dayMenu: some View {
         Menu {
-            Button {
-                dayEdits.presentCallSheet(dayID: dayID)
-            } label: {
-                Label(L("Edit Call Sheet…"), systemImage: "doc.plaintext")
-            }
-            Button {
-                dayEdits.presentBannerEditor(dayID: dayID)
-            } label: {
-                Label(L("Add Banner…"), systemImage: "flag")
-            }
-            Button {
-                dayEdits.presentEventEditor(dayID: dayID)
-            } label: {
-                Label(L("Add Event…"), systemImage: "calendar.badge.plus")
-            }
-            Divider()
-            Button {
-                moves.presentAddScenes(dayID: dayID)
-            } label: {
-                Label(L("Add Scenes…"), systemImage: "plus.rectangle.on.rectangle")
-            }
-            Button {
-                moves.presentSwapDay(dayID: dayID)
-            } label: {
-                Label(L("Swap with Day…"), systemImage: "arrow.left.arrow.right")
-            }
+            phoneDayMenuItems(dayID: dayID, moves: moves, dayEdits: dayEdits, openDay: nil)
         } label: {
             Image(systemName: "ellipsis.circle")
                 .font(.title3)
@@ -341,19 +317,7 @@ struct DayScreen: View {
                         Label(L("Delete"), systemImage: "trash")
                     }
                 }
-                .contextMenu {
-                    Button {
-                        dayEdits.presentEventEditor(dayID: dayID, eventID: event.id)
-                    } label: {
-                        Label(L("Edit Event"), systemImage: "pencil")
-                    }
-                    Divider()
-                    Button(role: .destructive) {
-                        dayEdits.deleteNoticeStrip(event)
-                    } label: {
-                        Label(L("Delete Event"), systemImage: "trash")
-                    }
-                }
+                .contextMenu { phoneEventMenuItems(event, dayID: dayID, dayEdits: dayEdits) }
             }
             Button {
                 dayEdits.presentEventEditor(dayID: dayID)

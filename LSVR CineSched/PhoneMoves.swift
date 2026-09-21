@@ -183,15 +183,9 @@ private struct PhoneMoveSheetContent: View {
                 onCancel: dismiss
             )
         case .swapDay(let dayID):
-            let dayNumbers = productionDayNumbers(for: shootDays)
-            let name = shootDays.first { $0.id == dayID }.map { DaySummary.label(dayNumber: dayNumbers[$0.id], date: $0.date) } ?? L("this day")
             SendToDaySheet(
-                shootDays:        shootDays,
-                sceneCount:       0,
-                title:            L("Swap with Day"),
-                subtitle:         "\(L("Exchange everything on")) \(name) \(L("with the day you pick"))",
-                actionTitle:      L("Swap"),
-                unavailableDayID: dayID,
+                shootDays: shootDays,
+                mode:      .swap(excluding: dayID),
                 onSelect: { other in
                     moves.swapDays(dayID, with: other)
                     dismiss()

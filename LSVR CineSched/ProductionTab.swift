@@ -3,13 +3,15 @@
 // or one day, as rows of a grouped list. Production (Setup, Scan for Conflicts, Lock or
 // Unlock, the Schedule Lock Report, the Breakdown Browser), Appearance (the Color Legend,
 // Customize Scene Colors, the Stripboard fields), Project (the title, the production
-// range with Shift Schedule and Update Calendar), Export (the six documents, each into
-// the preview sheet with Share) and Import (a script into this project's Boneyard, with
-// the summary before anything is written). Nothing here is new behaviour: every row
-// presents an adaptive editor, report or setting that already exists and wires it to the
-// editor's `edit` funnel exactly as `ContentView` does for the Mac's menus, so the same
-// undo steps come out (one per Save, one per color slot, one per typing burst in the
-// title, one for a whole range change).
+// range with Shift Schedule and Update Calendar: `ProductionTab+Range.swift`), Export (the
+// six documents, each into the preview sheet with Share through `PhoneExports`:
+// `ProductionTab+Exports.swift`) and Import (a script into this project's Boneyard, with
+// the summary before anything is written: `ProductionTab+Import.swift`), the
+// `ContentView+*` pattern. Nothing here is new behaviour: every row presents an adaptive
+// editor, report or setting that already exists and wires it to the editor's `edit`
+// funnel (or the pure `ProductionEdits`) exactly as `ContentView` does for the Mac's
+// menus, so the same undo steps come out (one per Save, one per color slot, one per
+// typing burst in the title, one for a whole range change).
 //
 // The menu bar of a narrow iPad window reaches these rows too (#22): `PhoneEditor`
 // publishes `ProjectCommands` whose closures hand a `ProductionCommand` to this tab
@@ -35,10 +37,6 @@ enum ProductionCommand: Hashable {
     case exportScheduleCalendar, exportStripSchedule, exportDaysOutOfDays, exportBreakdowns
 }
 
-/// `edit` under a gesture the caller owns, for the writes that must fold across several
-/// calls: every keystroke of the title, every movement of a color slot's wheel.
-typealias CoalescedProjectEdit = (_ token: EditGesture, _ actionName: String?, _ change: (inout ProjectData) -> Void) -> Void
-
 // MARK: - The tab
 
 struct ProductionTab: View {
@@ -52,8 +50,9 @@ struct ProductionTab: View {
     let beginEditGestureIfNeeded: () -> Void
     /// The menu bar's request, consumed here.
     @Binding var command: ProductionCommand?
-    /// The export the editor's preview sheet shows (#23).
-    @Binding var exportPreview: PDFExportRequest?
+    /// The phone's export call site (`PhoneExports.swift`): each document into the
+    /// editor's preview sheet, a failure into its alert.
+    let exports: PhoneExports
     /// Switches to the Days list and scrolls it to a date (a report row's jump).
     let jumpToDate: (Date) -> Void
 
@@ -68,7 +67,7 @@ struct ProductionTab: View {
         case importSummary
         var id: Self { self }
     }
-    @State private var activeSheet: ActiveSheet?
+    @State var activeSheet: ActiveSheet?
     @State private var conflictReportResults: [ScheduleConflict] = []
     /// The breakdown browser's current scene, by id; the list itself is rebuilt from the
     /// project on every body (`BreakdownBrowser`).
@@ -80,8 +79,8 @@ struct ProductionTab: View {
     // MARK: Project settings state
 
     /// Typing in the title is one gesture per focus session.
-    @State private var titleGesture = EditGesture()
-    @FocusState private var titleFocused: Bool
+    @State var titleGesture = EditGesture()
+    @FocusState var titleFocused: Bool
     /// The range pickers' pending dates, the editor's state (`PhoneEditor` seeds them from
     /// the shoot days' bounds and re-seeds them on `restoreCount`; the Day screen's Clear
     /// Day Type reads the same range to know which days lie outside it).
@@ -89,26 +88,26 @@ struct ProductionTab: View {
     @Binding var endDate:   Date
     /// The bounds the pickers were last seeded from.
     @Binding var seededRange: ClosedRange<Date>?
-    @State private var pendingRangePreview: ProductionRangePreview?
-    @State private var showingRangeConfirmation = false
+    @State var pendingRangePreview: ProductionRangePreview?
+    @State var showingRangeConfirmation = false
 
     // MARK: Import and alerts
 
-    @State private var showingImportPicker = false
-    @State private var pendingImport: FountainImportResult?
-    @State private var alertMessage: String?
+    @State var showingImportPicker = false
+    @State var pendingImport: FountainImportResult?
+    @State var alertMessage: String?
 
     // App-wide preferences the exports and the fields picker read (the Mac's keys).
-    @AppStorage("CineSchedIncludeHoldInDOOD") private var includeHoldInDOOD: Bool = true
+    @AppStorage("CineSchedIncludeHoldInDOOD") var includeHoldInDOOD: Bool = true
     @AppStorage(StripboardFieldSettings.defaultsKey) private var stripboardFieldsRaw: String = StripboardFieldSettings.defaultRaw
-    @AppStorage(MonthPDFOptionSettings.fieldsKey) private var monthPDFFieldsRaw: String = MonthPDFOptionSettings.defaultFieldsRaw
-    @AppStorage(MonthPDFOptionSettings.pagesKey)  private var monthPDFShowPages: Bool = MonthPDFOptions.default.includePageCount
-    @AppStorage(MonthPDFOptionSettings.timeKey)   private var monthPDFShowTime:  Bool = MonthPDFOptions.default.includeEstimatedTime
+    @AppStorage(MonthPDFOptionSettings.fieldsKey) var monthPDFFieldsRaw: String = MonthPDFOptionSettings.defaultFieldsRaw
+    @AppStorage(MonthPDFOptionSettings.pagesKey)  var monthPDFShowPages: Bool = MonthPDFOptions.default.includePageCount
+    @AppStorage(MonthPDFOptionSettings.timeKey)   var monthPDFShowTime:  Bool = MonthPDFOptions.default.includeEstimatedTime
 
-    private var project:        ProjectData    { document.project }
-    private var shootDays:      [ShootDay]     { project.shootDays }
-    private var productionInfo: ProductionInfo { project.productionInfo ?? ProductionInfo() }
-    private var sceneCount:     Int            { project.allScenes.count + shootDays.reduce(0) { $0 + $1.scenes.count } }
+    var project:        ProjectData    { document.project }
+    var shootDays:      [ShootDay]     { project.shootDays }
+    var productionInfo: ProductionInfo { project.productionInfo ?? ProductionInfo() }
+    private var sceneCount: Int        { project.allScenes.count + shootDays.reduce(0) { $0 + $1.scenes.count } }
 
     /// The shoot days' bounds, what the range pickers are seeded from (`ContentView`'s rule).
     static func dateRange(of days: [ShootDay]) -> ClosedRange<Date>? {
@@ -121,13 +120,15 @@ struct ProductionTab: View {
     var body: some View {
         // No stack of its own: nothing here pushes, and the document infrastructure's
         // bar would mirror into an inner one (PhoneEditor's note).
-        List {
+        // The range confirmation and the import picker hang off the list from their
+        // extensions (`ContentView`'s `applyX` pattern).
+        applyImportPicker(applyRangeConfirmation(List {
             productionSection
             appearanceSection
             projectSection
             exportSection
             importSection
-        }
+        }))
         .insetGroupedListStyle()
         .sheet(item: $activeSheet) { sheet in
             sheetContent(sheet)
@@ -141,23 +142,6 @@ struct ProductionTab: View {
         .onAppear { run(command) }
         .onChange(of: titleFocused) { _, focused in
             if !focused { titleGesture = EditGesture() }
-        }
-        .fileImporter(
-            isPresented: $showingImportPicker,
-            allowedContentTypes: ScriptImport.contentTypes,
-            allowsMultipleSelection: false,
-            onCompletion: importPickerFinished
-        )
-        .confirmationDialog(
-            L("Update the production range?"),
-            isPresented: $showingRangeConfirmation,
-            titleVisibility: .visible,
-            presenting: pendingRangePreview
-        ) { _ in
-            Button(L("Update Calendar")) { applyRangeUpdate() }
-            Button(L("Cancel"), role: .cancel) { pendingRangePreview = nil }
-        } message: { preview in
-            Text(rangeConfirmationMessage(preview))
         }
         .alert(L("CineSched"), isPresented: alertPresented) {
             Button(L("OK")) { alertMessage = nil }
@@ -214,95 +198,18 @@ struct ProductionTab: View {
         }
     }
 
-    private var projectSection: some View {
-        Section {
-            TextField(L("Movie Title"), text: projectTitleBinding)
-                .font(.headline)
-                .focused($titleFocused)
-                .submitLabel(.done)
-                .accessibilityIdentifier("ProjectTitleField")
-            DatePicker(L("Start Date"), selection: $startDate, displayedComponents: .date)
-            DatePicker(L("End Date"), selection: $endDate, displayedComponents: .date)
-            Toggle(L("Shift Schedule"), isOn: shiftModeBinding)
-            Button {
-                requestRangeUpdate()
-            } label: {
-                HStack {
-                    Label(L("Update Calendar"), systemImage: "calendar.badge.clock")
-                    Spacer()
-                    Text(rangeDetail)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .disabled(!rangeIsApplicable)
-            .accessibilityIdentifier("UpdateCalendar")
-        } header: {
-            Text(L("Project"))
-        } footer: {
-            Text(L("Shift Schedule: when the start date moves, every scene, event, call sheet, day type and note slides with it. Off, everything stays on its date and days outside the new range return their scenes to the Boneyard."))
-        }
-    }
-
-    private var exportSection: some View {
-        Section {
-            actionRow(L("Schedule Calendar"), systemImage: "calendar") {
-                export { try PDFExport.scheduleCalendar(project: project, startDate: currentRange.lowerBound, endDate: currentRange.upperBound) }
-            }
-            Menu {
-                ForEach(project.productionMonths(), id: \.self) { month in
-                    Button(formattedDate(month, pattern: "LLLL yyyy")) {
-                        activeSheet = .monthOptions(month: month)
-                    }
-                }
-            } label: {
-                rowLabel(L("Month Calendar"), systemImage: "calendar.day.timeline.left", detail: L("Choose a month"))
-            }
-            .disabled(shootDays.isEmpty)
-            actionRow(L("Strip Schedule"), systemImage: "rectangle.split.3x1") {
-                export { try PDFExport.stripSchedule(project: project) }
-            }
-            actionRow(L("Shooting Schedule"), systemImage: "doc.text") {
-                export { PDFExport.shootingSchedule(project: project) }
-            }
-            actionRow(L("Days Out of Days"), systemImage: "tablecells") {
-                export { try PDFExport.daysOutOfDays(project: project, includeHold: includeHoldInDOOD) }
-            }
-            Toggle(L("Include Hold Days in DOoD Report"), isOn: $includeHoldInDOOD)
-            actionRow(L("Scene Breakdowns"), systemImage: "list.clipboard") {
-                export { try PDFExport.breakdowns(project: project) }
-            }
-        } header: {
-            Text(L("Export"))
-        } footer: {
-            Text(L("Each export opens a preview you can share, print or save to Files."))
-        }
-    }
-
-    private var importSection: some View {
-        Section {
-            actionRow(L("Import Script…"), systemImage: "square.and.arrow.down", detail: L("Fountain, Final Draft, Highland")) {
-                showingImportPicker = true
-            }
-        } header: {
-            Text(L("Import"))
-        } footer: {
-            Text(L("The script's scenes are added to this project's Boneyard after you review the summary."))
-        }
-    }
-
     // MARK: - Rows
 
     /// A row that opens a sheet or runs a command: the icon in the accent color, the
     /// title, and an optional detail at the trailing edge.
-    private func actionRow(_ title: String, systemImage: String, detail: String? = nil, detailColor: Color? = nil, action: @escaping () -> Void) -> some View {
+    func actionRow(_ title: String, systemImage: String, detail: String? = nil, detailColor: Color? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             rowLabel(title, systemImage: systemImage, detail: detail, detailColor: detailColor)
         }
         .accessibilityIdentifier("ProductionRow.\(title)")
     }
 
-    private func rowLabel(_ title: String, systemImage: String, detail: String? = nil, detailColor: Color? = nil) -> some View {
+    func rowLabel(_ title: String, systemImage: String, detail: String? = nil, detailColor: Color? = nil) -> some View {
         HStack(spacing: 12) {
             Image(systemName: systemImage)
                 .foregroundStyle(Color.accentColor)
@@ -378,29 +285,13 @@ struct ProductionTab: View {
         case .stripboardFields:
             StripboardFieldsSheet(selectedFields: stripboardFields, onDismiss: { activeSheet = nil })
         case .monthOptions(let month):
-            MonthPDFOptionsSheet(
-                selectedFields:       monthPDFFields,
-                includePageCount:     $monthPDFShowPages,
-                includeEstimatedTime: $monthPDFShowTime,
-                onCancel:             { activeSheet = nil },
-                onExport:             {
-                    activeSheet = nil
-                    exportMonth(month)
-                }
-            )
+            monthOptionsSheet(month)
         case .importSummary:
-            if let result = pendingImport {
-                ImportSummaryView(
-                    result:       result,
-                    onDismiss:    { activeSheet = nil },
-                    onConfirm:    { commitImport(result) },
-                    confirmation: .existingProject
-                )
-            }
+            importSummarySheet
         }
     }
 
-    private func sheetPresented(_ sheet: ActiveSheet) -> Binding<Bool> {
+    func sheetPresented(_ sheet: ActiveSheet) -> Binding<Bool> {
         Binding(get: { activeSheet == sheet }, set: { if !$0 { activeSheet = nil } })
     }
 
@@ -538,127 +429,6 @@ struct ProductionTab: View {
         edit(L("Reset Scene Colors")) { $0.palette = .standard }
     }
 
-    // MARK: - Project settings
-
-    private var projectTitleBinding: Binding<String> {
-        Binding(
-            get: { project.projectTitle },
-            set: { new in editCoalescing(titleGesture, L("Rename Project")) { $0.projectTitle = new } }
-        )
-    }
-
-    private var shiftModeBinding: Binding<Bool> {
-        Binding(
-            get: { project.isShiftModeEnabled ?? false },
-            set: { new in edit(L("Shift Schedule")) { $0.isShiftModeEnabled = new } }
-        )
-    }
-
-    /// The project's range as it is (the exports draw it), today twice for a project
-    /// without days.
-    private var currentRange: ClosedRange<Date> {
-        Self.dateRange(of: shootDays) ?? Date()...Date()
-    }
-
-    private var rangeIsApplicable: Bool {
-        guard startDate <= endDate else { return false }
-        let cal = Calendar.current
-        guard let current = Self.dateRange(of: shootDays) else { return true }
-        return !(cal.isDate(startDate, inSameDayAs: current.lowerBound) && cal.isDate(endDate, inSameDayAs: current.upperBound))
-    }
-
-    /// "Nov 2 – Nov 6 · 5 days", or what is wrong with the pending range.
-    private var rangeDetail: String {
-        guard startDate <= endDate else { return L("End before start") }
-        let days = (Calendar.current.dateComponents([.day], from: Calendar.current.startOfDay(for: startDate), to: Calendar.current.startOfDay(for: endDate)).day ?? 0) + 1
-        return days == 1 ? L("1 day") : String(format: L("%d days"), days)
-    }
-
-    /// Update Calendar: a range that would send scenes back to the Boneyard is confirmed
-    /// first (there is no visible Undo on a phone); any other applies at once.
-    private func requestRangeUpdate() {
-        guard rangeIsApplicable else { return }
-        let preview = project.previewProductionRange(from: startDate, to: endDate)
-        if preview.displacedSceneCount > 0 {
-            pendingRangePreview      = preview
-            showingRangeConfirmation = true
-        } else {
-            applyRangeUpdate()
-        }
-    }
-
-    /// One edit, so the whole regeneration is one undo step (`ProductionRange.swift`).
-    private func applyRangeUpdate() {
-        pendingRangePreview = nil
-        let newStart = startDate
-        let newEnd   = endDate
-        edit(L("Update Calendar")) { $0.updateProductionRange(from: newStart, to: newEnd) }
-        seededRange = Self.dateRange(of: shootDays)
-    }
-
-    /// What the change does besides the displaced scenes: with Shift Schedule on and the
-    /// start moved, everything slides with it; otherwise everything stays on its date.
-    private func rangeConfirmationMessage(_ preview: ProductionRangePreview) -> String {
-        let scenes = preview.displacedSceneCount == 1
-            ? L("1 scene on a day outside the new range will return to the Boneyard.")
-            : String(format: L("%d scenes on days outside the new range will return to the Boneyard."), preview.displacedSceneCount)
-        let rest = preview.shifts
-            ? L("Call sheets, calendar events, day types and notes move with the schedule to the new start.")
-            : L("Call sheets, calendar events, day types and notes stay on their dates.")
-        return scenes + " " + rest
-    }
-
-    // MARK: - Exports
-
-    /// Builds the request and hands it to the preview sheet; a failure is the alert's
-    /// message (`PDFExportError`). Never an exporter call from here. (Untyped `throws`:
-    /// a closure literal's thrown type is inferred as `any Error`, not the typed one.)
-    private func export(_ make: () throws -> PDFExportRequest) {
-        do {
-            exportPreview = try make()
-        } catch let error as PDFExportError {
-            alertMessage = error.message
-        } catch {
-            alertMessage = error.localizedDescription
-        }
-    }
-
-    private func exportMonth(_ month: Date) {
-        let options = MonthPDFOptions(
-            fields:               StripboardFieldSettings.decode(monthPDFFieldsRaw),
-            includePageCount:     monthPDFShowPages,
-            includeEstimatedTime: monthPDFShowTime
-        )
-        export { try PDFExport.monthCalendar(project: project, month: month, options: options) }
-    }
-
-    // MARK: - Import
-
-    /// The picker returned: parse the script (any format, `ScriptImport`) and show the
-    /// summary; nothing is written until Add to Boneyard.
-    private func importPickerFinished(_ result: Result<[URL], Error>) {
-        switch result {
-        case .failure(let error):
-            alertMessage = error.localizedDescription
-        case .success(let urls):
-            guard let url = urls.first else { return }
-            let accessing = url.startAccessingSecurityScopedResource()
-            defer { if accessing { url.stopAccessingSecurityScopedResource() } }
-            do {
-                pendingImport = try ScriptImport.parse(at: url)
-                activeSheet   = .importSummary
-            } catch {
-                alertMessage = error.localizedDescription
-            }
-        }
-    }
-
-    /// Add to Boneyard: the one write, and the summary closes.
-    private func commitImport(_ result: FountainImportResult) {
-        edit(L("Import Script")) { $0.allScenes.append(contentsOf: result.scenes) }
-        activeSheet = nil
-    }
-
     // MARK: - Alerts
 
     private var alertPresented: Binding<Bool> {
@@ -682,10 +452,10 @@ struct ProductionTab: View {
         case .showSceneColorSettings: activeSheet = .sceneColorSettings
         case .showStripboardFields:   activeSheet = .stripboardFields
         case .importScript:           showingImportPicker = true
-        case .exportScheduleCalendar: export { try PDFExport.scheduleCalendar(project: project, startDate: currentRange.lowerBound, endDate: currentRange.upperBound) }
-        case .exportStripSchedule:    export { try PDFExport.stripSchedule(project: project) }
-        case .exportDaysOutOfDays:    export { try PDFExport.daysOutOfDays(project: project, includeHold: includeHoldInDOOD) }
-        case .exportBreakdowns:       export { try PDFExport.breakdowns(project: project) }
+        case .exportScheduleCalendar: exports.scheduleCalendar(startDate: currentRange.lowerBound, endDate: currentRange.upperBound)
+        case .exportStripSchedule:    exports.stripSchedule()
+        case .exportDaysOutOfDays:    exports.daysOutOfDays(includeHold: includeHoldInDOOD)
+        case .exportBreakdowns:       exports.breakdowns()
         }
     }
 }

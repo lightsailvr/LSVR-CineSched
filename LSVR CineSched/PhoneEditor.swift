@@ -35,6 +35,20 @@
 
 import SwiftUI
 
+// MARK: - The edit funnel's shape
+
+/// The edit funnel `PhoneEditor` hands down: `edit(name) { data in … }`, the same call
+/// shape as `ContentView.edit(_:_:)`, so a subview writes the project without holding
+/// the document or the undo manager.
+typealias ProjectEdit = (_ actionName: String?, _ change: (inout ProjectData) -> Void) -> Void
+
+/// `edit` under a gesture the caller owns, for the writes that must fold across several
+/// calls: every keystroke of the title or the day note, every movement of a color slot's
+/// wheel.
+typealias CoalescedProjectEdit = (_ token: EditGesture, _ actionName: String?, _ change: (inout ProjectData) -> Void) -> Void
+
+// MARK: - The editor
+
 struct PhoneEditor: View {
     let document: ProjectDocument
     @Environment(\.undoManager) private var undoManager
@@ -177,7 +191,7 @@ struct PhoneEditor: View {
                     editCoalescing:           coalescedProjectEdit,
                     beginEditGestureIfNeeded: { if activeGesture == nil { beginEditGesture() } },
                     command:                  $productionCommand,
-                    exportPreview:            $exportPreview,
+                    exports:                  exports,
                     jumpToDate:               { date in
                         selectedTab  = .days
                         scrollToDate = date
@@ -305,23 +319,24 @@ struct PhoneEditor: View {
     }
 
     /// The day edits (#26) over `edit`, with their editors presented here and the call
-    /// sheet's Export PDF into the preview sheet (#23).
+    /// sheet's Export PDF through `exports`.
     private var dayEdits: PhoneDayEdits {
         PhoneDayEdits(
             edit:            projectEdit,
             beginGesture:    { if activeGesture == nil { beginEditGesture() } },
             present:         { editSheet = $0 },
             productionRange: { productionRange },
-            exportCallSheet: { day in
-                // The closure literal's thrown type is inferred untyped (learnings 2026-09-21 #28).
-                do {
-                    exportPreview = try PDFExport.callSheet(project: document.project, day: day)
-                } catch let error as PDFExportError {
-                    alertMessage = error.message
-                } catch {
-                    alertMessage = error.localizedDescription
-                }
-            }
+            exportCallSheet: { day in exports.callSheet(day: day) }
+        )
+    }
+
+    /// The phone's one export call site (PhoneExports.swift, #23): every document into the
+    /// preview sheet, a failure into the Export Failed alert.
+    private var exports: PhoneExports {
+        PhoneExports(
+            project: { document.project },
+            present: { exportPreview = $0 },
+            fail:    { alertMessage  = $0 }
         )
     }
 

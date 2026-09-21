@@ -12,15 +12,17 @@
 //
 // The moves (#25): a long-press drag on a strip reorders it within its day through the
 // strips `ForEach`'s `.onMove` (`PhoneMoves.reorder`, one edit); the `List` gives the drag
-// handles and the edge auto-scroll. A strip cannot be dragged into another day's card,
-// because a `List` on iOS 27 does not deliver a cross-section drop — a row's or a
-// section's `.dropDestination` is never targeted and `onInsert` never fires for a drag
-// that started in another section (learnings 2026-09-21 #25) — and a `List` is what the
-// swipe actions need. Cross-day moves are Send to Day instead (the strip's swipe and
-// menu, `PhoneStripActions`), which lands the scene on any day picked. The day header's
-// long press is the day's menu (Open Day, Add Scenes…, Swap with Day…, and with #26 the
-// call sheet, Add Banner… and Add Event…). No `dragContainer` or `reorderContainer`: see
-// ScheduleDrag.swift and learnings 2026-09-20.
+// handles and the edge auto-scroll, and the rows carry no `.draggable` of their own (a
+// payload with no drop destination anywhere on the phone was dead weight, the M4 review).
+// A strip cannot be dragged into another day's card, because a `List` on iOS 27 does not
+// deliver a cross-section drop — a row's or a section's `.dropDestination` is never
+// targeted and `onInsert` never fires for a drag that started in another section
+// (learnings 2026-09-21 #25) — and a `List` is what the swipe actions need. Cross-day
+// moves are the strip's Move to Next Day / Move to Previous Day and Send to Day instead
+// (its swipe and menu, `PhoneStripActions`). The day header's long press is the day's
+// menu (`PhoneDayMenus.swift`, shared with the Day screen's ⋯: Open Day, the call sheet,
+// Add Banner…, Add Event…, Add Scenes…, Swap with Day…). No `dragContainer` or
+// `reorderContainer`: see ScheduleDrag.swift and learnings 2026-09-20.
 //
 // The edits (#26) reach the list through the same `PhoneStripActions` as the Day
 // screen: a tap on a strip opens its editor, a tap on an event chip the event input
@@ -126,7 +128,7 @@ struct DaysTab: View {
                 ContentUnavailableView(
                     L("No Shoot Days"),
                     systemImage: "calendar.badge.exclamationmark",
-                    description: Text(L("Set the production range on the Mac or iPad to add days."))
+                    description: Text(L("Set the production range in the Production tab to add days."))
                 )
                 .listRowBackground(Color.clear)
             }
@@ -164,7 +166,6 @@ struct DaysTab: View {
                 PhoneStripRow(scene: scene, timeText: timeline[scene.id]?.timeDisplay ?? "", hasConflict: conflictSceneIDs.contains(scene.id), visibleFields: fields)
                     .stripListRow(color: PhoneStripRow.rowColor(for: scene, palette: palette))
                     .stripInteractions(actions, scene: scene)
-                    .draggable(ScheduleDragPayload.scenes([scene.id], from: day.id))
             }
             .onMove { source, destination in
                 moves.reorder(displayed, fromOffsets: source, toOffset: destination, in: day.id)
@@ -233,49 +234,11 @@ struct DaysTab: View {
         }
         .id(day.id)
         .listRowBackground(day.dayType.isShootable ? nil : typeColor.opacity(0.10))
-        .contextMenu { dayMenuItems(day) }
+        .contextMenu { phoneDayMenuItems(dayID: day.id, moves: moves, dayEdits: dayEdits, openDay: { path.append(day.id) }) }
         // `onScrollVisibilityChange` never fires for a List row on 27.0; appear and
         // disappear do, one buffered cell late, which is close enough for the week.
         .onAppear    { visibleDayDates.insert(day.date); followVisibleDays() }
         .onDisappear { visibleDayDates.remove(day.date); followVisibleDays() }
-    }
-
-    /// The day header's long-press menu: the Day screen, the day's edits (#26: the call
-    /// sheet, Add Banner…, Add Event…) and the moves that act on the whole day (#25).
-    @ViewBuilder
-    private func dayMenuItems(_ day: ShootDay) -> some View {
-        Button {
-            path.append(day.id)
-        } label: {
-            Label(L("Open Day"), systemImage: "calendar")
-        }
-        Divider()
-        Button {
-            dayEdits.presentCallSheet(dayID: day.id)
-        } label: {
-            Label(L("Edit Call Sheet…"), systemImage: "doc.plaintext")
-        }
-        Button {
-            dayEdits.presentBannerEditor(dayID: day.id)
-        } label: {
-            Label(L("Add Banner…"), systemImage: "flag")
-        }
-        Button {
-            dayEdits.presentEventEditor(dayID: day.id)
-        } label: {
-            Label(L("Add Event…"), systemImage: "calendar.badge.plus")
-        }
-        Divider()
-        Button {
-            moves.presentAddScenes(dayID: day.id)
-        } label: {
-            Label(L("Add Scenes…"), systemImage: "plus.rectangle.on.rectangle")
-        }
-        Button {
-            moves.presentSwapDay(dayID: day.id)
-        } label: {
-            Label(L("Swap with Day…"), systemImage: "arrow.left.arrow.right")
-        }
     }
 
     /// "6 scn · 4 2/8 pgs · Call 6:30 AM · 1 event", dropping what the day has none of.
@@ -302,19 +265,7 @@ struct DaysTab: View {
                     PhoneEventChip(event: event)
                         .contentShape(Rectangle())
                         .onTapGesture { dayEdits.presentEventEditor(dayID: dayID, eventID: event.id) }
-                        .contextMenu {
-                            Button {
-                                dayEdits.presentEventEditor(dayID: dayID, eventID: event.id)
-                            } label: {
-                                Label(L("Edit Event"), systemImage: "pencil")
-                            }
-                            Divider()
-                            Button(role: .destructive) {
-                                dayEdits.deleteNoticeStrip(event)
-                            } label: {
-                                Label(L("Delete Event"), systemImage: "trash")
-                            }
-                        }
+                        .contextMenu { phoneEventMenuItems(event, dayID: dayID, dayEdits: dayEdits) }
                 }
             }
             .padding(.horizontal, 14)
