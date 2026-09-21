@@ -31,6 +31,7 @@ starts with a header comment saying why the seam exists and what the non-Mac sid
 | Application delegate | `MacAppDelegate.swift` | Legacy working-copy recovery (#10), panel directory seeding (#12) | Not built |
 | Export presentation | `PlatformExportPresentation.swift` | `previewsExports` false: the save panels in `ContentView+PDFExports.swift` (#23); PDFKit's `PDFView` as an `NSViewRepresentable`, compiled and never shown | True: the preview sheet with Done and Share (`PDFExportPresentation`); `PDFView` as a `UIViewRepresentable` for the iPad and the Vision Pro alike |
 | Inspector column | `PlatformInspector.swift` | `.inspector(isPresented:)` (#17; the Mac never shows the three-column layout today) | iPadOS: `.inspector`; visionOS, where the modifier is unavailable: a trailing pane in an `HStack` |
+| Editor sheet container | `PlatformEditorContainer.swift` | The editor's fixed frame (`EditorSheetSize`; a Mac sheet is sized by its content) (#19) | iPhone (by interface idiom): `presentationDetents` with a drag indicator; iPad and visionOS: `presentationSizing(.form)`, at the editor's own height for a short one; nothing in the inspector |
 
 (Until #6 the two AppKit-drawn exporters and `ContentView+PDFExports.swift` (then `ProjectStore+PDFExports.swift`) were a temporary
 seam, gated out of the non-Mac builds; that row is gone.)

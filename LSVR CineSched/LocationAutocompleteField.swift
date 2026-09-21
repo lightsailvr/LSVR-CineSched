@@ -1,13 +1,23 @@
 // LocationAutocompleteField.swift
-// Reusable text field with live dropdown suggestions for film locations.
+// Reusable text field with live dropdown suggestions for film locations. Standalone
+// (its own headline and rounded field, for a free-standing layout) or as a form row
+// (#19: the enclosing `Form` supplies the field style and the label is the prompt).
 
 import SwiftUI
 
 struct LocationAutocompleteField: View {
+    enum Style {
+        /// A headline over a rounded-border field.
+        case standalone
+        /// A row of a `Form`: the plain field the form styles, the title as its prompt.
+        case formRow
+    }
+
     let title: String
     let placeholder: String
     @Binding var text: String
     let suggestions: [String]
+    var style: Style = .standalone
     @State private var isShowingSuggestions: Bool = false
 
     var filteredSuggestions: [String] {
@@ -20,13 +30,17 @@ struct LocationAutocompleteField: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.headline)
+            if style == .standalone {
+                Text(title).font(.headline)
+            }
             VStack(alignment: .leading, spacing: 0) {
-                TextField(placeholder, text: $text)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .onChange(of: text) { _ in
-                        isShowingSuggestions = !filteredSuggestions.isEmpty
-                    }
+                switch style {
+                case .standalone:
+                    TextField(placeholder, text: $text)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                case .formRow:
+                    TextField(title, text: $text, prompt: Text(placeholder))
+                }
 
                 if isShowingSuggestions && !filteredSuggestions.isEmpty {
                     VStack(alignment: .leading, spacing: 2) {
@@ -59,6 +73,9 @@ struct LocationAutocompleteField: View {
                     .padding(.top, 2)
                 }
             }
+        }
+        .onChange(of: text) { _, _ in
+            isShowingSuggestions = !filteredSuggestions.isEmpty
         }
     }
 }

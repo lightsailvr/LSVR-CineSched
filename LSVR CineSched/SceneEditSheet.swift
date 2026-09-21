@@ -1,8 +1,12 @@
 // SceneEditSheet.swift
-// Modal sheet for editing an existing scene's properties. The iPad's inspector column
-// shows the same view (#17): there `editorPresentation` is `.inspector` and the sheet's
-// fixed width and scroll height give way to the column's, until the adaptive form
-// rewrite (#19) replaces the fixed frames themselves.
+// The scene editor (#19): one adaptive `Form` for every container. The Mac's sheets
+// (a strip's double-click, the Boneyard's Edit, the Breakdown Browser), the iPad's
+// inspector column (#17) and the iPad's and iPhone's sheets all show this view; only the
+// size around it changes (`editorContainer`). The fields are a `SceneDraft`, populated
+// from the scene when the editor appears and whenever the scene's id changes (Previous /
+// Next, a new inspector selection), and Save assigns `draft.applied(to:)` to the
+// binding once: one `perform`, one undo step, whatever the container (the old sheet
+// wrote thirty properties through the binding, one `perform` each).
 
 import SwiftUI
 
@@ -29,42 +33,74 @@ struct SceneEditSheet: View {
     var closeAfterDelete: Bool = true
     var knownLocations: [String] = []
 
-    @State private var editSceneNumber:     String      = ""
-    @State private var editTitle:           String      = ""
-    @State private var editRealLocation:    String      = ""
-    @State private var editLocationAddress: String      = ""
-    @State private var editDuration:        String      = ""
-    @State private var editEstimatedTime:   String      = ""
-    @State private var editCustomStartTime: String      = ""
-    @State private var editDayNightType:    DayNightType = .day
-    @State private var editCastText:        String      = ""   // comma-separated editing surface
-    @State private var editSummary:         String      = ""
-
-    @State private var breakdownExpanded:      Bool   = true
-    @State private var editExtras:             String = ""
-    @State private var editProps:              String = ""
-    @State private var editSetDressing:        String = ""
-    @State private var editWardrobe:           String = ""
-    @State private var editMakeupHair:         String = ""
-    @State private var editVehicles:           String = ""
-    @State private var editSpecialEquipment:   String = ""
-    @State private var editStunts:             String = ""
-    @State private var editSFX:                String = ""
-    @State private var editVFX:                String = ""
-    @State private var editBreakdownNotes:     String = ""
-
-    @State private var durationIsValid:      Bool = true
-    @State private var estimatedTimeIsValid: Bool = true
-
-    private enum Field: Hashable {
-        case title, estimate, cast
-    }
-    @FocusState private var focusedField: Field?
+    @State private var draft: SceneDraft
+    @State private var breakdownExpanded: Bool
     @State private var focusDurationTrigger: Bool = false
 
+    static let sheetSize = EditorSheetSize(width: 560, height: 680, compactDetents: [.large])
+
+    init(
+        scene: Binding<Scene>,
+        isPresented: Binding<Bool>,
+        onSave: @escaping () -> Void,
+        onDelete: @escaping () -> Void,
+        canGoPrevious: Bool = false,
+        canGoNext: Bool = false,
+        onPrevious: (() -> Void)? = nil,
+        onNext: (() -> Void)? = nil,
+        positionLabel: String? = nil,
+        breakdownExpandedByDefault: Bool = true,
+        closeAfterDelete: Bool = true,
+        knownLocations: [String] = []
+    ) {
+        _scene                     = scene
+        _isPresented               = isPresented
+        self.onSave                = onSave
+        self.onDelete              = onDelete
+        self.canGoPrevious         = canGoPrevious
+        self.canGoNext             = canGoNext
+        self.onPrevious            = onPrevious
+        self.onNext                = onNext
+        self.positionLabel         = positionLabel
+        self.breakdownExpandedByDefault = breakdownExpandedByDefault
+        self.closeAfterDelete      = closeAfterDelete
+        self.knownLocations        = knownLocations
+        // Populated here rather than on appear so the first frame shows the scene.
+        _draft                     = State(initialValue: SceneDraft(scene: scene.wrappedValue))
+        _breakdownExpanded         = State(initialValue: breakdownExpandedByDefault)
+    }
+
     var body: some View {
-        VStack(spacing: 20) {
-            HStack {
+        EditorChrome {
+            header
+        } content: {
+            form
+        } footer: {
+            footer
+        }
+        .editorContainer(Self.sheetSize)
+        .onAppear {
+            focusDurationField()
+        }
+        .onChange(of: scene) { old, new in
+            if old.id != new.id {
+                // Previous / Next, or a new selection: a new editor.
+                draft             = SceneDraft(scene: new)
+                breakdownExpanded = breakdownExpandedByDefault
+                focusDurationField()
+            } else if draft == SceneDraft(scene: old) {
+                // The same scene changed under an untouched editor (an undo, a drag, a
+                // sync): follow it. Typing in progress is never replaced.
+                draft = SceneDraft(scene: new)
+            }
+        }
+    }
+
+    // MARK: - Header
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            if onPrevious != nil {
                 Button {
                     navigate(onPrevious)
                 } label: {
@@ -72,22 +108,28 @@ struct SceneEditSheet: View {
                         .frame(width: 16, height: 16)
                 }
                 .buttonStyle(.bordered)
-                .disabled(!canGoPrevious || !isValidInput())
-                .help("Previous Scene")
-                .opacity(onPrevious == nil ? 0 : 1)
+                .disabled(!canGoPrevious || !draft.isValid)
+                .help(L("Previous Scene"))
+                .accessibilityLabel(L("Previous Scene"))
+            }
 
-                VStack(spacing: 2) {
-                    Text("Edit Scene")
-                        .font(.title2)
-                        .fontWeight(.semibold)
-                    if let positionLabel {
-                        Text(positionLabel)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
+            // Centred between the arrows when there are arrows; leading, like the other
+            // editors' titles, when there are none (the inspector).
+            let centred = onPrevious != nil || onNext != nil
+            VStack(alignment: centred ? .center : .leading, spacing: 2) {
+                Text(L("Edit Scene"))
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                if let positionLabel {
+                    Text(positionLabel)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
-                .frame(maxWidth: .infinity)
+            }
+            .frame(maxWidth: .infinity, alignment: centred ? .center : .leading)
 
+            if onNext != nil {
                 Button {
                     navigate(onNext)
                 } label: {
@@ -95,192 +137,160 @@ struct SceneEditSheet: View {
                         .frame(width: 16, height: 16)
                 }
                 .buttonStyle(.bordered)
-                .disabled(!canGoNext || !isValidInput())
-                .help("Next Scene")
-                .opacity(onNext == nil ? 0 : 1)
+                .disabled(!canGoNext || !draft.isValid)
+                .help(L("Next Scene"))
+                .accessibilityLabel(L("Next Scene"))
+            }
+        }
+    }
+
+    // MARK: - Form
+
+    private var form: some View {
+        Form {
+            Section {
+                LabeledContent(L("Scene #")) {
+                    TextField("#", text: $draft.sceneNumber)
+                        .multilineTextAlignment(.trailing)
+                }
+                TextField(L("Scene Title"), text: $draft.title, prompt: Text(L("e.g. INT. KITCHEN - NIGHT")))
+                LocationAutocompleteField(
+                    title:       L("Real Location / Set"),
+                    placeholder: L("e.g. Playa de la Concha, Airport Hangar"),
+                    text:        $draft.realLocation,
+                    suggestions: knownLocations,
+                    style:       .formRow
+                )
             }
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-
-                // Scene Number & Title
-                HStack(spacing: 8) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Scene #").font(.headline)
-                        TextField("#", text: $editSceneNumber)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .frame(width: 80)
-                    }
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Scene Title").font(.headline)
-                        TextField("Scene Title", text: $editTitle)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .focused($focusedField, equals: .title)
-                    }
-                }
-
-                // Real Location (Set) with Autocomplete
-                LocationAutocompleteField(
-                    title: "Real Location / Set",
-                    placeholder: "e.g. Playa de la Concha, Airport Hangar",
-                    text: $editRealLocation,
-                    suggestions: knownLocations
-                )
-
-                // Duration
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Duration (pages)").font(.headline)
+            Section {
+                LabeledContent(L("Duration (pages)")) {
                     SelectAllTextField(
-                        placeholder: FractionParser.placeholderText,
-                        text: $editDuration,
+                        placeholder:  FractionParser.placeholderText,
+                        text:         $draft.duration,
                         focusTrigger: $focusDurationTrigger
                     )
-                    .frame(height: 22)
-                    .border(durationIsValid ? Color.clear : Color.red, width: 1)
-                    .onChange(of: editDuration) { _, _ in validateDuration() }
-
-                    if !durationIsValid {
-                        Text("Invalid format. Use: 15 (eighths), 1 7/8 (mixed), or 7/8 (fraction)")
-                            .font(.caption).foregroundColor(.red)
-                    } else if let eighths = FractionParser.parseToEighths(editDuration), !editDuration.isEmpty {
-                        Text("= \(FractionParser.formatEighths(eighths)) pages (\(eighths) eighths)")
-                            .font(.caption).foregroundColor(.secondary)
-                    } else if editDayNightType == .custom {
-                        Text("Leave blank for no page count")
-                            .font(.caption).foregroundColor(.secondary)
-                    }
+                    .multilineTextAlignment(.trailing)
                 }
-
-                // Estimated Time
+                LabeledContent(L("Estimated Time")) {
+                    TextField(TimeParser.placeholderText, text: $draft.estimatedTime)
+                        .multilineTextAlignment(.trailing)
+                }
+            } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Estimated Time").font(.headline)
-                    TextField(TimeParser.placeholderText, text: $editEstimatedTime)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .focused($focusedField, equals: .estimate)
-                        .border(estimatedTimeIsValid ? Color.clear : Color.red, width: 1)
-                        .onChange(of: editEstimatedTime) { _, _ in validateEstimatedTime() }
-
-                    if !estimatedTimeIsValid {
-                        Text("Invalid format. Use: 4 (4 hours), 15 (15 minutes), or 2:30 (2hr 30min)")
-                            .font(.caption).foregroundColor(.red)
-                    } else if let hint = TimeParser.getInputHint(editEstimatedTime), !editEstimatedTime.isEmpty {
-                        Text(hint).font(.caption).foregroundColor(.secondary)
+                    if let hint = durationHint {
+                        Text(hint.text).foregroundStyle(hint.isError ? Color.red : Color.secondary)
                     }
-                }
-
-                // Cast
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Cast").font(.headline)
-                    TextField("John, Mary, Bob", text: $editCastText)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .focused($focusedField, equals: .cast)
-                    Text("Separate names with commas")
-                        .font(.caption).foregroundColor(.secondary)
-                }
-
-                // Scene Summary
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Scene Summary").font(.headline)
-                    TextEditor(text: $editSummary)
-                        .frame(minHeight: 100)
-                        .padding(6)
-                        .border(Color.gray.opacity(0.3), width: 1)
-                        .cornerRadius(4)
-                }
-
-                // Day / Night / Custom
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(L("Type")).font(.headline)
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
-                        ForEach(DayNightType.allCases, id: \.self) { type in
-                            Button {
-                                editDayNightType = type
-                            } label: {
-                                HStack(spacing: 5) {
-                                    Image(systemName: editDayNightType == type ? "checkmark.circle.fill" : "circle")
-                                        .foregroundColor(editDayNightType == type ? .accentColor : .secondary)
-                                    Text(L(type.rawValue.uppercased()))
-                                        .foregroundColor(editDayNightType == type ? .primary : .secondary)
-                                        .fontWeight(editDayNightType == type ? .semibold : .regular)
-                                        .lineLimit(1)
-                                        .fixedSize(horizontal: true, vertical: false)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
+                    if let hint = estimatedTimeHint {
+                        Text(hint.text).foregroundStyle(hint.isError ? Color.red : Color.secondary)
                     }
-                }
-
-                Divider()
-
-                // Breakdown tagging
-                DisclosureGroup(isExpanded: $breakdownExpanded) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        breakdownField("Extras / Background", text: $editExtras)
-                        breakdownField("Props", text: $editProps)
-                        breakdownField("Set Dressing", text: $editSetDressing)
-                        breakdownField("Wardrobe", text: $editWardrobe)
-                        breakdownField("Hair & Makeup", text: $editMakeupHair)
-                        breakdownField("Vehicles", text: $editVehicles)
-                        breakdownField("Special Equipment", text: $editSpecialEquipment)
-                        breakdownField("Stunts", text: $editStunts)
-                        breakdownField("SFX", text: $editSFX)
-                        breakdownField("VFX", text: $editVFX)
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Breakdown Notes").font(.subheadline).foregroundColor(.secondary)
-                            TextEditor(text: $editBreakdownNotes)
-                                .frame(minHeight: 60)
-                                .padding(6)
-                                .border(Color.gray.opacity(0.3), width: 1)
-                                .cornerRadius(4)
-                        }
-                    }
-                    .padding(.top, 8)
-                } label: {
-                    Text("Breakdown").font(.headline)
-                }
                 }
             }
-            .frame(maxHeight: presentation == .inspector ? .infinity : 480)
 
-            HStack(spacing: 16) {
-                Button("Delete Scene") {
-                    onDelete()
-                    if closeAfterDelete { isPresented = false }
+            Section {
+                TextField(L("Cast"), text: $draft.castText, prompt: Text("John, Mary, Bob"))
+            } header: {
+                Text(L("Cast"))
+            } footer: {
+                Text(L("Separate names with commas"))
+            }
+
+            Section(L("Scene Summary")) {
+                FormTextEditor(prompt: L("What happens in the scene"), text: $draft.summary)
+            }
+
+            Section {
+                Picker(L("Type"), selection: $draft.dayNightType) {
+                    ForEach(DayNightType.allCases, id: \.self) { type in
+                        Text(L(type.rawValue.uppercased())).tag(type)
+                    }
                 }
-                .foregroundColor(.red)
+                .pickerStyle(.menu)
+            }
+
+            Section {
+                DisclosureGroup(isExpanded: $breakdownExpanded) {
+                    breakdownField(L("Extras / Background"), text: $draft.extras)
+                    breakdownField(L("Props"),               text: $draft.props)
+                    breakdownField(L("Set Dressing"),        text: $draft.setDressing)
+                    breakdownField(L("Wardrobe"),            text: $draft.wardrobe)
+                    breakdownField(L("Hair & Makeup"),       text: $draft.makeupHair)
+                    breakdownField(L("Vehicles"),            text: $draft.vehicles)
+                    breakdownField(L("Special Equipment"),   text: $draft.specialEquipment)
+                    breakdownField(L("Stunts"),              text: $draft.stunts)
+                    breakdownField(L("SFX"),                 text: $draft.sfx)
+                    breakdownField(L("VFX"),                 text: $draft.vfx)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(L("Breakdown Notes"))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        FormTextEditor(prompt: L("Notes for the breakdown sheet"), text: $draft.breakdownNotes, minHeight: 60)
+                    }
+                } label: {
+                    Text(L("Breakdown")).font(.headline)
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    // MARK: - Footer
+
+    private var footer: some View {
+        HStack(spacing: 12) {
+            Button(role: .destructive) {
+                onDelete()
+                if closeAfterDelete { isPresented = false }
+            } label: {
+                Label(L("Delete Scene"), systemImage: "trash")
+                    .labelStyle(.iconOnly)
+                    .frame(width: 16, height: 16)
+            }
+            .buttonStyle(.bordered)
+            .tint(.red)
+            .help(L("Delete Scene"))
+
+            Spacer()
+
+            Button(L("Cancel")) { isPresented = false }
                 .buttonStyle(.bordered)
 
-                Spacer()
-
-                Button("Cancel") { isPresented = false }
-                    .buttonStyle(.bordered)
-
-                Button("Save Changes") {
-                    saveChanges()
-                    onSave()
-                    isPresented = false
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!isValidInput())
+            Button(L("Save Changes")) {
+                saveChanges()
+                onSave()
+                isPresented = false
             }
-        }
-        .padding(24)
-        .frame(width: presentation == .inspector ? nil : 550)
-        .onAppear {
-            populateFields()
-            focusDurationField()
-            breakdownExpanded = breakdownExpandedByDefault
-        }
-        .onChange(of: scene.id) { _, _ in
-            populateFields()
-            focusDurationField()
-            breakdownExpanded = breakdownExpandedByDefault
+            .buttonStyle(.borderedProminent)
+            .disabled(!draft.isValid)
         }
     }
 
     // MARK: - Helpers
+
+    private struct Hint { let text: String; let isError: Bool }
+
+    private var durationHint: Hint? {
+        if !draft.durationIsValid {
+            return Hint(text: L("Invalid format. Use: 15 (eighths), 1 7/8 (mixed), or 7/8 (fraction)"), isError: true)
+        }
+        if let eighths = draft.parsedEighths, !draft.duration.isEmpty {
+            return Hint(text: "= \(FractionParser.formatEighths(eighths)) \(L("pages")) (\(eighths) \(L("eighths")))", isError: false)
+        }
+        if draft.dayNightType == .custom {
+            return Hint(text: L("Leave blank for no page count"), isError: false)
+        }
+        return nil
+    }
+
+    private var estimatedTimeHint: Hint? {
+        if !draft.estimatedTimeIsValid {
+            return Hint(text: L("Invalid format. Use: 4 (4 hours), 15 (15 minutes), or 2:30 (2hr 30min)"), isError: true)
+        }
+        if let hint = TimeParser.getInputHint(draft.estimatedTime), !draft.estimatedTime.isEmpty {
+            return Hint(text: hint, isError: false)
+        }
+        return nil
+    }
 
     /// Duration is the field users almost always need to correct — even on imported
     /// scenes where every field already has a default value — so focus starts there
@@ -296,103 +306,21 @@ struct SceneEditSheet: View {
 
     /// Saves the current edits (so they aren't lost) and moves to the adjacent scene.
     private func navigate(_ direction: (() -> Void)?) {
-        guard let direction, isValidInput() else { return }
+        guard let direction, draft.isValid else { return }
         saveChanges()
         onSave()
         direction()
     }
 
-    private func populateFields() {
-        var tempScene = scene
-        tempScene.autoExtractSceneNumberIfNeeded()
-        editSceneNumber      = tempScene.sceneNumber
-        editTitle            = tempScene.title
-        editRealLocation     = scene.realLocation
-        editLocationAddress  = scene.locationAddress
-        editDuration         = scene.duration > 0 ? FractionParser.formatEighths(scene.duration) : ""
-        editEstimatedTime    = scene.estimatedTime > 0 ? formatMinutesForEditing(scene.estimatedTime) : ""
-        editCustomStartTime  = scene.customStartTime
-        editDayNightType     = scene.dayNightType
-        editCastText         = scene.cast.joined(separator: ", ")
-        editSummary          = scene.summary
-        editExtras           = scene.extras.joined(separator: ", ")
-        editProps            = scene.props.joined(separator: ", ")
-        editSetDressing      = scene.setDressing.joined(separator: ", ")
-        editWardrobe         = scene.wardrobe.joined(separator: ", ")
-        editMakeupHair       = scene.makeupHair.joined(separator: ", ")
-        editVehicles         = scene.vehicles.joined(separator: ", ")
-        editSpecialEquipment = scene.specialEquipment.joined(separator: ", ")
-        editStunts           = scene.stunts.joined(separator: ", ")
-        editSFX              = scene.sfx.joined(separator: ", ")
-        editVFX              = scene.vfx.joined(separator: ", ")
-        editBreakdownNotes   = scene.breakdownNotes
-        validateDuration()
-        validateEstimatedTime()
-    }
-
-    /// Converts a stored minute count back to an editable string (no units suffix).
-    private func formatMinutesForEditing(_ minutes: Int) -> String {
-        let hours = minutes / 60
-        let mins  = minutes % 60
-        if hours > 0 && mins > 0 { return "\(hours):\(String(format: "%02d", mins))" }
-        if hours > 0              { return "\(hours)" }
-        return "\(mins)"
-    }
-
-    private func validateDuration() {
-        durationIsValid = FractionParser.parseToEighths(editDuration) != nil || editDuration.isEmpty
-    }
-
-    private func validateEstimatedTime() {
-        estimatedTimeIsValid = TimeParser.parseToMinutes(editEstimatedTime) != nil || editEstimatedTime.isEmpty
-    }
-
-    private func isValidInput() -> Bool {
-        let titleOK = !editTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        return titleOK && durationIsValid && estimatedTimeIsValid
-    }
-
+    /// The one write: the whole scene back through the binding.
     private func saveChanges() {
-        scene.sceneNumber     = editSceneNumber.trimmingCharacters(in: .whitespaces)
-        scene.title           = editTitle
-        scene.realLocation    = editRealLocation.trimmingCharacters(in: .whitespaces)
-        scene.locationAddress = editLocationAddress.trimmingCharacters(in: .whitespaces)
-        scene.dayNightType    = editDayNightType
-        scene.cast            = editCastText
-            .components(separatedBy: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        scene.summary         = editSummary
-        scene.customStartTime = editCustomStartTime.trimmingCharacters(in: .whitespaces)
-        if let d = FractionParser.parseToEighths(editDuration) { scene.duration      = d }
-        else if editDayNightType == .custom                     { scene.duration      = 0 }
-        if let t = TimeParser.parseToMinutes(editEstimatedTime) { scene.estimatedTime = t }
-        else if editDayNightType == .custom                     { scene.estimatedTime = 0 }
-
-        scene.extras           = parseCommaList(editExtras)
-        scene.props            = parseCommaList(editProps)
-        scene.setDressing      = parseCommaList(editSetDressing)
-        scene.wardrobe         = parseCommaList(editWardrobe)
-        scene.makeupHair       = parseCommaList(editMakeupHair)
-        scene.vehicles         = parseCommaList(editVehicles)
-        scene.specialEquipment = parseCommaList(editSpecialEquipment)
-        scene.stunts           = parseCommaList(editStunts)
-        scene.sfx              = parseCommaList(editSFX)
-        scene.vfx              = parseCommaList(editVFX)
-        scene.breakdownNotes   = editBreakdownNotes
+        scene = draft.applied(to: scene)
     }
 
-    private func parseCommaList(_ text: String) -> [String] {
-        text.components(separatedBy: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-    }
-
-    @ViewBuilder
     private func breakdownField(_ label: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label).font(.subheadline).foregroundColor(.secondary)
-            TextField("Comma-separated", text: text).textFieldStyle(RoundedBorderTextFieldStyle())
+        LabeledContent(label) {
+            TextField(L("Comma-separated"), text: text)
+                .multilineTextAlignment(.trailing)
         }
     }
 }

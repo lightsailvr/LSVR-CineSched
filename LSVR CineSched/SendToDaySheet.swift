@@ -1,8 +1,10 @@
 // SendToDaySheet.swift
-// A day picker for the calendar's "Send to Day…" context menu action — lets a
-// selection be moved to a day that isn't currently scrolled into view, instead
-// of dragging a strip up or down a long schedule. Uses the same graphical
-// month-calendar control as the native date pickers elsewhere in the app.
+// A day picker for the calendar's "Send to Day…" context menu action (#19: one adaptive
+// `Form`): lets a selection be moved to a day that isn't currently scrolled into view,
+// instead of dragging a strip up or down a long schedule. Uses the same graphical
+// month-calendar control as the native date pickers elsewhere in the app; Send is
+// enabled only while the picked date is one of the schedule's days. Only the size
+// around the form changes per container (`editorContainer`).
 
 import SwiftUI
 
@@ -13,6 +15,8 @@ struct SendToDaySheet: View {
     let onCancel: () -> Void
 
     @State private var selectedDate: Date
+
+    static let sheetSize = EditorSheetSize(width: 400, height: 560, compactDetents: [.large])
 
     init(shootDays: [ShootDay], sceneCount: Int, onSelect: @escaping (UUID) -> Void, onCancel: @escaping () -> Void) {
         self.shootDays  = shootDays
@@ -36,57 +40,45 @@ struct SendToDaySheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Send to Day")
-                        .font(.title2).fontWeight(.bold)
-                    Text("\(sceneCount) scene\(sceneCount == 1 ? "" : "s") selected")
-                        .font(.subheadline).foregroundColor(.secondary)
-                }
-                Spacer()
-                Button { onCancel() } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title2).foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding([.horizontal, .top], 20)
-            .padding(.bottom, 12)
-
-            Divider()
-
-            DatePicker(
-                "",
-                selection: $selectedDate,
-                in: dateRange,
-                displayedComponents: .date
+        EditorChrome {
+            EditorTitle(
+                title:    L("Send to Day"),
+                subtitle: "\(sceneCount) \(sceneCount == 1 ? L("scene") : L("scenes")) \(L("selected"))"
             )
-            .datePickerStyle(.graphical)
-            .labelsHidden()
-            .padding(16)
-
-            if let day = matchedDay {
-                Text(day.scenes.isEmpty
-                     ? "No scenes currently scheduled that day"
-                     : "\(day.scenes.count) scene\(day.scenes.count == 1 ? "" : "s") already scheduled that day")
-                    .font(.caption).foregroundColor(.secondary)
-                    .padding(.bottom, 12)
+        } content: {
+            Form {
+                Section {
+                    DatePicker(
+                        L("Day"),
+                        selection: $selectedDate,
+                        in: dateRange,
+                        displayedComponents: .date
+                    )
+                    .datePickerStyle(.graphical)
+                    .labelsHidden()
+                } footer: {
+                    if let day = matchedDay {
+                        Text(day.scenes.isEmpty
+                             ? L("No scenes currently scheduled that day")
+                             : "\(day.scenes.count) \(day.scenes.count == 1 ? L("scene") : L("scenes")) \(L("already scheduled that day"))")
+                    } else {
+                        Text(L("Pick a day of the schedule"))
+                    }
+                }
             }
-
-            Divider()
-
+            .formStyle(.grouped)
+        } footer: {
             HStack {
-                Button("Cancel") { onCancel() }.buttonStyle(.bordered)
+                Button(L("Cancel")) { onCancel() }
+                    .buttonStyle(.bordered)
                 Spacer()
-                Button("Send") {
+                Button(L("Send")) {
                     if let day = matchedDay { onSelect(day.id) }
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(matchedDay == nil)
             }
-            .padding(16)
         }
-        .frame(width: 340, height: 430)
+        .editorContainer(Self.sheetSize)
     }
 }

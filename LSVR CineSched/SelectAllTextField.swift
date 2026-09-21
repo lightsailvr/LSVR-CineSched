@@ -9,8 +9,9 @@
 // NSTextField via NSViewRepresentable.
 //
 // Platform seam: the wrapper is AppKit. On iOS and visionOS the same name is a plain
-// SwiftUI TextField that honours `focusTrigger` but does not select-all — the shared
-// adaptive editors of milestone 3 will decide what "type over the value" means on touch.
+// SwiftUI TextField that honours `focusTrigger` but does not select-all; it takes the
+// style of the `Form` row the adaptive editors (#19) put it in, where the touch
+// equivalent of "type over the value" is the field's own selection on tap.
 
 import SwiftUI
 
@@ -94,7 +95,6 @@ struct SelectAllTextField: View {
 
     var body: some View {
         TextField(placeholder, text: $text)
-            .textFieldStyle(.roundedBorder)
             .focused($isFocused)
             .onChange(of: focusTrigger) { _, requested in
                 guard requested else { return }

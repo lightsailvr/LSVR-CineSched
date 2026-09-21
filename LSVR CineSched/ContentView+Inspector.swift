@@ -1,15 +1,15 @@
 // ContentView+Inspector.swift
 // The trailing inspector of the three-column layout (#17): what a single tap selects,
 // edited beside the board. A selected scene shows the scene editor (`SceneEditSheet`,
-// the Mac's sheet, presented as a column); a selected day shows the day detail
-// (`DayDetailSheet`: statistics, call sheet milestones, events, the day's actions);
-// nothing selected shows the project's statistics, the Mac toolbar row's badges.
-// Every write is an `edit` through the document's funnel, so an inspector edit undoes
-// like any other. The selection itself is `EditorSelection` (a pure value), addressed
-// by id so the inspector follows a scene when a drag moves it.
+// the same adaptive form the sheets show, #19); a selected day shows the day detail
+// (`DayDetailSheet`: statistics, day type and note, the day's actions, call sheet
+// milestones, events, scenes); nothing selected shows the project's statistics, the
+// Mac toolbar row's badges. Every write is an `edit` through the document's funnel, so
+// an inspector edit undoes like any other. The selection itself is `EditorSelection`
+// (a pure value), addressed by id so the inspector follows a scene when a drag moves it.
 //
-// The two editors are shown as they are; their adaptive form rewrite is #19. They read
-// `editorPresentation == .inspector` to drop the fixed frames their sheets need.
+// The editors read `editorPresentation == .inspector` to skip the sheet sizing and the
+// scene editor's auto-focus.
 
 import SwiftUI
 

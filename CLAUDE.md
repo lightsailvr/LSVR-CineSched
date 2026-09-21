@@ -59,10 +59,11 @@ to `/Applications`, commits, tags `v<version>`, pushes, and publishes a GitHub R
 the zipped app. `scripts/install.sh` just builds and refreshes `/Applications` (no version,
 no tag). Version and build number live only in build settings; keep the changelog's newest
 section in sync with `MARKETING_VERSION`. A clean build
-with Xcode 27.0 (27A266a) at the 27.0 floor succeeds with exactly 7 warnings in the app target
-(all deprecated one-argument `onChange`; the compiler echoes each once more as a source excerpt),
-on macOS, the iPhone 17 simulator and the Apple Vision Pro simulator alike (last checked
-2026-09-19); do not add new ones. (The 4 main-actor-isolated `Codable` warnings went with #7:
+with Xcode 27.0 (27A266a) at the 27.0 floor succeeds with exactly 5 warnings in the app target
+(all deprecated one-argument `onChange`, in `NewSceneInputView` and `StripboardView`; the
+compiler echoes each once more as a source excerpt), on macOS, the iPhone 17 simulator and
+the Apple Vision Pro simulator alike (last checked 2026-09-20, down from 7 with #19's
+rewrite of `BannerInputSheet` and `LocationAutocompleteField`); do not add new ones. (The 4 main-actor-isolated `Codable` warnings went with #7:
 the model's `Codable` conformances are `nonisolated`.) The test target adds 3 more, all
 main-actor isolation (`MonthPDFExporterTests` twice, echoed, and a `@Test(arguments:)` macro
 expansion in `ProjectDocumentTests`): 5 warning lines in the log.
@@ -99,8 +100,31 @@ the build inputs outside it, see Working agreements):
   day/scene indices), `scene(withID:)`, `dayIndex(forDayID:)`, and `pruned(in:)`, which
   drops a selection whose target left the project (`EditorSelectionTests`).
 - `EditorPresentation.swift`: the `editorPresentation` environment value (`.sheet` default,
-  `.inspector`): `SceneEditSheet` and `DayDetailSheet` read it to drop the fixed frames
-  their Mac sheets need when the inspector column shows them. Goes with #19's rewrite.
+  `.inspector`, set once by the inspector on its content) and `EditorSheetSize`, what an
+  editor asks of its sheet, platform-free (the Mac frame's width and height, the iPhone's
+  detents, `fitsHeight` for a short editor). `PlatformEditorContainer.swift` (a seam) is
+  the `editorContainer(_:)` modifier every adaptive editor applies at its root: the fixed
+  frame on the Mac, detents with a drag indicator on the iPhone (by interface idiom, not
+  size class: a sheet's own size class is compact on the iPad too), the system's form
+  sizing on iPad and visionOS (at the editor's height when it `fitsHeight`), nothing in
+  the inspector.
+- `EditorChrome.swift`: what every adaptive editor (#19) wraps its `Form` in, platform-free:
+  `EditorChrome` (header, the grouped form, a footer button row, on the grouped
+  background), `EditorTitle`, `ColorSwatchRow` (the banner's and the event's colors) and
+  `FormTextEditor` (a `TextEditor` row with a prompt). The buttons live in the view, not a
+  navigation bar, so the inspector column, the sheets and the Mac show them the same way.
+- `EditorDrafts.swift`: the editors' drafts (#19), pure: `SceneDraft` (every field of the
+  scene editor as strings, validation, `applied(to:)`), `BannerDraft` (`setType`,
+  `makeBanner()`) and `CalendarEventDraft` (`makeEvent()` keeps an edited event's id). A
+  view holds one in `@State` and writes it back as one assignment (`EditorDraftsTests`).
+- The five adaptive editors (#19): `SceneEditSheet` (the scene editor: every sheet and the
+  inspector; Previous / Next in the header when supplied; the trash, Cancel and Save
+  Changes row; follows an external change to its scene while untouched),
+  `DayDetailSheet` (the day detail: day type and note, the actions as rows, call schedule,
+  events, scenes; Done), `BannerInputSheet`, `CalendarEventInputSheet`, `SendToDaySheet`.
+  Each is `EditorChrome { header } content: { Form(...).formStyle(.grouped) } footer: {
+  buttons }` with `.editorContainer(Self.sheetSize)`; the call sites in `CalendarView`,
+  `StripboardView`, `ContentView` and the inspector need nothing per platform.
 - `BoneyardListView.swift`: the Boneyard list (strip rows, drag out, drop back, tooltip,
   double-tap editor, context menu) as a view both layouts draw; every action is a closure
   `ContentView` wires to the selection, the sheets and the funnel.
@@ -250,7 +274,9 @@ the build inputs outside it, see Working agreements):
   trailing column: `.inspector` where it exists, a trailing pane on visionOS, which has no
   such modifier), `PlatformExportPresentation` (whether an export opens the preview sheet
   with Share or the Mac's save panel, and PDFKit's `PDFView` wrapped for SwiftUI on each
-  view layer), `LegacyProjectHandoff`, `MacAppDelegate`, plus the
+  view layer), `PlatformEditorContainer` (an adaptive editor's sheet: the Mac's fixed
+  frame, the iPhone's detents, form sizing on iPad and visionOS), `LegacyProjectHandoff`,
+  `MacAppDelegate`, plus the
   editor/launch-scene choice, the tabbing choice and the delegate adaptor in `CineSchedApp`.
   These are the only files allowed to contain `#if os(...)`.
 
@@ -264,6 +290,17 @@ the build inputs outside it, see Working agreements):
 - **Adding a sheet**: add a case to `ContentView.ActiveSheet` and to the `switch` in `applySheets`.
   Sheets take `@Binding var isPresented` and an `onSave` closure; editors copy the model into local
   `@State` on appear and write back in an explicit save function.
+- **Adding or rewriting an editor (#19)**: it is an adaptive form, the same view in every
+  container. The fields are a pure draft value in `EditorDrafts.swift` (read from the model,
+  validate, write back), tested in `EditorDraftsTests`; the view is `EditorChrome { header }
+  content: { Form { … }.formStyle(.grouped) } footer: { Cancel and the primary action, a
+  destructive one leading } .editorContainer(Self.sheetSize)` with an `EditorSheetSize`
+  (the Mac frame, the iPhone detents, `fitsHeight` for a short one). Save assigns the draft's
+  result to the binding **once**. No navigation bar, no `#if os`, no fixed frame in the view:
+  the seam sizes the sheet and the inspector shows the form as it is. Labelled short fields
+  are `LabeledContent(label) { TextField(...).multilineTextAlignment(.trailing) }` with no
+  width cap (a capped field leaves a dead zone in the row on touch); full-width text fields
+  carry their label as the `TextField` label and their example as the `prompt`.
 - **Mutating schedule state from a child view**: call `onBeforeSceneChange()` first (opens the edit
   gesture), mutate through the binding, then `onSceneChanged()` (closes it). The binding's setter is
   what runs `perform`; the gesture only decides that several writes are one undo step. Inside
@@ -290,7 +327,8 @@ the build inputs outside it, see Working agreements):
   `lastSelectedSceneID` binding, days through `onSelectDay`), a double tap opens the full
   editor sheet, and `.contextMenu` is the long-press menu on touch, so a new strip action goes
   in the context menu and nowhere else. An editor shown in the inspector reads
-  `@Environment(\.editorPresentation)` to drop its sheet-only frame and auto-focus. Per-window
+  `@Environment(\.editorPresentation)` (through `editorContainer`, and for its auto-focus)
+  to skip its sheet sizing and its keyboard-raising focus. Per-window
   view state on the iPad (the inspector's visibility) is a `@WindowPreference` like the rest.
 - **Drag and drop (#18)**: every drag on the schedule carries one `ScheduleDragPayload`
   (`ScheduleDrag.swift`), never a text encoding, and a drop switches on its kind. Strips,
@@ -356,6 +394,8 @@ signed-in device (the manual two-device test in issue #15),
 `ScheduleDragPayload` (round-trip per kind, including multi-scene) and `ScheduleMoves`
 (from the Boneyard, within a day, across days, before a strip or at the end, back to the
 Boneyard) in `ScheduleDragTests`,
+`SceneDraft`, `BannerDraft` and `CalendarEventDraft` (`EditorDraftsTests`: what each reads,
+validation, the value written back, the Custom type's blank-means-none rule),
 `ScriptImport.parse`, `LaunchImport` and `LaunchImportFlow` driven through its callbacks
 (`LaunchImportTests`: one parse per format, the script → new project step, the legacy `.json`
 read against `ProjectCodec` with the source bytes pinned, and every cancellation path),

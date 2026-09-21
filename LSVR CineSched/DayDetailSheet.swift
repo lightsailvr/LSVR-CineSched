@@ -1,15 +1,18 @@
 // DayDetailSheet.swift
-// Detailed modal inspector for a Shoot Day, displaying full breakdown scenes, cast, call sheet and calendar events.
-// The iPad's inspector column shows the same view for the selected day (#17): there
-// `editorPresentation` is `.inspector` and the sheet's minimum and ideal frame gives way
-// to the column's size.
+// The day detail (#19): one adaptive `Form` for a shoot day, as the Mac's sheet (a
+// double-click on a day) and as the iPad's inspector column for the selected day (#17).
+// The date, the day badge and the statistics head it; the form holds the day type and
+// note, the day's actions (Add Calendar Event, Edit Call Sheet, Export Call Sheet), the
+// call schedule, the calendar events and the scenes. Every edit is a callback the
+// presenter writes through the funnel; the note is a draft committed on submit, on Done
+// and when the view goes away, and only when it changed, so an untouched day registers
+// nothing. Only the size around the form changes per container (`editorContainer`).
 
 import SwiftUI
 
 struct DayDetailSheet: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePalette) private var palette
-    @Environment(\.editorPresentation) private var presentation
     @AppStorage("CineSchedTheme") private var currentTheme: AppTheme = .blue
     @ObservedObject private var l10n = LocalizationManager.shared
 
@@ -31,266 +34,200 @@ struct DayDetailSheet: View {
 
     @State private var noteDraft: String = ""
 
-    private var isSpanish: Bool {
-        LocalizationManager.shared.currentLanguage == .spanish
-    }
+    // MARK: - Derived
 
-    private var formattedFullDate: String {
-        let df = DateFormatter()
-        df.locale = isSpanish ? Locale(identifier: "es_ES") : Locale(identifier: "en_US")
-        df.dateStyle = .full
-        return df.string(from: day.date).capitalized
-    }
+    private var scriptScenes:   [Scene] { day.scenes.filter { !$0.isBanner && !$0.isCalendarEvent } }
+    private var calendarEvents: [Scene] { day.scenes.filter { $0.isCalendarEvent } }
 
-    private var scriptScenes: [Scene] {
-        day.scenes.filter { !$0.isBanner && !$0.isCalendarEvent }
-    }
+    private var totalEighths: Int { scriptScenes.reduce(0) { $0 + $1.duration } }
+    private var totalEstTime: String { formattedTime(scriptScenes.reduce(0) { $0 + $1.estimatedTime }) }
 
-    private var calendarEvents: [Scene] {
-        day.scenes.filter { $0.isCalendarEvent }
-    }
-
-    private var bannerScenes: [Scene] {
-        day.scenes.filter { $0.isBanner && !$0.isCalendarEvent }
-    }
-
-    private var totalEighths: Int {
-        scriptScenes.reduce(0) { $0 + $1.duration }
-    }
-
-    private var totalEstTime: String {
-        let totalMins = scriptScenes.reduce(0) { $0 + $1.estimatedTime }
-        return formattedTime(totalMins)
-    }
-
-    private var isShootDay: Bool {
-        dayNumber != nil && day.dayType.isShootable
-    }
+    private var isShootDay: Bool { dayNumber != nil && day.dayType.isShootable }
 
     private var dayTypeColor: Color { Color(hex: day.dayType.colorHex) }
+    private var eventColor:   Color { Color(hex: "6366F1") }
+
+    /// The Mac sheet's frame: the shoot-day sheet is the roomier of the two, as before.
+    private var sheetSize: EditorSheetSize {
+        isShootDay
+            ? EditorSheetSize(width: 700, height: 640, compactDetents: [.large])
+            : EditorSheetSize(width: 540, height: 460, compactDetents: [.medium, .large])
+    }
 
     private func commitNote() {
         let clean = noteDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         if clean != day.dayNote { onSetDayNote(clean) }
     }
 
+    // MARK: - Body
+
     var body: some View {
-        VStack(spacing: 0) {
-            // Header bar
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Text(formattedFullDate)
-                            .font(.title2.bold())
-                            .foregroundColor(.primary)
-
-                        if let num = dayNumber, isShootDay {
-                            Text(isSpanish ? "Día #\(num) de Rodaje" : "Shoot Day #\(num)")
-                                .font(.caption.bold())
-                                .foregroundColor(currentTheme.primaryAccent(isDarkMode: colorScheme == .dark))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(currentTheme.primaryAccent(isDarkMode: colorScheme == .dark).opacity(0.18))
-                                .cornerRadius(6)
-                        } else if !day.dayType.isShootable {
-                            Label(day.dayType.localizedName, systemImage: day.dayType.icon)
-                                .font(.caption.bold())
-                                .foregroundColor(dayTypeColor)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(dayTypeColor.opacity(0.15))
-                                .cornerRadius(6)
-                        } else {
-                            Text(isSpanish ? "📅 Agenda / Eventos" : "📅 Calendar Event")
-                                .font(.caption.bold())
-                                .foregroundColor(Color(hex: "6366F1"))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(Color(hex: "6366F1").opacity(0.15))
-                                .cornerRadius(6)
-                        }
-                    }
-
-                    if isShootDay {
-                        HStack(spacing: 16) {
-                            Label("\(scriptScenes.count) \(isSpanish ? "escenas" : "scenes")", systemImage: "film")
-                            Label("\(formattedEighths(totalEighths)) \(isSpanish ? "págs" : "pgs")", systemImage: "doc.text")
-                            Label("\(totalEstTime) \(isSpanish ? "tiempo est." : "est. time")", systemImage: "clock")
-                        }
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    } else {
-                        Text("\(calendarEvents.count) \(isSpanish ? "evento(s) de agenda" : "calendar event(s)")")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-
+        EditorChrome {
+            header
+        } content: {
+            form
+        } footer: {
+            HStack {
                 Spacer()
-
-                Button {
+                Button(L("Done")) {
                     commitNote()
                     isPresented = false
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title2)
-                        .foregroundColor(.secondary)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderedProminent)
             }
-            .padding(18)
-            .background(currentTheme.panelBackground(isDarkMode: colorScheme == .dark))
+        }
+        .editorContainer(sheetSize)
+        .onAppear { noteDraft = day.dayNote }
+        .onChange(of: day.dayNote) { _, newNote in noteDraft = newNote }
+        .onDisappear { commitNote() }
+    }
 
-            Divider()
+    // MARK: - Header
 
-            // Scrollable Content
-            ScrollView(.vertical, showsIndicators: true) {
-                VStack(alignment: .leading, spacing: 20) {
-                    // Day type + note first: it answers "what is this day?" before the detail.
-                    dayTypeCard
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(formattedFullDate(day.date))
+                .font(.title2.bold())
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
 
-                    if isShootDay {
-                        // Call Sheet & Horarios
-                        callSheetSummaryCard
-
-                        // Eventos de Agenda (si hay)
-                        if !calendarEvents.isEmpty {
-                            calendarEventsSection
-                        }
-
-                        // Escenas Programadas
-                        scenesSection
-                    } else {
-                        // Off-day / Non-shoot day: Only show Calendar Events
-                        calendarEventsSection
-                    }
-                }
-                .padding(20)
-            }
-            .onAppear { noteDraft = day.dayNote }
-            .onChange(of: day.dayNote) { _, newNote in noteDraft = newNote }
-            .onDisappear { commitNote() }
-
-            Divider()
-
-            // Footer action buttons
-            HStack {
+            HStack(spacing: 10) {
+                dayBadge
                 if isShootDay {
-                    Button {
-                        onAddCalendarEvent()
-                    } label: {
-                        Label(L("Add Calendar Event"), systemImage: "plus.circle.fill")
-                    }
-                    .buttonStyle(.bordered)
+                    Text("\(scriptScenes.count) \(L("scenes")) · \(formattedEighths(totalEighths)) \(L("pgs")) · \(totalEstTime)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                 } else {
-                    Button {
-                        onAddCalendarEvent()
-                    } label: {
-                        Label(L("Add Calendar Event"), systemImage: "plus.circle.fill")
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-
-                Spacer()
-
-                if isShootDay {
-                    Button {
-                        onOpenCallSheet()
-                    } label: {
-                        Label(isSpanish ? "Editar Call Sheet" : "Edit Call Sheet", systemImage: "doc.plaintext")
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button {
-                        onExportCallSheetPDF()
-                    } label: {
-                        Label(isSpanish ? "Exportar Call Sheet (PDF)" : "Export Call Sheet (PDF)", systemImage: "arrow.down.doc.fill")
-                    }
-                    .buttonStyle(.borderedProminent)
+                    Text("\(calendarEvents.count) \(L("calendar event(s)"))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
-            .padding(16)
-            .background(currentTheme.panelBackground(isDarkMode: colorScheme == .dark))
         }
-        .frame(
-            minWidth:    presentation == .inspector ? nil : (isShootDay ? 620 : 480),
-            idealWidth:  presentation == .inspector ? nil : (isShootDay ? 700 : 540),
-            minHeight:   presentation == .inspector ? nil : (isShootDay ? 520 : 380),
-            idealHeight: presentation == .inspector ? nil : (isShootDay ? 640 : 440)
-        )
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - Day Type & Note
+    @ViewBuilder
+    private var dayBadge: some View {
+        if let num = dayNumber, isShootDay {
+            let accent = currentTheme.primaryAccent(isDarkMode: colorScheme == .dark)
+            badge(Text("\(L("Shoot Day")) #\(num)"), color: accent)
+        } else if !day.dayType.isShootable {
+            badge(Label(day.dayType.localizedName, systemImage: day.dayType.icon), color: dayTypeColor)
+        } else {
+            badge(Label(L("Calendar Event"), systemImage: "calendar"), color: eventColor)
+        }
+    }
 
-    private var dayTypeCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
+    private func badge<Content: View>(_ content: Content, color: Color) -> some View {
+        content
+            .font(.caption.bold())
+            .foregroundStyle(color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(color.opacity(0.15))
+            .cornerRadius(6)
+            .lineLimit(1)
+    }
+
+    // MARK: - Form
+
+    private var form: some View {
+        Form {
+            // Day type + note first: it answers "what is this day?" before the detail.
+            dayTypeSection
+            actionsSection
+
+            if isShootDay {
+                callScheduleSection
+                if !calendarEvents.isEmpty {
+                    calendarEventsSection
+                }
+                scenesSection
+            } else {
+                // Off-day / non-shoot day: only the calendar events.
+                calendarEventsSection
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    // MARK: Day type and note
+
+    private var dayTypeSection: some View {
+        Section {
+            Picker(selection: Binding(get: { day.dayType }, set: { onSetDayType($0) })) {
+                ForEach(DayType.allCases, id: \.self) { type in
+                    Label(type.localizedName, systemImage: type.icon).tag(type)
+                }
+            } label: {
                 Label(L("Day Type"), systemImage: "calendar.badge.exclamationmark")
-                    .font(.headline)
-                Spacer()
-                Picker("", selection: Binding(get: { day.dayType }, set: { onSetDayType($0) })) {
-                    ForEach(DayType.allCases, id: \.self) { type in
-                        Label(type.localizedName, systemImage: type.icon).tag(type)
-                    }
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .frame(width: 190)
-
-                if !day.dayType.isShootable || !day.dayNote.isEmpty {
-                    Button {
-                        noteDraft = ""
-                        onClearDayType()
-                    } label: {
-                        Label(L("Clear"), systemImage: "xmark.circle")
-                    }
-                    .buttonStyle(.bordered)
-                    .help(L("Clear Day Type"))
-                }
             }
+            .pickerStyle(.menu)
 
-            TextField(L("Day note (travel details, hold reason, …)"), text: $noteDraft)
-                .textFieldStyle(.roundedBorder)
+            TextField(L("Day Note"), text: $noteDraft, prompt: Text(L("Day note (travel details, hold reason, …)")))
                 .onSubmit { commitNote() }
+
+            if !day.dayType.isShootable || !day.dayNote.isEmpty {
+                Button {
+                    noteDraft = ""
+                    onClearDayType()
+                } label: {
+                    Label(L("Clear Day Type"), systemImage: "xmark.circle")
+                }
+                .help(L("Clear Day Type"))
+            }
         }
-        .padding(14)
-        .background(Color.controlBackground)
-        .cornerRadius(10)
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.08), lineWidth: 1))
     }
 
-    // MARK: - Call Sheet Summary Card
+    // MARK: Actions
 
-    private var callSheetSummaryCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Label(isSpanish ? "Horarios y Citación" : "Call Schedule", systemImage: "clock.badge.checkmark")
-                    .font(.headline)
-                Spacer()
+    private var actionsSection: some View {
+        Section {
+            Button {
+                onAddCalendarEvent()
+            } label: {
+                Label(L("Add Calendar Event"), systemImage: "plus.circle.fill")
             }
+            if isShootDay {
+                Button {
+                    onOpenCallSheet()
+                } label: {
+                    Label(L("Edit Call Sheet"), systemImage: "doc.plaintext")
+                }
+                Button {
+                    onExportCallSheetPDF()
+                } label: {
+                    Label(L("Export Call Sheet (PDF)"), systemImage: "arrow.down.doc.fill")
+                }
+            }
+        }
+    }
 
-            HStack(spacing: 20) {
-                timeBadge(label: isSpanish ? "Llamado General" : "General Call", time: day.callSheet.generalCallTime.isEmpty ? "—" : day.callSheet.generalCallTime, icon: "megaphone.fill", color: .blue)
-                timeBadge(label: isSpanish ? "Almuerzo" : "Lunch", time: day.callSheet.lunchTime.isEmpty ? "—" : day.callSheet.lunchTime, icon: "fork.knife", color: .orange)
-                timeBadge(label: isSpanish ? "Merienda / Snack" : "Snack", time: day.callSheet.snackTime.isEmpty ? "—" : day.callSheet.snackTime, icon: "cup.and.saucer.fill", color: .brown)
-                timeBadge(label: isSpanish ? "Wrap / Fin" : "Wrap", time: day.callSheet.dinnerTime.isEmpty ? "—" : day.callSheet.dinnerTime, icon: "flag.checkered", color: .red)
+    // MARK: Call schedule
+
+    private var callScheduleSection: some View {
+        Section {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), alignment: .leading)], alignment: .leading, spacing: 10) {
+                timeBadge(label: L("General Call"), time: day.callSheet.generalCallTime, icon: "megaphone.fill",      color: .blue)
+                timeBadge(label: L("Lunch"),        time: day.callSheet.lunchTime,       icon: "fork.knife",         color: .orange)
+                timeBadge(label: L("Snack"),        time: day.callSheet.snackTime,       icon: "cup.and.saucer.fill", color: .brown)
+                timeBadge(label: L("Wrap"),         time: day.callSheet.dinnerTime,      icon: "flag.checkered",     color: .red)
             }
+            .padding(.vertical, 2)
 
             if !day.callSheet.basecampLocation.isEmpty {
-                HStack(alignment: .top, spacing: 6) {
-                    Image(systemName: "mappin.circle.fill")
-                        .foregroundColor(.red)
-                    Text(day.callSheet.basecampLocation)
-                        .font(.caption)
-                        .foregroundColor(.primary)
+                Label {
+                    Text(day.callSheet.basecampLocation).font(.caption)
+                } icon: {
+                    Image(systemName: "mappin.circle.fill").foregroundStyle(.red)
                 }
-                .padding(.top, 4)
             }
+        } header: {
+            Label(L("Call Schedule"), systemImage: "clock.badge.checkmark")
         }
-        .padding(14)
-        .background(Color.controlBackground)
-        .cornerRadius(10)
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.08), lineWidth: 1))
     }
 
     private func timeBadge(label: String, time: String, icon: String, color: Color) -> some View {
@@ -298,39 +235,40 @@ struct DayDetailSheet: View {
             HStack(spacing: 4) {
                 Image(systemName: icon)
                     .font(.caption2)
-                    .foregroundColor(color)
+                    .foregroundStyle(color)
                 Text(label)
                     .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
             }
-            Text(time)
+            Text(time.isEmpty ? "—" : time)
                 .font(.subheadline.bold())
-                .foregroundColor(.primary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - Calendar Events Section
+    // MARK: Calendar events
 
     private var calendarEventsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label(isSpanish ? "Eventos de Agenda" : "Calendar Events", systemImage: "calendar.badge.clock")
-                .font(.headline)
-
+        Section {
+            if calendarEvents.isEmpty {
+                Text(L("No calendar events on this day."))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
             ForEach(calendarEvents) { event in
+                let color = Color(hex: event.bannerColorHex.isEmpty ? "6366F1" : event.bannerColorHex)
                 HStack(spacing: 10) {
                     Circle()
-                        .fill(Color(hex: event.bannerColorHex.isEmpty ? "6366F1" : event.bannerColorHex))
+                        .fill(color)
                         .frame(width: 10, height: 10)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(event.title)
                             .font(.subheadline.bold())
-                            .foregroundColor(.primary)
                         if !event.customStartTime.isEmpty {
                             Text(event.customStartTime)
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                         }
                     }
 
@@ -341,146 +279,148 @@ struct DayDetailSheet: View {
                     } label: {
                         Image(systemName: "pencil")
                             .font(.caption)
-                            .foregroundColor(.secondary)
                     }
-                    .buttonStyle(.plain)
-                    .help(isSpanish ? "Editar Evento" : "Edit Event")
+                    .buttonStyle(.borderless)
+                    .help(L("Edit Event"))
+                    .accessibilityLabel(L("Edit Event"))
 
-                    Button {
+                    Button(role: .destructive) {
                         onRemoveScene(event)
                     } label: {
                         Image(systemName: "trash")
                             .font(.caption)
-                            .foregroundColor(.red)
+                            .foregroundStyle(.red)
                     }
-                    .buttonStyle(.plain)
-                    .help(isSpanish ? "Eliminar Evento" : "Delete Event")
+                    .buttonStyle(.borderless)
+                    .help(L("Delete Event"))
+                    .accessibilityLabel(L("Delete Event"))
                 }
-                .padding(10)
-                .background(Color(hex: event.bannerColorHex.isEmpty ? "6366F1" : event.bannerColorHex).opacity(0.12))
-                .cornerRadius(8)
+                .listRowBackground(color.opacity(0.12))
             }
+        } header: {
+            Label(L("Calendar Events"), systemImage: "calendar.badge.clock")
         }
     }
 
-    // MARK: - Scenes Section
+    // MARK: Scenes
 
     private var scenesSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Label(isSpanish ? "Escenas del Día" : "Day Scenes", systemImage: "list.bullet.rectangle")
-                    .font(.headline)
-                Spacer()
-                Text("\(scriptScenes.count) \(isSpanish ? "escenas" : "scenes")")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
+        Section {
             if scriptScenes.isEmpty {
                 HStack {
                     Spacer()
                     VStack(spacing: 6) {
                         Image(systemName: "film")
                             .font(.largeTitle)
-                            .foregroundColor(.secondary.opacity(0.5))
-                        Text(isSpanish ? "No hay escenas programadas en este día." : "No scenes scheduled on this day.")
+                            .foregroundStyle(.secondary.opacity(0.5))
+                        Text(L("No scenes scheduled on this day."))
                             .font(.subheadline)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
-                    .padding(30)
+                    .padding(.vertical, 16)
                     Spacer()
                 }
             } else {
-                VStack(spacing: 8) {
-                    ForEach(Array(scriptScenes.enumerated()), id: \.element.id) { index, scene in
-                        sceneRow(scene: scene, index: index)
-                    }
+                ForEach(Array(scriptScenes.enumerated()), id: \.element.id) { index, scene in
+                    sceneRow(scene: scene, index: index)
+                        .listRowBackground(scene.stripColor(in: palette))
                 }
+            }
+        } header: {
+            HStack {
+                Label(L("Day Scenes"), systemImage: "list.bullet.rectangle")
+                Spacer()
+                Text("\(scriptScenes.count) \(L("scenes"))")
             }
         }
     }
 
+    /// The whole row opens the scene's editor; the pencil says so. The badges sit on
+    /// their own line so the title keeps its width in a narrow column.
     private func sceneRow(scene: Scene, index: Int) -> some View {
         let intExtLabel = scene.intExtString
+        let textColor   = scene.stripTextColor
 
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                // Scene number badge
-                Text(scene.sceneNumber.isEmpty ? "\(index + 1)" : scene.sceneNumber)
-                    .font(.subheadline.bold())
-                    .frame(minWidth: 26)
-                    .padding(.vertical, 2)
-                    .background(Color.primary.opacity(0.08))
-                    .cornerRadius(4)
+        return Button {
+            onEditScene(scene)
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    // Scene number badge
+                    Text(scene.sceneNumber.isEmpty ? "\(index + 1)" : scene.sceneNumber)
+                        .font(.subheadline.bold())
+                        .foregroundStyle(textColor)
+                        .frame(minWidth: 26)
+                        .padding(.vertical, 2)
+                        .background(Color.primary.opacity(0.08))
+                        .cornerRadius(4)
 
-                // Title
-                Text(scene.title)
-                    .font(.subheadline.bold())
-                    .foregroundColor(scene.stripTextColor)
-                    .lineLimit(1)
+                    Text(scene.title)
+                        .font(.subheadline.bold())
+                        .foregroundStyle(textColor)
+                        .lineLimit(1)
 
-                Spacer()
+                    Spacer(minLength: 4)
 
-                // INT/EXT & DAY/NIGHT
-                Text(intExtLabel)
-                    .font(.caption2.bold())
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(intExtLabel.contains("INT") ? Color.blue.opacity(0.15) : Color.orange.opacity(0.15))
-                    .foregroundColor(intExtLabel.contains("INT") ? .blue : .orange)
-                    .cornerRadius(4)
-
-                Text(scene.dayNightType.rawValue.uppercased())
-                    .font(.caption2.bold())
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(scene.dayNightType == .night ? Color.purple.opacity(0.15) : Color.yellow.opacity(0.2))
-                    .foregroundColor(scene.dayNightType == .night ? .purple : .brown)
-                    .cornerRadius(4)
-
-                // Duration & Est
-                Text("\(formattedEighths(scene.duration)) | \(formattedTime(scene.estimatedTime))")
-                    .font(.caption.bold())
-                    .foregroundColor(scene.stripTextColor.opacity(0.8))
-
-                Button {
-                    onEditScene(scene)
-                } label: {
                     Image(systemName: "pencil")
                         .font(.caption)
-                        .foregroundColor(scene.stripTextColor.opacity(0.7))
-                }
-                .buttonStyle(.plain)
-            }
-
-            // Location and Cast
-            HStack(spacing: 16) {
-                if !scene.realLocation.isEmpty {
-                    Label(scene.realLocation, systemImage: "mappin.and.ellipse")
-                        .font(.caption)
-                        .foregroundColor(scene.stripTextColor.opacity(0.85))
+                        .foregroundStyle(textColor.opacity(0.7))
                 }
 
-                if !scene.cast.isEmpty {
-                    Label(scene.cast.joined(separator: ", "), systemImage: "person.2.fill")
-                        .font(.caption)
-                        .foregroundColor(scene.stripTextColor.opacity(0.85))
+                HStack(spacing: 8) {
+                    // INT/EXT & DAY/NIGHT
+                    Text(intExtLabel)
+                        .font(.caption2.bold())
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(intExtLabel.contains("INT") ? Color.blue.opacity(0.15) : Color.orange.opacity(0.15))
+                        .foregroundStyle(intExtLabel.contains("INT") ? Color.blue : Color.orange)
+                        .cornerRadius(4)
+
+                    Text(scene.dayNightType.rawValue.uppercased())
+                        .font(.caption2.bold())
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(scene.dayNightType == .night ? Color.purple.opacity(0.15) : Color.yellow.opacity(0.2))
+                        .foregroundStyle(scene.dayNightType == .night ? Color.purple : Color.brown)
+                        .cornerRadius(4)
+
+                    Text("\(formattedEighths(scene.duration)) | \(formattedTime(scene.estimatedTime))")
+                        .font(.caption.bold())
+                        .foregroundStyle(textColor.opacity(0.8))
                         .lineLimit(1)
                 }
-            }
 
-            // Synopsis / Notes
-            if !scene.summary.isEmpty {
-                Text(scene.summary)
-                    .font(.caption)
-                    .foregroundColor(scene.stripTextColor.opacity(0.75))
-                    .lineLimit(2)
-                    .padding(.top, 2)
+                // Location and cast
+                if !scene.realLocation.isEmpty || !scene.cast.isEmpty {
+                    HStack(spacing: 16) {
+                        if !scene.realLocation.isEmpty {
+                            Label(scene.realLocation, systemImage: "mappin.and.ellipse")
+                                .font(.caption)
+                                .foregroundStyle(textColor.opacity(0.85))
+                                .lineLimit(1)
+                        }
+                        if !scene.cast.isEmpty {
+                            Label(scene.cast.joined(separator: ", "), systemImage: "person.2.fill")
+                                .font(.caption)
+                                .foregroundStyle(textColor.opacity(0.85))
+                                .lineLimit(1)
+                        }
+                    }
+                }
+
+                // Synopsis / notes
+                if !scene.summary.isEmpty {
+                    Text(scene.summary)
+                        .font(.caption)
+                        .foregroundStyle(textColor.opacity(0.75))
+                        .lineLimit(2)
+                        .padding(.top, 2)
+                }
             }
+            .contentShape(Rectangle())
         }
-        .padding(12)
-        .background(scene.stripColor(in: palette))
-        .cornerRadius(8)
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.12), lineWidth: 1))
+        .buttonStyle(.plain)
+        .help(L("Edit Scene"))
     }
 }

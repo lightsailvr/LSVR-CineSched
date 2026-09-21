@@ -9,6 +9,53 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-20 — Adaptive editors: a sheet's own size class is compact on the iPad, a fitted form sheet collapses around a `Form`, and a width-capped field is a dead zone on touch (#19)
+
+Rebuilding the scene editor, the day detail, the banner and calendar event inputs and Send
+to Day as one grouped `Form` per editor, shown in the iPad inspector, the iPad's sheets and
+the Mac's sheets, verified on the iPad Pro 13-inch simulator through a throwaway XCUITest
+(`.dd/I19Probe.swift`, run with `test-without-building` against the app `openurl` opened;
+the #17 recipe):
+
+- **`horizontalSizeClass` read inside a sheet on the iPad is `.compact`**, whatever the
+  window's. The first container seam chose detents for compact and form sizing for
+  regular, and every iPad sheet took the detents branch (the `[.medium, .large]` event
+  sheet came up as a half-height bottom sheet). The seam tells the iPhone apart by
+  `UIDevice.current.userInterfaceIdiom == .phone` instead; the size class is the wrong
+  signal for "which device is this sheet on".
+- **`presentationSizing(.form.fitted(vertical: true))` around a `Form` collapses to the
+  chrome alone**: a form is a scroll view with no intrinsic height, so the fitted sheet
+  showed the title and the buttons with nothing between. The short editors (event,
+  banner) keep the fitted form width and give the content an explicit `frame(height:)`,
+  the same number the Mac's frame uses (`EditorSheetSize.height`, `fitsHeight`). Plain
+  `.form` works for the tall editors but leaves half a sheet empty under a short one.
+- **iPadOS 27 honours `presentationDetents` on a sheet**: `[.large]` looked like a form
+  sheet with a drag indicator, `[.medium, .large]` a bottom sheet. Do not rely on
+  "detents are ignored on the iPad" from earlier releases.
+- **A `TextField` capped with `.frame(maxWidth:)` inside `LabeledContent` reports the whole
+  trailing area as its frame but takes touches only in the cap.** XCUITest's tap at the
+  element's centre focused nothing (twice), while a tap at the trailing edge did; a finger
+  in the row's empty middle would do the same. Uncapped, trailing-aligned text fields fill
+  the row and any tap in the content area focuses them.
+- **Save writes the scene once now.** The old scene sheet assigned ~30 properties through
+  its `Binding<Scene>`, i.e. ~30 `perform`s (thirty change counts, one undo step only by
+  the window's run-loop grouping); the draft's `applied(to:)` assigned once is one
+  `perform` by construction, which the probe confirmed: Save, one Undo, the Boneyard row
+  back to its number and Undo disabled.
+- **An inspector editor that ignores changes to its scene shows stale fields after an
+  undo.** The old populate-on-id-change rule left "777903" in the inspector after the undo
+  restored "903" in the Boneyard. The editor now follows a change to the same scene while
+  its draft equals the previous scene's draft (nothing typed), and never replaces typing.
+- **The `XCUIScreen` screenshot of a landscape iPad comes out upright** in this run (2064 x
+  2752 pixels, but the framebuffer already rotated); `sips -Z 1200` for reading was enough,
+  no `-r 270`. `simctl clone` refused the booted iPad again; `simctl create` with the
+  12GB M5 device type and the 27.0 runtime is the equivalent.
+- **The probe file breaks the Mac `test` action**: `XCUIDevice.orientation` does not exist
+  on macOS, and `xcodebuild test` builds the UI test target too. Move the probe out of
+  `LSVR CineSchedUITests/` (a synchronized folder) before a Mac test run.
+
+---
+
 ## 2026-09-20 — Typed drag and drop: the 27 reorder container crashes beside a heterogeneous drag container, and a same-typed drag container captures every plain draggable in the window (#18)
 
 Replacing the three `NSString` drag encodings and the two `DropDelegate`s with one

@@ -21,15 +21,16 @@ extension View {
             if isPresented.wrappedValue {
                 Divider()
                 content()
-                    .frame(width: 380)
+                    .frame(width: 340)
             }
         }
         #else
         inspector(isPresented: isPresented) {
             content()
-                // Wide enough for the two editors' button rows as they are; their
-                // adaptive rewrite (#19) can bring this down.
-                .inspectorColumnWidth(min: 320, ideal: 380, max: 560)
+                // The adaptive editors (#19) fit their forms and button rows in 300 pt
+                // (the scene editor's trash, Cancel and Save row is the widest); 340 is
+                // the width the calendar can spare beside a 300 pt sidebar.
+                .inspectorColumnWidth(min: 300, ideal: 340, max: 560)
         }
         #endif
     }
