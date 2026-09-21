@@ -841,10 +841,19 @@ struct ContentView: View {
         })
     }
 
-    /// The day the inspector shows, for the schedule views' selected outline.
+    /// The day the inspector shows, for the schedule views' selected outline. Nil in the
+    /// two-column layout: the Mac has no inspector, so a day is never outlined there and
+    /// the date in a cell stays the button that opens Day Detail (#17, "Mac unchanged").
     private var selectedDayID: UUID? {
-        if case .day(let id) = selection { return id }
-        return nil
+        guard layout == .threeColumn, case .day(let id) = selection else { return nil }
+        return id
+    }
+
+    /// What a tap on a day does in the three-column layout: select it into the inspector.
+    /// Nil on the Mac for the same reason as `selectedDayID`.
+    private var onSelectDay: ((ShootDay) -> Void)? {
+        guard layout == .threeColumn else { return nil }
+        return { day in selection = .day(id: day.id); focusEditor() }
     }
 
     /// That day itself, for the Export menu's call sheet item.
@@ -925,8 +934,9 @@ struct ContentView: View {
             dragPayload:             boneyardDragPayload,
             onDropFromSchedule:      moveScenesToBoneyard
         )
-        // The Boneyard and the board fade together in an inactive window (#22).
-        .dimsWhenInactive()
+        // The Boneyard and the board fade together in an inactive window (#22); the
+        // Mac's two-column layout is left as it was.
+        .dimsWhenInactive(layout == .threeColumn)
     }
 
     /// Duplicate Scene in the Boneyard: a copy with a new id, " (Copy)" on the title, and
@@ -1053,7 +1063,7 @@ struct ContentView: View {
                     onExportMonthPDF: { month, options in
                         exportMonthPDF(month: month, options: options)
                     },
-                    onSelectDay: { day in selection = .day(id: day.id); focusEditor() },
+                    onSelectDay: onSelectDay,
                     selectedDayID: selectedDayID,
                     // Seven columns beside a sidebar and an inspector: the iPad's floor is
                     // what fits a 13-inch landscape window with both open.
@@ -1082,15 +1092,16 @@ struct ContentView: View {
                     onShootingScheduleExport: { days in
                         showShootingSchedulePDFSavePanel(for: days)
                     },
-                    onSelectDay: { day in selection = .day(id: day.id); focusEditor() },
+                    onSelectDay: onSelectDay,
                     selectedDayID: selectedDayID
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         // An inactive window's board is dimmed (#22), so with two projects open it is
-        // plain which one the keyboard and the pasteboard act on.
-        .dimsWhenInactive()
+        // plain which one the keyboard and the pasteboard act on; not on the Mac, whose
+        // board the spec leaves as it was.
+        .dimsWhenInactive(layout == .threeColumn)
     }
 
     // MARK: - Toolbar row

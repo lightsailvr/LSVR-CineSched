@@ -203,60 +203,11 @@ struct StripboardView: View {
         }
     }
 
+    /// Brings the day's auto-meal strips in line with its call sheet (`AutoMealSync`), one
+    /// write through the binding when anything changed.
     private func syncAutoBannersAndMeals(for dayIndex: Int) {
         guard dayIndex < shootDays.count else { return }
-        let day = shootDays[dayIndex]
-        let cs = day.callSheet
-
-        let itemsToEnsure: [(kind: MealKind, time: String)] = [
-            (.generalCall, cs.generalCallTime),
-            (.readyToShoot, cs.readyToShootTime),
-            (.lunch, cs.lunchTime),
-            (.snack, cs.snackTime),
-            (.dinner, cs.dinnerTime),
-            (.wrap, cs.wrapTime)
-        ]
-
-        var updatedScenes = shootDays[dayIndex].scenes
-
-        for item in itemsToEnsure {
-            let timeClean = item.time.trimmingCharacters(in: .whitespaces)
-            let existingIdx = updatedScenes.firstIndex(where: { $0.isAutoMeal && $0.mealKind == item.kind })
-
-            if !timeClean.isEmpty {
-                let colorHex: String
-                switch item.kind {
-                case .generalCall:  colorHex = "1E3A8A"
-                case .readyToShoot: colorHex = "064E3B"
-                case .lunch, .snack, .dinner: colorHex = "18181B"
-                case .wrap:         colorHex = "991B1B"
-                }
-
-                if let idx = existingIdx {
-                    let title = "\(item.kind.icon) \(item.kind.defaultTitle) (\(timeClean))"
-                    updatedScenes[idx].title = title
-                    updatedScenes[idx].bannerTitle = title
-                    updatedScenes[idx].summary = timeClean
-                    updatedScenes[idx].customStartTime = timeClean
-                    updatedScenes[idx].bannerColorHex = colorHex
-                } else {
-                    let newStrip = Scene.createAutoMeal(kind: item.kind, timeString: timeClean)
-                    if item.kind == .generalCall {
-                        updatedScenes.insert(newStrip, at: 0)
-                    } else if item.kind == .readyToShoot {
-                        let insertIdx = updatedScenes.firstIndex(where: { $0.isAutoMeal && $0.mealKind == .generalCall }) != nil ? 1 : 0
-                        updatedScenes.insert(newStrip, at: min(insertIdx, updatedScenes.count))
-                    } else if item.kind == .wrap {
-                        updatedScenes.append(newStrip)
-                    } else {
-                        updatedScenes.append(newStrip)
-                    }
-                }
-            } else if let idx = existingIdx {
-                updatedScenes.remove(at: idx)
-            }
-        }
-
+        let updatedScenes = shootDays[dayIndex].scenesWithSyncedAutoMeals()
         if updatedScenes != shootDays[dayIndex].scenes {
             shootDays[dayIndex].scenes = updatedScenes
         }
@@ -800,15 +751,6 @@ struct StripboardView: View {
         return .scenes(ids, from: originDayID)
     }
 
-    /// The scene ids a drop or a reorder moves: the whole multi-selection when the dragged
-    /// scene is part of it (as on the calendar), the dragged scenes alone otherwise.
-    private func widenedToSelection(_ ids: [UUID]) -> [UUID] {
-        if selectedSceneIDs.count > 1, ids.contains(where: { selectedSceneIDs.contains($0) }) {
-            return Array(selectedSceneIDs)
-        }
-        return ids
-    }
-
     /// Payloads dropped on a day section: scenes and events go to `position` in the day
     /// (an event to its end, where its chip row draws from), a handle swaps the two days,
     /// a band from the calendar moves its type and note. One drop is one gesture.
@@ -831,12 +773,11 @@ struct StripboardView: View {
     }
 
     /// Moves scenes (from the Boneyard, this day or any other) to `destination`, one
-    /// gesture. Both a drop on a day section and the reorder container's difference land
-    /// here.
+    /// gesture. The payload already carries the whole multi-selection in board order
+    /// (as on the calendar); widening again here from the selection `Set` lost that order.
     private func moveScenes(_ ids: [UUID], to destination: SceneDropDestination) {
-        let idsToMove = widenedToSelection(ids)
         editSchedule { days, boneyard in
-            ScheduleMoves.moveScenes(idsToMove, to: destination, days: &days, boneyard: &boneyard)
+            ScheduleMoves.moveScenes(ids, to: destination, days: &days, boneyard: &boneyard)
         }
         onSceneChanged()
     }

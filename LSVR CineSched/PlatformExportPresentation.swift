@@ -36,18 +36,33 @@ nonisolated enum PlatformExportPresentation {
 struct PlatformPDFView {
     let data: Data
 
-    private func configure(_ view: PDFView) {
+    /// The bytes the view was last loaded with, so an update can tell a new export from
+    /// SwiftUI's own re-render. (PDFKit re-serialises a document, so comparing
+    /// `document.dataRepresentation()` to the source never matched and reloaded, and reset
+    /// the scroll position, on every update.)
+    final class Coordinator {
+        var loaded: Data?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    private func configure(_ view: PDFView, coordinator: Coordinator) {
         view.autoScales       = true
         view.displayMode      = .singlePageContinuous
         view.displayDirection = .vertical
-        view.document         = PDFDocument(data: data)
+        load(view, coordinator: coordinator)
     }
 
     /// Replaces the document only when the bytes changed (`updateView` runs on every
     /// SwiftUI update of the sheet, and reloading would reset the scroll position).
-    private func update(_ view: PDFView) {
-        guard view.document?.dataRepresentation() != data else { return }
-        view.document = PDFDocument(data: data)
+    private func update(_ view: PDFView, coordinator: Coordinator) {
+        guard coordinator.loaded != data else { return }
+        load(view, coordinator: coordinator)
+    }
+
+    private func load(_ view: PDFView, coordinator: Coordinator) {
+        view.document      = PDFDocument(data: data)
+        coordinator.loaded = data
     }
 }
 
@@ -55,24 +70,24 @@ struct PlatformPDFView {
 extension PlatformPDFView: NSViewRepresentable {
     func makeNSView(context: Context) -> PDFView {
         let view = PDFView()
-        configure(view)
+        configure(view, coordinator: context.coordinator)
         return view
     }
 
     func updateNSView(_ view: PDFView, context: Context) {
-        update(view)
+        update(view, coordinator: context.coordinator)
     }
 }
 #else
 extension PlatformPDFView: UIViewRepresentable {
     func makeUIView(context: Context) -> PDFView {
         let view = PDFView()
-        configure(view)
+        configure(view, coordinator: context.coordinator)
         return view
     }
 
     func updateUIView(_ view: PDFView, context: Context) {
-        update(view)
+        update(view, coordinator: context.coordinator)
     }
 }
 #endif

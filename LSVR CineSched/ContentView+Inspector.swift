@@ -113,16 +113,21 @@ extension ContentView {
         )
     }
 
-    /// Delete Scene from the inspector: a Boneyard scene is deleted, a scheduled one too
-    /// (the Mac's sheets do the same from a day, where the strip's Remove from Day is the
-    /// way back to the Boneyard).
+    /// Delete Scene from the inspector, what the Mac's sheets do with the same button: a
+    /// Boneyard scene is deleted, a scheduled one goes back to the Boneyard (the calendar's
+    /// and the Stripboard's editors call `removeFromDay`; only the breakdown browser
+    /// deletes a scheduled scene outright).
     private func deleteInspectedScene(id: UUID) {
-        edit(L("Delete Scene")) { data in
-            switch data.locate(sceneID: id) {
-            case .boneyard(let index):                     data.allScenes.remove(at: index)
-            case .scheduled(let dayIndex, let sceneIndex): data.shootDays[dayIndex].scenes.remove(at: sceneIndex)
-            case nil:                                      break
+        switch document.project.locate(sceneID: id) {
+        case .boneyard:
+            edit(L("Delete Scene")) { data in
+                if case .boneyard(let index) = data.locate(sceneID: id) { data.allScenes.remove(at: index) }
             }
+        case .scheduled(let dayIndex, _):
+            let dayID = shootDays[dayIndex].id
+            if let scene = document.project.scene(withID: id) { removeScene(scene, from: dayID) }
+        case nil:
+            break
         }
     }
 
@@ -240,8 +245,10 @@ extension ContentView {
     }
 
     /// Edit Call Sheet from the day detail. The editor writes the day through the binding
-    /// and its Save follows in the same turn, one gesture; the Stripboard syncs the
-    /// auto-meal strips from the new times when its day section next appears.
+    /// and its Save follows in the same turn, one gesture. The auto-meal strips follow the
+    /// new times inside that same edit (`AutoMealSync`): the Stripboard may be showing the
+    /// day already, and its own sync runs only when a section appears or its own editor
+    /// saves, so without this a visible section kept the old lunch strip until scrolled off.
     @ViewBuilder
     func inspectorCallSheetSheet(dayID: UUID) -> some View {
         if let index = document.project.dayIndex(forDayID: dayID) {
@@ -255,6 +262,7 @@ extension ContentView {
                         edit(L("Edit Call Sheet")) { data in
                             guard let i = data.dayIndex(forDayID: dayID) else { return }
                             data.shootDays[i] = new
+                            data.shootDays[i].scenes = data.shootDays[i].scenesWithSyncedAutoMeals()
                         }
                     }
                 ),

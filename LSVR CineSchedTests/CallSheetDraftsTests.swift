@@ -341,6 +341,26 @@ struct CallSheetDraftsTests {
         #expect(kept.applied(to: CallSheetData()).crewCallEntries.count == 3, "a role alone keeps a crew row")
     }
 
+    @Test func callSheetDraftKeepsBlankRowsTheSheetAlreadyHad() {
+        // A blank row from an older file (the old editor wrote rows back unchanged) is not
+        // the editor's to delete on an unrelated Save; only a row added here and left blank is.
+        var sheet = CallSheetData()
+        sheet.castCallEntries = [CastCallEntry(characterName: "", actorName: "")]
+        sheet.crewCallEntries = [CrewCallEntry(role: "", name: "")]
+        sheet.locations       = [Location(name: "", address: "kept")]
+        var day = Self.day()
+        day.callSheet = sheet
+        var draft = CallSheetDraft(day: day, productionInfo: ProductionInfo())
+        draft.addCastCall(day: day)
+        draft.addCrewCall()
+        let saved = draft.applied(to: sheet)
+        #expect(saved.castCallEntries.map(\.id).contains(sheet.castCallEntries[0].id))
+        #expect(saved.crewCallEntries.map(\.id).contains(sheet.crewCallEntries[0].id))
+        #expect(saved.locations.map(\.id).contains(sheet.locations[0].id), "kept beside the day's pre-filled scene locations")
+        #expect(saved.castCallEntries.count == draft.castCalls.count - 1, "only the row added here is dropped")
+        #expect(saved.crewCallEntries.count == draft.crewCalls.count - 1)
+    }
+
     // MARK: - Production setup: reading
 
     @Test func productionSetupDraftReadsEveryField() {
@@ -480,5 +500,20 @@ struct CallSheetDraftsTests {
         #expect(saved.castList.map(\.characterName) == ["SOLO"], "either name keeps a cast member")
         #expect(saved.crew.map(\.name)              == ["Named"], "a crew member needs a name")
         #expect(saved.locationRoster.map(\.name)    == ["Named"], "a location needs a name")
+    }
+
+    @Test func productionSetupDraftKeepsBlankRowsTheSetupAlreadyHad() {
+        var info = ProductionInfo()
+        info.castList       = [CastMember(actorName: "", characterName: "")]
+        info.crew           = [CrewMember(name: "", role: "Grip")]
+        info.locationRoster = [Location(name: "", address: "kept")]
+        var draft = ProductionSetupDraft(info: info, scenes: [])
+        draft.addCastMember()
+        draft.addCrewMember()
+        draft.addLocation()
+        let saved = draft.applied(to: info)
+        #expect(saved.castList.map(\.id)       == [info.castList[0].id])
+        #expect(saved.crew.map(\.id)           == [info.crew[0].id])
+        #expect(saved.locationRoster.map(\.id) == [info.locationRoster[0].id])
     }
 }

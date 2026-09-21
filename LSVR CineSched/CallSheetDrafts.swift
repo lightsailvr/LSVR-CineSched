@@ -10,7 +10,7 @@
 // `CallSheetDraftsTests`.
 //
 // A list entry added from the editor starts blank and is filled on its detail page, so
-// `applied` drops the rows that stayed blank (no character and no actor, no role and
+// `applied` drops the rows added here that stayed blank (no character and no actor, no role and
 // no name, no location name) rather than writing an empty line onto the PDF; the old
 // sheets refused such a row at the add button instead.
 
@@ -272,12 +272,21 @@ struct CallSheetDraft: Equatable {
         saved.weatherCondition  = weatherCondition
         saved.weatherPrecipWind = weatherPrecipWind
         saved.sunTimes          = sunTimes
-        saved.locations         = locations.filter { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty }
+        // Only a row added in this editor and left blank is dropped; a blank row the sheet
+        // already had (an older file) is kept as it was, as the previous editor kept it.
+        let hadLocation = Set(sheet.locations.map(\.id))
+        let hadCast     = Set(sheet.castCallEntries.map(\.id))
+        let hadCrew     = Set(sheet.crewCallEntries.map(\.id))
+        saved.locations         = locations.filter {
+            hadLocation.contains($0.id) || !$0.name.trimmingCharacters(in: .whitespaces).isEmpty
+        }
         saved.castCallEntries   = castCalls.filter {
+            hadCast.contains($0.id) ||
             !$0.characterName.trimmingCharacters(in: .whitespaces).isEmpty ||
             !$0.actorName.trimmingCharacters(in: .whitespaces).isEmpty
         }
         saved.crewCallEntries   = crewCalls.filter {
+            hadCrew.contains($0.id) ||
             !$0.role.trimmingCharacters(in: .whitespaces).isEmpty ||
             !$0.name.trimmingCharacters(in: .whitespaces).isEmpty
         }
@@ -419,12 +428,21 @@ struct ProductionSetupDraft: Equatable {
         saved.adName           = adName
         saved.adPhone          = adPhone
         saved.defaultLunchTime = defaultLunchTime
+        // As for the call sheet: only a row added here and left blank is dropped.
+        let hadCast     = Set(info.castList.map(\.id))
+        let hadCrew     = Set(info.crew.map(\.id))
+        let hadLocation = Set(info.locationRoster.map(\.id))
         saved.castList         = castList.filter {
+            hadCast.contains($0.id) ||
             !$0.actorName.trimmingCharacters(in: .whitespaces).isEmpty ||
             !$0.characterName.trimmingCharacters(in: .whitespaces).isEmpty
         }
-        saved.crew             = crew.filter { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty }
-        saved.locationRoster   = locationRoster.filter { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty }
+        saved.crew             = crew.filter {
+            hadCrew.contains($0.id) || !$0.name.trimmingCharacters(in: .whitespaces).isEmpty
+        }
+        saved.locationRoster   = locationRoster.filter {
+            hadLocation.contains($0.id) || !$0.name.trimmingCharacters(in: .whitespaces).isEmpty
+        }
         return saved
     }
 }

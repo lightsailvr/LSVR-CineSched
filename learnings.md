@@ -9,6 +9,46 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-20 — The M3 review round: a drop must not re-widen from a `Set`, an inspector's Delete is the sheet's Delete, and "Mac unchanged" means nil callbacks, not unused ones (#17, #18, #20, #22, #23)
+
+What the standards and spec reviews of the seven M3 branches caught after each had
+passed its own checks, and the fixes:
+
+- **A multi-select Boneyard drag landed in `Set` order.** The typed payload already
+  carried the selection in display order (`boneyardDragPayload`, `sceneDragPayload`), but
+  both views re-widened at drop time with `Array(selectedSceneIDs)` and `ScheduleMoves`
+  honours the ids' order for Boneyard scenes. The pre-#18 code also widened from the set
+  but then filtered the board by it, which kept order by accident. Rule: widen once, at
+  the lift, in board order; the drop takes the payload as it is.
+- **The inspector's Delete Scene deleted a scheduled scene; the Mac's sheets return it
+  to the Boneyard** (`removeFromDay`). A comment claimed parity; the reviewer read the
+  call sites. When a new surface reuses an editor, trace what its buttons do at the old
+  call sites, not what the button is called.
+- **Passing a callback in both layouts is a Mac change even when the Mac never "uses"
+  it**: `onSelectDay` non-nil turned the calendar's date `Button` into a select-on-tap
+  label and outlined clicked days on the Mac. The three-column-only values are computed
+  properties that return nil in the two-column layout, so the Mac's tree is what it was.
+- **The auto-meal sync lived in the Stripboard and ran on `onAppear`**, so a call sheet
+  saved from the inspector (or the Mac's calendar, a pre-existing lag) left a visible day
+  section stale. Now a pure `ShootDay.scenesWithSyncedAutoMeals()` (`AutoMealSync.swift`,
+  tested) and the inspector runs it inside the save's edit: one undo step. The calendar's
+  path is unchanged (the Mac is out of scope for behaviour changes).
+- **Drop only the rows you added.** `applied(to:)` filtered every blank list row, which
+  deleted a blank row an older file already had on an unrelated Save; it now keeps rows
+  whose id the source had.
+- **`PDFDocument.dataRepresentation()` never equals the bytes it was made from**, so an
+  "only reload when the data changed" guard built on it reloaded (and reset the scroll)
+  on every SwiftUI update. Remember the loaded `Data` in the representable's coordinator.
+- **Inactive dimming was on the Mac too**; the spec's Out of Scope keeps the Mac's board
+  as it is, so the modifier takes an `isEnabled` the two-column layout passes as false.
+- Left as reported, not changed: touch alone cannot multi-select (⌘/⇧ need a pointer or
+  keyboard; a touch multi-select gesture is a later ticket), the whole-schedule shooting
+  schedule export is in the iPad's Export menu only, Copy/Cut/Paste exist on the Mac too
+  (additive, and the spec's cross-window story needs them), and the Mac's title field now
+  ends editing when a strip is clicked (the pasteboard responder takes first responder).
+
+---
+
 ## 2026-09-20 — The iPad's menu bar, copy and paste and the inactive window: `@FocusedValue` is nil without the focus system, SwiftUI's `copyable` needs it too, and the first key of a session only attaches the keyboard (#22)
 
 Putting the Mac's `.commands` on the iOS document scene and wiring Edit ▸ Copy/Cut/Paste

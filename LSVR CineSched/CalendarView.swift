@@ -12,8 +12,9 @@
 // combined with the drag container the app also needs (to carry a strip out to the Boneyard
 // and to carry the day handle and band, which are not strips) the lift crashed at
 // `DragContainerStorage.payload(for:)` on 27.0, because a reorderable strip is not a
-// registered item of that heterogeneous drag container. The Boneyard, whose items are all
-// one kind, does use the drag container with selection (BoneyardListView).
+// registered item of that heterogeneous drag container. The Boneyard is plain `.draggable`
+// too: a `dragContainer` of the payload type claims every draggable of that type in the
+// window and crashed the strips' lift the same way (BoneyardListView, learnings 2026-09-20 #18).
 
 import SwiftUI
 
@@ -1242,16 +1243,6 @@ struct CompactMonthCalendarView: View {
         return .scenes(ids, from: originDayID)
     }
 
-    /// The scene ids a drop moves: the whole multi-selection when the dragged
-    /// scene is part of it (a multi-select drag moves every selected strip, wherever it is
-    /// on the board), the dragged scenes alone otherwise.
-    private func widenedToSelection(_ ids: [UUID]) -> [UUID] {
-        if selectedSceneIDs.count > 1, ids.contains(where: { selectedSceneIDs.contains($0) }) {
-            return Array(selectedSceneIDs)
-        }
-        return ids
-    }
-
     /// Payloads dropped on a day cell: scenes and events go to `position` in the day, a
     /// handle swaps the two days, a band moves its type and note. One drop is one gesture.
     private func handleDrop(_ items: [ScheduleDragPayload], onDayID dayID: UUID, position: SceneDropDestination.Position) {
@@ -1300,14 +1291,14 @@ struct CompactMonthCalendarView: View {
     }
 
     /// Moves scenes (from the Boneyard, this day or any other) to `destination` as one
-    /// edit each for the Boneyard and the days, in one gesture. Both a drop on a cell and
-    /// the reorder container's difference land here.
+    /// edit each for the Boneyard and the days, in one gesture. The payload already carries
+    /// the whole multi-selection in board order (`sceneDragPayload`, the Boneyard's
+    /// `boneyardDragPayload`); widening again here from the selection `Set` lost that order.
     private func moveScenes(_ ids: [UUID], to destination: SceneDropDestination) {
-        let idsToMove = widenedToSelection(ids)
         onBeforeSceneChange()
         var days     = shootDays
         var boneyard = allScenes
-        guard ScheduleMoves.moveScenes(idsToMove, to: destination, days: &days, boneyard: &boneyard) else {
+        guard ScheduleMoves.moveScenes(ids, to: destination, days: &days, boneyard: &boneyard) else {
             onSceneChanged()
             return
         }

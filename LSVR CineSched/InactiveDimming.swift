@@ -7,12 +7,16 @@
 // scene's window appears active on every platform (macOS 10.15, iOS 18, visionOS 2; the
 // older `controlActiveState` is the Mac's alone and deprecated for it), so one
 // platform-free modifier follows it: full strength while active, faded otherwise. The
-// board keeps taking drops and taps while dimmed; only its look changes.
+// board keeps taking drops and taps while dimmed; only its look changes. The editor
+// applies it in the three-column layout only: the spec keeps the Mac's board as it was
+// (#1, "the Mac gets the document layer, focused-value menus and the shared editors
+// only"), so the two-column layout passes `false` and looks as before.
 
 import SwiftUI
 
 struct InactiveDimming: ViewModifier {
     @Environment(\.appearsActive) private var appearsActive
+    let isEnabled: Bool
 
     /// What an inactive window's board fades to: dim enough to read as inactive at a
     /// glance, light enough that the schedule is still legible for reference.
@@ -20,14 +24,14 @@ struct InactiveDimming: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .opacity(appearsActive ? 1 : Self.inactiveOpacity)
+            .opacity(appearsActive || !isEnabled ? 1 : Self.inactiveOpacity)
             .animation(.easeInOut(duration: 0.15), value: appearsActive)
     }
 }
 
 extension View {
-    /// Fades this view while its window is not the active one.
-    func dimsWhenInactive() -> some View {
-        modifier(InactiveDimming())
+    /// Fades this view while its window is not the active one; `false` leaves it alone.
+    func dimsWhenInactive(_ isEnabled: Bool = true) -> some View {
+        modifier(InactiveDimming(isEnabled: isEnabled))
     }
 }

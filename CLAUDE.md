@@ -59,11 +59,12 @@ to `/Applications`, commits, tags `v<version>`, pushes, and publishes a GitHub R
 the zipped app. `scripts/install.sh` just builds and refreshes `/Applications` (no version,
 no tag). Version and build number live only in build settings; keep the changelog's newest
 section in sync with `MARKETING_VERSION`. A clean build
-with Xcode 27.0 (27A266a) at the 27.0 floor succeeds with exactly 5 warnings in the app target
-(all deprecated one-argument `onChange`, in `NewSceneInputView` and `StripboardView`; the
+with Xcode 27.0 (27A266a) at the 27.0 floor succeeds with exactly 4 warnings in the app target
+(all deprecated one-argument `onChange`: `NewSceneInputView` twice, `StripboardView` twice; the
 compiler echoes each once more as a source excerpt), on macOS, the iPhone 17 simulator and
-the Apple Vision Pro simulator alike (last checked 2026-09-20, down from 7 with #19's
-rewrite of `BannerInputSheet` and `LocationAutocompleteField`); do not add new ones. (The 4 main-actor-isolated `Codable` warnings went with #7:
+the Apple Vision Pro simulator alike (last checked 2026-09-20, down from 7: #18 dropped one in
+`StripboardView`, #19 rewrote `BannerInputSheet` and `LocationAutocompleteField`); do not add
+new ones. (The 4 main-actor-isolated `Codable` warnings went with #7:
 the model's `Codable` conformances are `nonisolated`.) The test target adds 3 more, all
 main-actor isolation (`MonthPDFExporterTests` twice, echoed, and a `@Test(arguments:)` macro
 expansion in `ProjectDocumentTests`): 5 warning lines in the log.
@@ -181,9 +182,15 @@ the build inputs outside it, see Working agreements):
   (a seam) behind the board, every selection calls `focusEditor()` so it takes first
   responder, and `copyPayload` / `cutPayload` / `paste` act on the multi-selection or the
   inspector's scene through `edit` ("Cut", "Paste"); a paste selects what it inserted.
-- `InactiveDimming.swift`: `dimsWhenInactive()`, the modifier the board and the Boneyard
+- `InactiveDimming.swift`: `dimsWhenInactive(_:)`, the modifier the board and the Boneyard
   carry (#22): `@Environment(\.appearsActive)` (every platform) fades them in a window that
-  is not the active one.
+  is not the active one. Enabled in the three-column layout only; the Mac's board is left
+  as it was (#1, Out of Scope).
+- `AutoMealSync.swift`: `ShootDay.scenesWithSyncedAutoMeals()`, the auto-meal strips
+  brought in line with the call sheet's times (pure, `AutoMealSyncTests`). The Stripboard
+  runs it when a day section appears and after its own call sheet editor saves; the
+  inspector's call sheet editor runs it inside the save's edit, so the strips and the times
+  are one undo step and a visible section never lags.
 - `InputPress.swift`: which input pressed the board last (#22): `InputKind` (touch, pencil,
   pointer, other), `InputPress` (kind and modifiers; `selectionModifiers` is the click's for
   a pointer, none for a finger or a Pencil), `InputPressRecorder.shared` and the
@@ -452,6 +459,7 @@ The test targets are Xcode template stubs. `LSVR CineSchedTests` uses Swift Test
 `#expect`). Pure, testable units: `FountainParser`, `FountainPaginator`, `FractionParser`,
 `TimeParser`, `Formatting.swift` free functions, `ConflictScanner` (`ConflictScannerTests`),
 `ScheduleLockScanner`, `ProjectData.updateProductionRange` (`ProductionRangeTests`),
+`ShootDay.scenesWithSyncedAutoMeals` (`AutoMealSyncTests`),
 `LegacyWorkingCopyRecovery.decide` (`LegacyWorkingCopyRecoveryTests`),
 `SyncState.derive` and the resource snapshot (`SyncStateTests`, one per state and per precedence
 choice), `ConflictPolicy.decide` (`ConflictPolicyTests`, one per row of the decision),
