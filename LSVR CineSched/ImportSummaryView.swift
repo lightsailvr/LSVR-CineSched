@@ -4,18 +4,28 @@
 // moments show it. On the Mac it follows a Fountain import into the current project
 // (Done). On the iOS and visionOS launch screen (#13) it comes first, as the
 // confirmation before the new project is created: given `onConfirm`, the footer is
-// Cancel / Create Project and the copy speaks of what will happen. Only the size around
-// the form changes per container (`editorContainer`): the Mac's sheet at the frame it
-// had, a form sheet on iPad and Vision Pro, detents on iPhone.
+// Cancel / Create Project and the copy speaks of what will happen; the iPhone's
+// Production tab (#28) shows the same confirmation before adding a script to the open
+// project (`confirmation: .existingProject`: Cancel / Add to Boneyard). Only the size
+// around the form changes per container (`editorContainer`): the Mac's sheet at the
+// frame it had, a form sheet on iPad and Vision Pro, detents on iPhone.
 
 import SwiftUI
 
 struct ImportSummaryView: View {
     let result: FountainImportResult
     let onDismiss: () -> Void
-    /// Set for the confirmation before an import (the launch screen); nil for the Mac's
-    /// summary after one.
+    /// Set for the confirmation before an import (the launch screen, the phone's
+    /// Production tab); nil for the Mac's summary after one.
     var onConfirm: (() -> Void)? = nil
+    /// What confirming does, for the copy and the button: a new project (the launch
+    /// screen's default) or the open project's Boneyard.
+    var confirmation: Confirmation = .newProject
+
+    enum Confirmation {
+        case newProject
+        case existingProject
+    }
 
     /// The Mac frame the fixed-frame sheet had.
     static let sheetSize = EditorSheetSize(width: 460, height: 460, compactDetents: [.large])
@@ -24,9 +34,15 @@ struct ImportSummaryView: View {
 
     private var explanation: String {
         let count = result.scenes.count
-        return isConfirmation
-            ? String(format: L("A new project will hold all %d scene%@ in its Boneyard, unscheduled. Time estimates are a rough guess from page count — edit before scheduling."), count, count == 1 ? "" : "s")
-            : String(format: L("All %d scene%@ landed in the Boneyard, unscheduled. Time estimates are a rough guess from page count — edit before scheduling."), count, count == 1 ? "" : "s")
+        let plural = count == 1 ? "" : "s"
+        switch (isConfirmation, confirmation) {
+        case (false, _):
+            return String(format: L("All %d scene%@ landed in the Boneyard, unscheduled. Time estimates are a rough guess from page count — edit before scheduling."), count, plural)
+        case (true, .newProject):
+            return String(format: L("A new project will hold all %d scene%@ in its Boneyard, unscheduled. Time estimates are a rough guess from page count — edit before scheduling."), count, plural)
+        case (true, .existingProject):
+            return String(format: L("All %d scene%@ will be added to this project's Boneyard, unscheduled; nothing already in the project changes. Time estimates are a rough guess from page count — edit before scheduling."), count, plural)
+        }
     }
 
     var body: some View {
@@ -84,7 +100,7 @@ struct ImportSummaryView: View {
                 Spacer()
                 if let onConfirm {
                     Button(L("Cancel"), role: .cancel) { onDismiss() }
-                    Button(L("Create Project")) { onConfirm() }
+                    Button(confirmation == .newProject ? L("Create Project") : L("Add to Boneyard")) { onConfirm() }
                         .buttonStyle(.borderedProminent)
                 } else {
                     Button(L("Done")) { onDismiss() }

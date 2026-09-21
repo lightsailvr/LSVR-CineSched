@@ -24,7 +24,8 @@ nonisolated struct ProductionRangePreview: Equatable {
     /// Days in the new range (the extra days kept outside it for their events, call
     /// sheets and types are not counted).
     var dayCount:            Int
-    /// Script scenes that no longer fit a day and would return to the Boneyard.
+    /// Script scenes (not banners) that no longer fit a day and would return to the
+    /// Boneyard with the rest of their day's strips.
     var displacedSceneCount: Int
 }
 
@@ -153,9 +154,24 @@ extension ProjectData {
         let start = cal.startOfDay(for: newStart)
         let end   = cal.startOfDay(for: newEnd)
         let days  = start <= end ? (cal.dateComponents([.day], from: start, to: end).day ?? 0) + 1 : 0
+        let scriptScenes = { (project: ProjectData) in project.allScenes.filter { !$0.isBanner }.count }
         return ProductionRangePreview(
             dayCount:            days,
-            displacedSceneCount: max(0, copy.allScenes.count - allScenes.count)
+            displacedSceneCount: max(0, scriptScenes(copy) - scriptScenes(self))
         )
+    }
+
+    /// The first day of every month the shoot days span, first to last, for a month
+    /// export's choice (#28); empty for a project without days.
+    func productionMonths(calendar cal: Calendar = .current) -> [Date] {
+        guard let first = shootDays.first?.date, let last = shootDays.last?.date, first <= last else { return [] }
+        guard var month = cal.date(from: cal.dateComponents([.year, .month], from: first)) else { return [] }
+        var months: [Date] = []
+        while month <= last {
+            months.append(month)
+            guard let next = cal.date(byAdding: .month, value: 1, to: month) else { break }
+            month = next
+        }
+        return months
     }
 }

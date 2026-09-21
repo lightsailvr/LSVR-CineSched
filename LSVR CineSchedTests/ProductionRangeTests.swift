@@ -155,7 +155,9 @@ struct ProductionRangeTests {
         let preview = before.previewProductionRange(from: day(3), to: day(4), calendar: calendar)
         var after   = before
         after.updateProductionRange(from: day(3), to: day(4), calendar: calendar)
-        #expect(preview.displacedSceneCount == after.allScenes.count - before.allScenes.count)
+        // The banners of the dropped days go to the Boneyard too, but are not "scenes" here.
+        let scriptScenes = { (project: ProjectData) in project.allScenes.filter { !$0.isBanner }.count }
+        #expect(preview.displacedSceneCount == scriptScenes(after) - scriptScenes(before))
         #expect(preview.displacedSceneCount > 0)
         #expect(preview.dayCount == 2)
     }
@@ -172,5 +174,18 @@ struct ProductionRangeTests {
         let preview = before.previewProductionRange(from: day(9), to: day(13), calendar: calendar)
         #expect(preview.displacedSceneCount == 0)
         #expect(preview.dayCount == 5)
+    }
+
+    // MARK: - Months spanned
+
+    @Test func productionMonthsRunFromTheFirstDayToTheLast() {
+        var project = self.project(shiftMode: false)
+        // November 1–6 is one month; stretch the range into January.
+        project.updateProductionRange(from: day(1), to: calendar.date(byAdding: .day, value: 70, to: day(1))!, calendar: calendar)
+        let months = project.productionMonths(calendar: calendar)
+        #expect(months.count == 3)
+        #expect(months.map { calendar.component(.month, from: $0) } == [11, 12, 1])
+        #expect(months.allSatisfy { calendar.component(.day, from: $0) == 1 })
+        #expect(ProjectData(allScenes: [], shootDays: []).productionMonths(calendar: calendar).isEmpty)
     }
 }
