@@ -12,8 +12,21 @@
 //   - shift (shift on): everything slides by the offset between the old first scheduled
 //     day and the new start, so a travel day the day before Day 1 is still the day before
 //     Day 1. Then the same merge rules apply on the shifted dates.
+//
+// `previewProductionRange` runs the same regeneration on a copy and reports what it
+// would do (the day count, the scenes it would send to the Boneyard), for the iPhone's
+// confirmation before Update (#28); the Mac applies without one.
 
 import Foundation
+
+/// What a range change would do, before it is applied.
+nonisolated struct ProductionRangePreview: Equatable {
+    /// Days in the new range (the extra days kept outside it for their events, call
+    /// sheets and types are not counted).
+    var dayCount:            Int
+    /// Script scenes that no longer fit a day and would return to the Boneyard.
+    var displacedSceneCount: Int
+}
 
 extension ProjectData {
 
@@ -131,5 +144,18 @@ extension ProjectData {
 
         updatedDays.sort { $0.date < $1.date }
         shootDays = updatedDays
+    }
+
+    /// The regeneration's outcome for `newStart...newEnd` without applying it.
+    func previewProductionRange(from newStart: Date, to newEnd: Date, calendar cal: Calendar = .current) -> ProductionRangePreview {
+        var copy = self
+        copy.updateProductionRange(from: newStart, to: newEnd, calendar: cal)
+        let start = cal.startOfDay(for: newStart)
+        let end   = cal.startOfDay(for: newEnd)
+        let days  = start <= end ? (cal.dateComponents([.day], from: start, to: end).day ?? 0) + 1 : 0
+        return ProductionRangePreview(
+            dayCount:            days,
+            displacedSceneCount: max(0, copy.allScenes.count - allScenes.count)
+        )
     }
 }

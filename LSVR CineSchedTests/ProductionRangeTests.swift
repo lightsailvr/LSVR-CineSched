@@ -147,4 +147,30 @@ struct ProductionRangeTests {
         #expect(shootDay(after, on: day(1))?.dayType == .travel)
         expectNoSceneLostOrDuplicated(from: before, in: after)
     }
+
+    // MARK: - Preview (the phone's confirmation, #28)
+
+    @Test func previewCountsTheScenesAShorterRangeSendsToTheBoneyard() {
+        let before  = project(shiftMode: false)
+        let preview = before.previewProductionRange(from: day(3), to: day(4), calendar: calendar)
+        var after   = before
+        after.updateProductionRange(from: day(3), to: day(4), calendar: calendar)
+        #expect(preview.displacedSceneCount == after.allScenes.count - before.allScenes.count)
+        #expect(preview.displacedSceneCount > 0)
+        #expect(preview.dayCount == 2)
+    }
+
+    @Test func previewOfAWiderRangeDisplacesNothing() {
+        let preview = project(shiftMode: false).previewProductionRange(from: day(1), to: day(10), calendar: calendar)
+        #expect(preview.displacedSceneCount == 0)
+        #expect(preview.dayCount == 10)
+    }
+
+    @Test func previewInShiftModeFollowsTheShiftedScenes() {
+        // The scenes slide with the start, so a same-length range later displaces nothing.
+        let before  = project(shiftMode: true)
+        let preview = before.previewProductionRange(from: day(9), to: day(13), calendar: calendar)
+        #expect(preview.displacedSceneCount == 0)
+        #expect(preview.dayCount == 5)
+    }
 }
