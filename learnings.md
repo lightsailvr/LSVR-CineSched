@@ -9,6 +9,63 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-21 — The iPhone editor: the document's bar mirrors into every stack and a root toolbar item lands in it, `onScrollVisibilityChange` never fires for a `List` row, and a `LabeledContent` around a `Label` grows a row to 400 pt (#24)
+
+Building the compact editor (a `TabView` with a `NavigationStack` in the Days tab) on the
+iPhone 17 simulator, driven by a throwaway XCUITest (`build-for-testing`, terminate,
+`simctl install`, `openurl` the fixture, `test-without-building` with
+`-parallel-testing-enabled NO`; the fixture was written by a throwaway unit test given
+`TEST_RUNNER_CINESCHED_FIXTURE_DIR` as an *environment* variable of `xcodebuild`, not an
+argument, which the test never sees):
+
+- **On iPhone the document infrastructure draws its own bar above the editor (Back into
+  the browser, the title's Rename/Move menu) and, as on the iPad's columns (2026-09-20
+  #17), mirrors both into any navigation bar inside**, so a `NavigationStack` in a tab
+  showed two identical bars stacked. `.toolbar(.hidden, for: .navigationBar)` on the
+  `TabView` does not touch the outer bar; hiding the *inner* stack's bar at its root
+  (`editorNavigationBarHidden()`) leaves the one bar, and a `ToolbarItem(placement:
+  .primaryAction)` on the `TabView` lands in that outer bar (the sync indicator's home).
+  A pushed Day screen shows the inner bar with its own Back under the outer one; kept,
+  because hiding it would take the swipe-back gesture. A stub tab with its own
+  `NavigationStack` gets the mirror too: the placeholders are bare views.
+- **`tabViewBottomAccessory` is iOS-only and so is `TabBarMinimizeBehavior.onScrollDown`**
+  (the `tabBarMinimizeBehavior` modifier compiles on macOS and visionOS; the case is
+  `unavailable`, which the Mac build reports and the iPhone build never does). Both went
+  behind `PlatformTabAccessory` (`phoneTabBar`). `tabViewBottomAccessoryPlacement`, the
+  environment value, exists everywhere; `contextMenu(menuItems:preview:)`,
+  `presentationDetents`, `toolbarTitleDisplayMode` and `presentationCompactAdaptation`
+  compile on macOS; `.insetGrouped`, `listSectionSpacing`, `listRowSpacing` and
+  `navigationBarTitleDisplayMode` do not (the list style is now in `PlatformControlStyles`).
+- **`onScrollVisibilityChange` never fired for a row of a `List`** on 27.0 (the week strip
+  froze on its seeded week); `onAppear`/`onDisappear` do fire, one buffered cell late
+  (a List keeps a cell alive just past the edge). And a row scrolled under a
+  `safeAreaInset(edge: .top)` still counts as on screen, which put the strip on the wrong
+  week after a push and pop; the strip sits above the list in a `VStack` now.
+- **`LabeledContent("Day Type") { Label(…) }` as a `List` row laid out about 400 pt tall**
+  (the row's frame from the accessibility tree; nothing else in the section). An `HStack`
+  with a `Spacer` between the two texts is 52 pt. Not investigated further.
+- **A `Button` in an inset-grouped `Section` header is tappable** with
+  `.buttonStyle(.borderless)`, but `scrollTo(id, anchor: .top)` on the section's first
+  row puts the header off the top, so the "Hide empty days" control is a row in the card.
+- **A short strip in a `List` row shows white above and below it**: the row's minimum
+  height is taller than a one-line banner, and `listRowInsets(EdgeInsets())` does not
+  change that. `listRowBackground(stripColor)` fills the row; the strip row also gets
+  `fixedSize()` on its time text so a long banner label truncates before the time does.
+- **The iOS 26 tab bar stays minimized after a rotation** (landscape folds it inline; back
+  in portrait it is still inline until the list scrolls up), and in that state
+  `app.tabBars.buttons` lists only the selected tab and Search; XCUITest finds all four
+  again once the bar is expanded. `app.buttons["Fri Sep 18"]` (the cell's accessibility
+  label), `app.buttons["TodayControl"]` and `app.buttons["WeekStripMonth"]` (identifiers)
+  drive the strip; the graphical `DatePicker`'s days are buttons labelled "Tuesday,
+  October 6" and its month arrow is "Next Month". A 1.2 s `press` on a strip opens the
+  preview and menu; a tap at the top of the screen dismisses them.
+- **A narrow iPad window was not probed**: the compact editor is chosen by
+  `horizontalSizeClass` in `ProjectEditor` exactly as the minimal editor was, and the
+  2026-09-20 #22 note records that a 375 pt iPad window is compact, so the layout
+  follows by construction; the Split View tiling recipe there is the way to see it.
+
+---
+
 ## 2026-09-21 — A `simultaneousGesture(SpatialEventGesture())` over the editor kills every `Button` under it on iPadOS 27; `canRedo` posts a checkpoint; XCUITest's `isEnabled` lags the bar (#17, #22)
 
 Matt's first device pass of M3: the iPad toolbar's sidebar and inspector toggles, the

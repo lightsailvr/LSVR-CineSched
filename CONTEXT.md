@@ -5,8 +5,9 @@ scenes, drag scenes onto shoot days, track cast availability, and export industr
 (shooting schedule, stripboard, call sheets, breakdown sheets, Days Out of Days). The Mac app is
 the product today; one target also builds iOS, iPadOS and visionOS, which open, create and
 autosave projects from the CineSched folder in iCloud Drive (#12) into the three-column
-editor with an inspector in regular width (#17) and a minimal editor in compact width
-while the port (#1) is in progress.
+editor with an inspector in regular width (#17) and the iPhone editor in compact width
+(#24: the Days list, the week strip and the Day screen; the other tabs follow) while the
+port (#1) is in progress.
 
 This file is the glossary and system map. Use these terms exactly in issues, code, and tests.
 Architecture decisions live in `docs/adr/`. Hard-won surprises live in `learnings.md`.
@@ -46,7 +47,7 @@ Film-production terms first, then app-specific ones.
 | **Auto-meal** | A banner inserted automatically from call-sheet times (lunch, snack, wrap, etc.). `Scene.isAutoMeal` + `MealKind`. `ShootDay.scenesWithSyncedAutoMeals()` (pure) brings them in line; the Stripboard runs it when a section appears or its editor saves, the inspector's call sheet editor inside its save. |
 | **Calendar event** | A dated non-production item (travel day, rehearsal, scout). A `Scene` with `isCalendarEvent == true`. Never in the Boneyard, never counted as a scene, never in the time cascade. Slides with the shoot in shift mode and swaps with a day drag. Shown as chips on the calendar cell and above the strips on the Stripboard. |
 | **Notice strip** | Umbrella term for banners, auto-meals, and calendar events. |
-| **Time cascade** | On the stripboard, start and end times computed for each strip from the day's general call time and each strip's estimated duration. See `computeDayTimeline` in `StripboardView.swift`. |
+| **Time cascade** | On the Stripboard and the iPhone's lists, start and end times computed for each strip from the day's call sheet and each strip's estimated duration: `dayTimeline(for:scenes:)` in `DayTimeline.swift` (#24; the fork's `computeDayTimeline`, moved as-is). The day starts at its ready-to-shoot time, else its general call, else 07:30 AM; a strip with a custom start time restarts the cascade; a script scene with no estimate takes 15 minutes; a banner takes exactly its own; calendar events never join. |
 | **Call sheet** | The per-day document telling cast and crew when and where to be. Modelled by `CallSheetData` on each `ShootDay`; edited in `CallSheetEditor`, exported by `CallSheetExporter`. |
 | **General call** | The day's main call time on the call sheet. Drives the time cascade and the auto-meal strips. |
 | **Cast member** | An actor and the character they play (`CastMember` in `ProductionInfo.castList`), plus unavailable date ranges. |
@@ -74,8 +75,13 @@ Film-production terms first, then app-specific ones.
 | **CineSched folder** | The iCloud Documents container `iCloud.com.lsvr.LSVR-CineSched`, public and named "CineSched", so iCloud Drive shows it as a folder on every device of the account (ADR 0006). Owned by the iOS, iPadOS and visionOS builds through their entitlement (`Config/CineSched-iOS.entitlements`); their launch screen and document browser start in it. The Mac has no iCloud entitlement, so it reaches the folder like any other (user-selected files); `CineSchedFolder` derives its on-disk path (`~/Library/Mobile Documents/iCloud~com~lsvr~LSVR-CineSched/Documents`) and `MacAppDelegate` points the Open and Save panels there once, the first launch on which it exists. It exists only after a device has saved a project in it. |
 | **Launch screen** | The system's `DocumentGroupLaunchScene` on iOS and visionOS: the title, New Project, Import Script…, Import Project… (the screen shows two actions and folds the rest into a More… menu), the recents grid and the document browser. The Mac has no equivalent; it opens windows and, with iCloud Drive on, the Open panel. |
 | **Launch import** | Import Script… and Import Project… on the launch screen (#13): a new project made from a screenplay (its scenes in the Boneyard, its title page's title as the name) or from a legacy `.json` (its contents exactly, older shapes included), created in the CineSched folder like New Project. Each is a `NewDocumentButton` with a **creation source** (`DocumentCreationSource`, `.importScript` / `.importProject`); `makeDocument` sees it in its context and awaits `LaunchImportFlow`, which presents the file picker (and, for a script, the import summary with Create Project), then hands back the `ProjectData`. Cancelling anywhere throws, and the launch screen creates nothing. The original file is never written. Pure steps: `LaunchImport`; shared with the Mac's menu: `ScriptImport`. |
-| **Minimal editor** | `MinimalProjectEditor`, what a project document shows in a compact-width window on iOS, iPadOS and visionOS (an iPhone, a narrow iPad pane) until milestone 4: the title as a field and the shoot days with their scene counts. Every write goes through `perform`; it was written (#12) to prove create, autosave, reopen and sync there. |
-| **Editor layout** | Which window `ContentView` draws for (`EditorLayout`, #17): **two-column**, the Mac window (sidebar and detail, the toolbar row, the menus), or **three-column**, the iPad and Vision Pro window in regular width (the same sidebar, the schedule under a system toolbar, the **inspector**). `ProjectEditor` picks three-column or the minimal editor by the window's horizontal size class. One `ContentView`, one set of state and sheets, two bodies. |
+| **iPhone editor** | `PhoneEditor` (#24), what a project document shows in a compact-width window on iOS and iPadOS (an iPhone, a narrow iPad Split View or Slide Over pane): a tab view with the **Days tab**, the **Boneyard tab** and **Search tab** (#27) and the **Production tab** (#28), the tab bar minimizing on scroll with the **Today control** as its bottom accessory. It owns the document, the edit funnel (`edit(_:_:)`, handed to the tabs as a `ProjectEdit` closure), the sync monitor, the palette environment, the derived-state cache and the PDF preview. Replaced the minimal editor (#12–#17: the title as a field and the days with their scene counts) that stood in until milestone 4. |
+| **Days list** | The Days tab (`DaysTab`): the Stripboard as a scrolling list of **day cards** under the **week strip**, driven by the Stripboard's own row function (`stripboardRows` with `showAllDays` off), so gap folding, event-only days and typed days behave as on the Mac. A day card is its header (the `DaySummary`: production day number, date, day type badge, scene count, pages, general call, events, note; a tap opens the **Day screen**), its event chips and its strips with the time cascade; a **gap card** stands for a run of empty days and expands on a tap (each expanded card has a Hide empty days row that folds the run back). The week strip, the month popover and the Today control scroll it to a date (`dayScrollTarget`; a date folded into a gap opens the gap first). |
+| **Week strip** | The seven days, Sunday first (a lineage fact), of one week above the Days list (`WeekStrip`, pure): each cell its date, the script scene count (a dot for an event-only day), the day type's tint, a ring on today, dimmed and inert outside the production range. Chevrons page by week; the month title opens the **month popover** (a graphical date picker over the production range) and a picked date scrolls the list. The strip follows the earliest day card on screen. |
+| **Today control** | The tab bar accessory: one tap lands the Days list on `todayTarget` — the shoot day dated today, else the first day after today, else the last day of the range (nothing for a project without days) — and names which ("Day 4 · Mon Sep 21", "Next: …", "Last: …") while expanded; the word alone beside the minimized bar. |
+| **Day screen** | Everything about one shoot day on the iPhone (`DayScreen`), a navigation destination (not a sheet) bound to the day by id: the header (`DaySummary`), the day type and note, the **call sheet card** (general call, ready to shoot, lunch, snack, dinner, wrap, basecamp), the calendar events and the strips with the cascade. Read-only in #24; #25 adds moves and #26 the edits, each in its section. |
+| **Day summary** | `DaySummary` (pure, #24): what a day's header says, built from a `ShootDay` and the production day-number table: the day number or nil, date, type, script scene count (banners are strips, not scenes), strip count, total eighths, general call (as typed, else the cascade's start), event count, note, and whether a call sheet has data. |
+| **Editor layout** | Which window `ContentView` draws for (`EditorLayout`, #17): **two-column**, the Mac window (sidebar and detail, the toolbar row, the menus), or **three-column**, the iPad and Vision Pro window in regular width (the same sidebar, the schedule under a system toolbar, the **inspector**). `ProjectEditor` picks three-column or the iPhone editor by the window's horizontal size class. One `ContentView`, one set of state and sheets, two bodies. |
 | **Inspector** | The three-column layout's trailing column (340 pt): the selected scene's **adaptive editor** (the same form the sheets show; Save applies as one undo step and keeps the selection, Cancel and Delete clear it) or the selected day's detail (the same form as the Day Detail sheet: statistics, day type and note, its actions, call sheet milestones, events, scenes), or the project's statistics when nothing is selected. Bound to the **editor selection**; opened and closed from the toolbar, per window. |
 | **Editor selection** | `EditorSelection`: the one scene (`.scene(id:)`) or day (`.day(id:)`) the inspector shows, addressed by id so it follows a scene a drag moves and prunes itself (`pruned(in:)`) when the target leaves the project. Written by every single tap on a strip (the schedule views' `lastSelectedSceneID` write, the Boneyard's select) or on a day (`onSelectDay`). Distinct from the multi-selection (`selectedSceneIDs`) that says which strips drag and act together. On the Mac it is set and never shown. |
 | **Touch affordances** | How the Mac's pointer gestures map on iPad and Vision Pro (#17): a single tap selects into the inspector, a double tap opens the full editor sheet, a long press opens the context menu (SwiftUI's `.contextMenu` is the Mac's right-click and the touch long-press alike), a pointer or trackpad hover shows the strip tooltip. The schedule views take them as optional parameters (`onSelectDay`, `selectedDayID`) the Mac leaves nil; `ModifierKeys` reports none on touch, so a tap is a plain single select. |
@@ -101,9 +107,19 @@ CineSchedApp.swift        @main; a DocumentGroup over ProjectDocument on every p
                           document plus the menus, which reach the key window through @FocusedValue(\.projectCommands);
                           on iOS and visionOS ProjectEditor and the system's launch screen (#12, #17).
 ProjectEditor.swift       The non-Mac editor by size class (#17): ContentView's three-column layout in regular width,
-                          MinimalProjectEditor in compact width. Platform-free.
-MinimalProjectEditor.swift  The compact-width editor until M4 (title field, shoot days with scene counts) and the
-                          launch screen's background. Platform-free.
+                          PhoneEditor in compact width. Platform-free.
+PhoneEditor.swift         The iPhone editor (#24): the tab view (Days; Boneyard, Production and Search as stubs for
+                          #27 and #28), the Today control as the tab bar accessory, the edit funnel the tabs get as a
+                          closure, the sync monitor, the palette, the derived-state cache, the PDF preview. Platform-free.
+  DaysTab.swift                    the Days list: the week strip and month popover over the day and gap cards
+                                   (stripboardRows), scrolling to a date, the Day screen as its destination.
+  DayScreen.swift                  the Day screen: header, day type and note, call sheet card, events, strips.
+  PhoneStripRow.swift              the strip row both lists draw, the event chip, the long-press preview, and
+                                   PhoneStripActions (the one place a strip's menu items and swipe actions are built).
+DaySummaries.swift        DaySummary, WeekStrip, todayTarget and dayScrollTarget (pure, #24).
+DayTimeline.swift         The time cascade (dayTimeline, dayStartMinutes), moved out of StripboardView for the phone (#24).
+ProjectLaunchBackground.swift  The launch screen's background (#12). Platform-free.
+PlatformTabAccessory.swift  Seam: the iPhone editor's tab bar, minimizing on scroll with the Today accessory (iOS only).
 CineSchedFolder.swift     The iCloud container identifier, folder name and the Mac's derivation of its on-disk path (pure).
 ProjectCommands.swift     The closure slots a ContentView publishes for those menus (focused scene value).
 ActiveProjectCommands.swift  The iPad menu bar's fallback to the active window's commands, by window activity (#22).
@@ -142,7 +158,7 @@ ProjectCodec.swift        The one project encoder/decoder (pretty JSON, ISO date
 ProjectDocument.swift     The project document (27 Document protocol), URL reader/writer, perform undo funnel,
                           UTType.cineschedProject, ProjectData.newProject (the File ▸ New template).
 CalendarView.swift        Month grid / full-schedule scroll, drag & drop, day cells. Holds the shared drop plumbing.
-StripboardView.swift      Strip schedule with time cascade and auto-meal sync.
+StripboardView.swift      Strip schedule (the cascade from DayTimeline) and auto-meal sync.
 ScheduleDrag.swift        The one typed drag payload every schedule drag carries and the pure moves a drop makes (#18).
 ScheduleClipboard.swift   Copy, Cut and Paste of scenes as pure moves over the project, and the payload's pasteboard bytes (#22).
   ContentView+Clipboard.swift      wires them to the system's Edit items through the pasteboard responder.
@@ -191,10 +207,14 @@ PlatformConflictResolution.swift                                      Seam: whet
 1. `DocumentGroup` (CineSchedApp) makes a `ProjectDocument` per window and reads the file into it
    through `ProjectDocumentReader`; `ContentView(document:)` is the window's content on the Mac,
    `ProjectEditor(document:)` on iOS and visionOS (`ContentView` in its three-column layout in
-   regular width, `MinimalProjectEditor` in compact), where the file lives in the CineSched
+   regular width, `PhoneEditor` in compact, #24), where the file lives in the CineSched
    folder (or wherever the document browser opened it in place) and the launch screen is the
    system's. A launch import (#13) is the same `makeDocument`, which sees the button's creation
    source and starts the document from what `LaunchImportFlow` returns instead of the template.
+   `PhoneEditor` owns the same pieces for the compact window (the funnel as `edit`, the
+   sync monitor, the palette, the derived cache, the PDF preview) and hands its tabs the
+   document plus an `edit` closure; the tabs and the Day screen read the project and
+   write only through that closure.
 2. `ContentView` reads `document.project` and hands the calendar and Stripboard `Binding`s whose
    setters call `edit`, i.e. `document.perform(…, undoManager: environment's)`. The child views'
    callbacks are `onBeforeSceneChange` (open an `EditGesture` so the action's several binding

@@ -48,8 +48,10 @@ has to be expressed per SDK inside that target. The same goes for the iOS-only
   system refuses `NO` on macOS, and a document-based Mac app does open in place.
 - **The document scenes.** The same `DocumentGroup(editor:makeDocument:)` over
   `ProjectDocument` (ADR 0004) runs on every platform, from CineSchedApp's one seam:
-  the Mac with `ContentView` and the menus, the others with `MinimalProjectEditor` (title
-  field, shoot days with scene counts, every write through `perform`) and the system's
+  the Mac with `ContentView` and the menus, the others with `ProjectEditor` (#17, #24:
+  `ContentView`'s three-column layout or `PhoneEditor` by width; at the time, the minimal
+  editor, a title field and the shoot days with scene counts, every write through
+  `perform`) and the system's
   `DocumentGroupLaunchScene` (title, New Project, recents, the document browser, which
   starts in the CineSched folder). The launch screen's Import buttons are #13's.
 - **Legacy `.json` is not a document type off the Mac.** `ProjectDocument`'s readable

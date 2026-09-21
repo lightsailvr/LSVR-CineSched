@@ -6,9 +6,11 @@ launch screen (New Project, Import Script…, Import Project…, recents, the do
 open, create and autosave `.cinesched` projects from the CineSched folder in iCloud Drive, and
 show the sync indicator and the conflict notice (#12–#15, ADR 0006). In regular width (iPad,
 Vision Pro) the editor is `ContentView` in its three-column layout with a trailing inspector
-(#17, the foundation of milestone 3 of #1); in compact width (iPhone, a narrow iPad pane) a
-deliberately minimal editor stands in until milestone 4. Nothing else about those platforms
-is placeholder.
+(#17, the foundation of milestone 3 of #1); in compact width (iPhone, a narrow iPad pane) the
+iPhone editor (#24, the foundation of milestone 4): a tab view whose Days tab is the
+Stripboard as a list of day cards under a week strip, with a read-only Day screen; its
+Boneyard, Production and Search tabs are stubs until #27 and #28. Nothing else about those
+platforms is placeholder.
 Read `CONTEXT.md` for the glossary and system map before touching the code, and `learnings.md`
 for things that have already cost time.
 
@@ -98,8 +100,58 @@ the build inputs outside it, see Working agreements):
   `LaunchImportFlow` for the project. The button's `prepareDocumentURL` closure is never
   invoked by the 27.0 launch scene; do not move the flow there.
 - `ProjectEditor.swift`: the non-Mac editor choice by `horizontalSizeClass` (#17): regular
-  width gets `ContentView(document:layout: .threeColumn)`, compact width
-  `MinimalProjectEditor`. Platform-free.
+  width gets `ContentView(document:layout: .threeColumn)`, compact width `PhoneEditor`
+  (#24). Platform-free.
+- `PhoneEditor.swift`: the compact-width editor (#24): a `TabView` with Days (`DaysTab`),
+  Boneyard, Production (stubs, one `PhoneTabPlaceholder` line each for #27 and #28) and a
+  Search tab in the search role, and the Today control (`TodayControl`, `todayTarget`)
+  as the tab bar accessory, with the bar minimizing on scroll, through the `phoneTabBar`
+  seam (both APIs are iOS-only in the 27 SDK). Owns what `ContentView` owns for the other layouts: the
+  document and `edit(_:_:)` (the same `perform` under an `EditGesture`, handed to the tabs
+  as a `ProjectEdit` closure; `beginEditGesture()` for #25's and #26's multi-write
+  actions), the `SyncMonitor` (its indicator is a toolbar item at the root, which lands in
+  the document infrastructure's bar), the `scenePalette` environment at the root, the
+  `DerivedScheduleState` cache and `.pdfExportPresentation($exportPreview)` with the
+  `exportPreview` request #26 and #28 set. Platform-free.
+- `DaysTab.swift`: the Days list (#24): a `NavigationStack` (its own bar hidden at the root,
+  because the document infrastructure's outer bar is the phone's one bar and it mirrors
+  its Back and title into any inner bar) holding the week strip (`WeekStrip`; the month
+  popover is a graphical `DatePicker` over the production range; one row in compact
+  height) above a `List` of the rows `stripboardRows(for:showAllDays: false,
+  expandedDayIDs:)` returns: a gap card that expands on a tap and folds back from a
+  "Hide empty days" row in any of its cards, and a day card per day (header from
+  `DaySummary` as a `NavigationLink(value: day.id)` to `DayScreen`, event chips,
+  `PhoneStripRow`s timed by `dayTimeline`). Scrolling to a date is `dayScrollTarget` plus
+  `ScrollViewReader`: a date in a collapsed gap opens it and scrolls on the next turn.
+  The week strip follows the earliest day header on screen by appear/disappear.
+- `DayScreen.swift`: the Day screen (#24), a navigation destination for one day id, read
+  from the document on every body (so it follows edits and shows an empty state if the
+  day left the range): the header (`DaySummary`), the day type and note, the call sheet
+  card, the calendar events and the strips, one `Section` per `MARK` for #25 (moves)
+  and #26 (edits) to fill. Read-only here.
+- `PhoneStripRow.swift`: the strip both phone lists draw (#24): `PhoneStripRow` (a script
+  scene on its `Scene.stripColor(in:)`, a banner or auto-meal on `bannerColor(for:)`;
+  `rowColor(for:palette:)` for the list row behind it), `PhoneEventChip`, `StripPreview`
+  (the long-press preview: number, slugline, cast, summary), the `ProjectEdit` typealias,
+  and `PhoneStripActions` with `stripContextMenu(for:)` and `stripSwipeActions(for:)`,
+  the one place each list's menu items and swipe actions are built (Open Day and nothing,
+  respectively, until #25 and #26), applied by `stripInteractions(_:scene:)`.
+- `DaySummaries.swift`: the phone's pure summaries (#24, `DaySummariesTests`):
+  `DaySummary` (day number from the `productionDayNumbers` table, type, script scene
+  count, strip count, eighths, general call as typed or the cascade's start, event count,
+  note, call sheet flag), `WeekStrip` (the seven days Sunday-first around a date, from
+  the Gregorian weekday so the calendar's `firstWeekday` plays no part; each with its
+  `ShootDay` or nil, counts, type, today; `weekStart(containing:calendar:)`, the previous
+  and next Sundays), `todayTarget(in:now:calendar:)` (today's day, else the next, else the
+  last, else nil) and `dayScrollTarget(for:in:expandedDayIDs:calendar:)` (the day id and
+  whether it sits in a collapsed gap). Every function takes its calendar.
+- `DayTimeline.swift`: the time cascade (#24, `DayTimelineTests`), moved as-is from
+  `StripboardView.computeDayTimeline`: `dayStartMinutes(for:)` (ready-to-shoot, else
+  general call, else 07:30 AM) and `dayTimeline(for:scenes:)` → `[UUID:
+  DayTimelineEntry]` (range, start, end, duration as clock strings). The Stripboard and
+  both phone lists call it; calendar events are never passed in.
+- `ProjectLaunchBackground.swift`: the launch screen's backdrop (#12), moved out of the
+  deleted `MinimalProjectEditor.swift` (#24).
 - `EditorSelection.swift`: the inspector's selection (#17), pure: `EditorSelection` (`.scene(id:)`
   or `.day(id:)`), `ProjectData.locate(sceneID:)` → `SceneLocation` (Boneyard index or
   day/scene indices), `scene(withID:)`, `dayIndex(forDayID:)`, and `pruned(in:)`, which
@@ -219,9 +271,6 @@ the build inputs outside it, see Working agreements):
   dispatch by extension to `FountainImporter` or `FinalDraftParser`, the Final Draft scene
   mapping, and `parse(at:)`, which returns any format as a `FountainImportResult` for the
   summary sheet. The Mac's menu uses the types and the mapping; the launch screen uses all of it.
-- `MinimalProjectEditor.swift`: the compact-width editor on iOS/visionOS until milestone 4
-  (title field, shoot days with scene counts, every write through `perform`), plus the launch
-  screen's background. Platform-free SwiftUI; the Mac compiles it and never shows it.
 - `CineSchedFolder.swift`: the iCloud container identifier, the folder's display name and the
   Mac's derivation of where iCloud Drive keeps it (pure, `CineSchedFolderTests`). The Mac has no
   iCloud entitlement (ADR 0006); `MacAppDelegate` seeds the Open/Save panels' last directory
@@ -306,7 +355,7 @@ the build inputs outside it, see Working agreements):
   when another version wins but no undo manager is attached (nothing is applied or
   resolved then). `PendingConflictRemoval.isDue(writtenChangeCount:)` is the wait. Pure.
 - `SyncMonitor.swift`: the wiring of both, one `@Observable` per editor (`@State` in
-  `ContentView` and `MinimalProjectEditor`, run by the `syncMonitored(_:document:)` modifier
+  `ContentView` and `PhoneEditor`, run by the `syncMonitored(_:document:)` modifier
   at the end of the file: attach the undo manager, start and stop with the view, feed
   `changeCount`, `restoreCount`, `writtenChangeCount` and the scene phase). Reads the
   document URL's resource values on every trigger and on a poll (2 s in iCloud, 10 s
@@ -340,7 +389,11 @@ the build inputs outside it, see Working agreements):
   responder that answers Edit ▸ Cut, Copy and Paste for scenes with `NSPasteboard` or
   `UIPasteboard`; SwiftUI's `copyable` family needs the focus system, which the iPad engages
   only for a hardware keyboard, #22),
-  `PlatformControlStyles`, `PlatformColors`, `PlatformDocumentTypes`, `PlatformConflictResolution`
+  `PlatformControlStyles` (the Mac-only control styles, and `insetGroupedListStyle()`,
+  the phone lists' card style that macOS lacks, #24), `PlatformTabAccessory`
+  (`phoneTabBar(accessory:)`: the iPhone editor's tab bar minimizing on scroll with the
+  Today control as its accessory, both iOS-only APIs; nothing on macOS and visionOS,
+  whose windows are never compact, #24), `PlatformColors`, `PlatformDocumentTypes`, `PlatformConflictResolution`
   (whether the system presents its own conflict UI: the Mac's NSDocument sheet, so the app
   resolves only on iOS and visionOS), `PlatformInspector` (the three-column layout's
   trailing column: `.inspector` where it exists, a trailing pane on visionOS, which has no
@@ -402,8 +455,8 @@ the build inputs outside it, see Working agreements):
   registers nothing, so an editor's Save may write its whole value back unconditionally.
 - **Platform ownership of the document**: one `DocumentGroup` per platform in `CineSchedApp` (a
   seam file), both over `ProjectDocument` made the same way (`.newProject()`, the configuration,
-  `SceneColorSettings.deviceOverrides()`). `ContentView`, `ProjectEditor` and
-  `MinimalProjectEditor` compile on every platform and must stay free of `#if os`; the Mac
+  `SceneColorSettings.deviceOverrides()`). `ContentView`, `ProjectEditor`, `PhoneEditor`
+  and the phone's views compile on every platform and must stay free of `#if os`; the Mac
   passes `ContentView` its default layout, the others choose by size class. A per-platform
   difference in what the document reads goes in `PlatformDocumentTypes`, not in `ProjectDocument`.
 - **Touch and the inspector (#17)**: a schedule view offers touch affordances through
@@ -425,6 +478,16 @@ the build inputs outside it, see Working agreements):
   same-typed plain draggable in the window and the reorder container crashes beside it
   (learnings.md 2026-09-20). Multi-select drags carry `selectedSceneIDs` widened in the
   payload closure; clear drop highlight on exit, on drop and on `dragStateResetToken` (undo).
+- **The iPhone editor (#24)**: a tab's view takes the document, what it needs from
+  `DerivedScheduleState` and the `edit: ProjectEdit` closure; it never holds the undo
+  manager or calls `perform`. A strip's menu item or swipe action goes in
+  `PhoneStripActions.stripContextMenu(for:)` / `stripSwipeActions(for:)` and nowhere
+  else, so both lists get it. The Days list's rows are `stripboardRows` with
+  `showAllDays: false` (never a fork); a Day screen edit is a `Section` there, not a
+  sheet of its own. No `navigationTitle` or toolbar on the Days root: the document
+  infrastructure's bar is the one bar, and a root toolbar item on `PhoneEditor` lands in
+  it. Nothing per row builds a formatter (`formattedDate(_:pattern:)` caches; the
+  weekday letter is the `"EEEEE"` pattern).
 - **Colors**: resolve scene colors only via `Scene.stripColor(in:)`, with the project's palette
   (`ProjectData.resolvedPalette`): views read `@Environment(\.scenePalette)`, which `ContentView`
   sets once at its root; an exporter that draws strips takes `palette:` with the project. Nothing
@@ -476,6 +539,11 @@ carried across a resolution) in `ConflictNoticeTests`; the document's unsaved-ed
 coordinated accesses, the metadata query and the path monitor have no unit seam: they need a
 signed-in device (the manual two-device test in issue #15),
 `CineSchedFolder` (`CineSchedFolderTests`),
+`dayTimeline` and `dayStartMinutes` (`DayTimelineTests`: the default, the precedence, the
+cascade, custom starts, the 15-minute default, banners, a zero-length strip, midnight),
+`DaySummary`, `WeekStrip`, `todayTarget` and `dayScrollTarget` (`DaySummariesTests`, in a
+fixed UTC calendar; the views themselves have no unit seam: the iPhone probe recipe is in
+learnings.md 2026-09-21 #24),
 `EditorSelection`, `ProjectData.locate(sceneID:)` and the pruning (`EditorSelectionTests`),
 `ScheduleDragPayload` (round-trip per kind, including multi-scene) and `ScheduleMoves`
 (from the Boneyard, within a day, across days, before a strip or at the end, back to the
