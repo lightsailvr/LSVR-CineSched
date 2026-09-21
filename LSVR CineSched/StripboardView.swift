@@ -217,39 +217,10 @@ struct StripboardView: View {
 
     private var dayNumbers: [UUID: Int] { productionDayNumbers(for: shootDays) }
 
-    // MARK: - Day timeline calculation
-
-    private func computeDayTimeline(day: ShootDay, scenes: [Scene]) -> [UUID: (timeDisplay: String, startStr: String, endStr: String, durStr: String)] {
-        var startMin = parseTimeToMinutes(day.callSheet.readyToShootTime.isEmpty ? (day.callSheet.generalCallTime.isEmpty ? "07:30 AM" : day.callSheet.generalCallTime) : day.callSheet.readyToShootTime) ?? (7 * 60 + 30)
-
-        var map: [UUID: (timeDisplay: String, startStr: String, endStr: String, durStr: String)] = [:]
-        for s in scenes {
-            if !s.customStartTime.isEmpty, let customMin = parseTimeToMinutes(s.customStartTime) {
-                startMin = customMin
-            }
-            let dur: Int
-            if s.isBanner {
-                dur = s.estimatedTime
-            } else {
-                dur = s.estimatedTime > 0 ? s.estimatedTime : 15
-            }
-            let endMin = startMin + dur
-
-            let startClock = formatMinutesToClock(startMin)
-            let endClock = formatMinutesToClock(endMin)
-            let durClock = formattedTimeHM(dur)
-            let fullRange = (dur == 0) ? startClock : "\(startClock) – \(endClock)"
-
-            map[s.id] = (timeDisplay: fullRange, startStr: startClock, endStr: endClock, durStr: durClock)
-            startMin = endMin
-        }
-        return map
-    }
-
     // MARK: - Calendar event chips
 
     /// The day's calendar events as chips above the strips, mirroring the calendar cell.
-    /// Deliberately not part of the strip list or `computeDayTimeline`: an event is an
+    /// Deliberately not part of the strip list or `dayTimeline` (DayTimeline.swift): an event is an
     /// appointment on the day, not work in the day's cascade, and its `customStartTime`
     /// would otherwise reset the call-time math for every strip after it.
     @ViewBuilder
@@ -316,7 +287,7 @@ struct StripboardView: View {
     @ViewBuilder
     private func daySceneList(day: ShootDay, dayIndex: Int) -> some View {
         let visibleScenes = day.scenes.filter { !$0.isCalendarEvent }
-        let timeline = computeDayTimeline(day: day, scenes: visibleScenes)
+        let timeline = dayTimeline(for: day, scenes: visibleScenes)
 
         VStack(spacing: 1) {
             ForEach(Array(visibleScenes.enumerated()), id: \.element.id) { sceneIndex, scene in
