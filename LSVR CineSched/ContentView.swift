@@ -58,6 +58,12 @@ struct ContentView: View {
     /// The window's undo manager, supplied by the document infrastructure. Every `perform`
     /// registers with it, which is also what marks the document edited and autosaves it.
     @Environment(\.undoManager) private var undoManager
+    /// The menu bar's fallback channel to the active window (#22, iPad; nil on the Mac,
+    /// whose menus read the focused value): this editor publishes its commands there
+    /// while its window appears active. `editorID` is its key in the holder.
+    @Environment(ActiveProjectCommands.self) private var activeProject: ActiveProjectCommands?
+    @Environment(\.appearsActive) private var appearsActive
+    @State private var editorID = UUID()
 
     var allScenes:          [Scene]        { document.project.allScenes }
     var shootDays:          [ShootDay]     { document.project.shootDays }
@@ -218,8 +224,14 @@ struct ContentView: View {
     @AppStorage("CineSchedDateRangeExpanded") private var isDateRangeExpanded: Bool = true
     @AppStorage("CineSchedNewSceneExpanded")  private var isNewSceneExpanded:  Bool = true
 
-    @State private var selectedSceneIDs:    Set<UUID> = []
-    @State private var lastSelectedSceneID: UUID?
+    /// The multi-selection: the strips that drag, act and copy together (#18, #22).
+    /// Written here, by the schedule views through their bindings and by a paste.
+    @State var selectedSceneIDs:    Set<UUID> = []
+    @State var lastSelectedSceneID: UUID?
+    /// Bumped by every selection on the board (`focusEditor`, #22) to make the pasteboard
+    /// responder the first responder, where the system's Copy, Cut and Paste go when no
+    /// field is being edited (ContentView+Clipboard.swift).
+    @State var pasteboardFocusRequest = 0
 
     // MARK: - Computed statistics
     var scheduledDays: [ShootDay] { shootDays.filter { !$0.scenes.isEmpty } }
@@ -256,10 +268,11 @@ struct ContentView: View {
         .accentColor(currentTheme.primaryAccent(isDarkMode: isDarkMode))
         .background(WindowAccessor(backgroundColor: currentTheme.canvasBackground(isDarkMode: isDarkMode)))
 
-        let withAlerts = applyAlerts(base)
-        let withSheets = applySheets(withAlerts)
-        let withExport = applyExportPresentation(withSheets)
-        return applyLifecycle(withExport)
+        let withAlerts    = applyAlerts(base)
+        let withSheets    = applySheets(withAlerts)
+        let withExport    = applyExportPresentation(withSheets)
+        let withClipboard = applyClipboard(withExport)
+        return applyLifecycle(withClipboard)
     }
 
     /// The iPad and Vision Pro window (#17): the same sidebar, the schedule as the content
@@ -293,16 +306,18 @@ struct ContentView: View {
         }
         .accentColor(currentTheme.primaryAccent(isDarkMode: isDarkMode))
 
-        let withAlerts = applyAlerts(base)
-        let withSheets = applySheets(withAlerts)
-        let withExport = applyExportPresentation(withSheets)
-        return applyLifecycle(withExport)
+        let withAlerts    = applyAlerts(base)
+        let withSheets    = applySheets(withAlerts)
+        let withExport    = applyExportPresentation(withSheets)
+        let withClipboard = applyClipboard(withExport)
+        return applyLifecycle(withClipboard)
     }
 
     /// The content column's toolbar in the three-column layout. The view switcher is the
-    /// Mac toolbar row's; undo and redo are the Edit menu's, which the iPad has no menu
-    /// bar for yet; the two menus carry what the Mac's View and Production menus do, on
-    /// the same command closures (`projectCommands`).
+    /// Mac toolbar row's; undo and redo are the Edit menu's, for a finger with no keyboard
+    /// (the iPad's menu bar carries the same commands with the Mac's shortcuts, #22); the
+    /// two menus carry what the Mac's View and Production menus do, on the same command
+    /// closures (`projectCommands`).
     @ToolbarContentBuilder
     private var threeColumnToolbar: some ToolbarContent {
         // Leading, not principal: the document infrastructure wraps a principal item in
@@ -509,7 +524,16 @@ struct ContentView: View {
 
     private func applyLifecycle<Content: View>(_ content: Content) -> some View {
         content
+            // The kind and modifier keys of every press, for the selection's ⌘ and ⇧
+            // where there are no flags to poll (#22, InputPress.swift).
+            .recordsInputPresses()
             .focusedSceneValue(\.projectCommands, projectCommands)
+            // The same commands for the iPad's menu bar, by window activity (#22).
+            .onChange(of: appearsActive, initial: true) { _, active in
+                if active { activeProject?.publish(projectCommands, from: editorID) }
+                else      { activeProject?.retire(editorID) }
+            }
+            .onDisappear { activeProject?.retire(editorID) }
             // The one place the palette enters the view tree; every strip, card and sheet
             // below reads it from the environment rather than from the device.
             .environment(\.scenePalette, palette)
@@ -810,6 +834,7 @@ struct ContentView: View {
             lastSelectedSceneID = id
             if let id {
                 selection = .scene(id: id)
+                focusEditor()
             } else if case .scene = selection {
                 selection = nil
             }
@@ -900,6 +925,8 @@ struct ContentView: View {
             dragPayload:             boneyardDragPayload,
             onDropFromSchedule:      moveScenesToBoneyard
         )
+        // The Boneyard and the board fade together in an inactive window (#22).
+        .dimsWhenInactive()
     }
 
     /// Duplicate Scene in the Boneyard: a copy with a new id, " (Copy)" on the title, and
@@ -957,6 +984,7 @@ struct ContentView: View {
         }
         // The tapped scene is what the inspector shows (#17), whatever the modifiers.
         selection = .scene(id: id)
+        focusEditor()
     }
 
     /// What a Boneyard row carries when it lifts (#18): the whole multi-selection when the
@@ -1025,7 +1053,7 @@ struct ContentView: View {
                     onExportMonthPDF: { month, options in
                         exportMonthPDF(month: month, options: options)
                     },
-                    onSelectDay: { day in selection = .day(id: day.id) },
+                    onSelectDay: { day in selection = .day(id: day.id); focusEditor() },
                     selectedDayID: selectedDayID,
                     // Seven columns beside a sidebar and an inspector: the iPad's floor is
                     // what fits a 13-inch landscape window with both open.
@@ -1054,12 +1082,15 @@ struct ContentView: View {
                     onShootingScheduleExport: { days in
                         showShootingSchedulePDFSavePanel(for: days)
                     },
-                    onSelectDay: { day in selection = .day(id: day.id) },
+                    onSelectDay: { day in selection = .day(id: day.id); focusEditor() },
                     selectedDayID: selectedDayID
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        // An inactive window's board is dimmed (#22), so with two projects open it is
+        // plain which one the keyboard and the pasteboard act on.
+        .dimsWhenInactive()
     }
 
     // MARK: - Toolbar row

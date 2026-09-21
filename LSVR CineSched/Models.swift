@@ -160,7 +160,7 @@ enum MealKind: String, CaseIterable, nonisolated Codable {
 
 // MARK: - Scene
 
-struct Scene: Identifiable, nonisolated Codable, Hashable {
+struct Scene: Identifiable, nonisolated Codable, nonisolated Hashable {
     var id: UUID
     var title: String
     var sceneNumber: String

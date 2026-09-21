@@ -1,10 +1,13 @@
 // ModifierKeys.swift
-// Platform seam: polling which modifier keys are held at the moment a row is clicked.
-// The Boneyard, calendar and Stripboard all use ⌘-click / ⇧-click for multi-select, and
-// SwiftUI's tap gestures don't report modifiers, so the Mac reads NSEvent.modifierFlags
-// directly. iOS and visionOS have no equivalent to poll (a hardware keyboard's modifiers
-// arrive with key events, not with taps), so there the answer is always "none" and a
-// tap is a plain single select; touch multi-select is a milestone 3/4 concern.
+// Platform seam: which modifier keys were held at the moment a row or a strip was
+// clicked. The Boneyard, calendar and Stripboard all use ⌘-click / ⇧-click for
+// multi-select, and SwiftUI's tap gestures don't report modifiers, so the Mac reads
+// `NSEvent.modifierFlags` directly. iOS and visionOS have nothing to poll, so there the
+// answer comes from the latest press the editor's root recorded through
+// `SpatialEventGesture` (InputPress.swift, #22): the keys a pointer's click carried, and
+// none for a finger or a Pencil, so a touch is a plain single select as before and a
+// trackpad or mouse with a hardware keyboard multi-selects like the Mac's. The mapping
+// of the event's kind is here too, because `.pencil` exists only on iOS.
 
 import SwiftUI
 #if os(macOS)
@@ -22,7 +25,34 @@ enum ModifierKeys {
         if flags.contains(.shift)   { modifiers.insert(.shift) }
         return modifiers
         #else
-        return []
+        guard let press = InputPressRecorder.shared.latest else { return [] }
+        return press.selectionModifiers.intersection([.command, .shift])
+        #endif
+    }
+
+    /// Whether the editor's root should record presses for `current` (the Mac polls the
+    /// event instead and needs no gesture in the way of its own).
+    #if os(macOS)
+    static let recordsPresses = false
+    #else
+    static let recordsPresses = true
+    #endif
+
+    /// The app's input kind for a spatial event's.
+    static func inputKind(of kind: SpatialEventCollection.Event.Kind) -> InputKind {
+        #if os(iOS)
+        switch kind {
+        case .touch:   return .touch
+        case .pencil:  return .pencil
+        case .pointer: return .pointer
+        default:       return .other
+        }
+        #else
+        switch kind {
+        case .touch:   return .touch
+        case .pointer: return .pointer
+        default:       return .other
+        }
         #endif
     }
 }

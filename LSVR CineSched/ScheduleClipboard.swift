@@ -15,9 +15,25 @@
 // and a pasted one would be a stray it cannot account for.
 //
 // The editor wires these to the system's Copy, Cut and Paste in
-// ContentView+Clipboard.swift.
+// ContentView+Clipboard.swift, through the first responder in
+// PlatformPasteboardResponder.swift, which moves the payload's pasteboard bytes (below).
 
 import Foundation
+
+// MARK: - The pasteboard's bytes
+
+extension ScheduleDragPayload {
+    /// What Copy puts on the pasteboard: the same JSON the drag's transfer
+    /// representation carries (`CodableRepresentation`'s default coders), under the same
+    /// type, so a drop and a paste read one shape.
+    nonisolated func pasteboardData() throws -> Data {
+        try JSONEncoder().encode(self)
+    }
+
+    nonisolated init(pasteboardData: Data) throws {
+        self = try JSONDecoder().decode(ScheduleDragPayload.self, from: pasteboardData)
+    }
+}
 
 // MARK: - Where a paste lands
 

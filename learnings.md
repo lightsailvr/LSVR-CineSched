@@ -9,6 +9,72 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-20 — The iPad's menu bar, copy and paste and the inactive window: `@FocusedValue` is nil without the focus system, SwiftUI's `copyable` needs it too, and the first key of a session only attaches the keyboard (#22)
+
+Putting the Mac's `.commands` on the iOS document scene and wiring Edit ▸ Copy/Cut/Paste
+for scenes, on the iPad Pro 13-inch simulator:
+
+- **`.commands` shows in the iPad's menu bar and its shortcuts fire, but
+  `@FocusedValue(\.projectCommands)` in the `App` stays nil on iPadOS 27** although the
+  editor publishes it with `.focusedSceneValue` at its root (a throwaway ⌘8 item logged
+  `commands nil = true` with a strip selected and with a text field focused). The focused
+  scene value follows the UIKit focus system, which the iPad engages only for a hardware
+  keyboard in use, and the menu bar is reachable by touch too. `ActiveProjectCommands`
+  is the fallback: an `@Observable` holder in the App's environment (non-Mac only) that
+  the editor publishes into on `appearsActive` and retires by owner id, and the menu
+  reads `focusedCommands ?? activeProject.commands`. With it every shortcut acts on the
+  window (⇧⌘P, ⇧⌘K, ⇧⌘B, ⇧⌘L, ⌘E, ⇧⌘E, ⌥⌘E all verified). ⌘N on the simulator did not
+  open a second document; New, Open and Save are the system's items there.
+- **SwiftUI's `copyable` / `cuttable` / `pasteDestination` never fired on the iPad**, with
+  `.focusable()` and `.focusable(true, interactions: .edit)` plus a programmatic
+  `@FocusState` on the editor's root: they hang off the same focus system. What works on
+  both platforms is the classic responder: a zero-sized `UIView`/`NSView` behind the board
+  that `becomeFirstResponder()`s on every selection (which also ends a text field's
+  editing) and answers `copy:`, `cut:`, `paste:` with `canPerformAction` /
+  `validateUserInterfaceItem` (`PlatformPasteboardResponder`). The bytes are the drag
+  payload's JSON under its own UTI, so `UIPasteboard.general.contains(pasteboardTypes:)`
+  enables Paste without reading (no paste prompt; a user-initiated `paste:` reads freely).
+  Never add a `Button` with ⌘C to `.commands`: it replaces the system item for text fields.
+- **The first hardware key event of a simulator session is swallowed**: with the responder
+  in place, the first ⌘C after a tap did nothing and every later ⌘C, ⌘X, ⌘V worked; a
+  ⌘Z pressed first (nothing to undo) made the first ⌘C land. XCUITest's `typeKey` attaches
+  the keyboard with that first press. Probes start with a throwaway key. `typeKey` does
+  deliver menu shortcuts and the edit actions; `.escape` does not dismiss a sheet on the
+  iPad (tap Close/Cancel/Done), and the menu bar itself is not in the accessibility tree
+  (a swipe from the top edge raised the keyboard, not the bar).
+- **`@Environment(\.appearsActive)` is the one active-state value on every platform**
+  (`controlActiveState` is the Mac's and deprecated for it): a second window brought to
+  front dims the first window's board and Boneyard (`dimsWhenInactive`, opacity 0.55).
+  Two iPad windows for the check: iPadOS 27's windowed apps mode is on in the simulator
+  (a resize grabber at the bottom-right); the window's dots are at `BackButton.minX - 40`,
+  and a 1.2 s press on SpringBoard's `Zoom-button` opens the tiling menu (Left, Right,
+  Top, Bottom, Fill, Left and Right, Arrange thirds, Quarters, Enter Slide Over), which
+  XCUITest can tap. `simctl openurl` of a second `.cinesched` then opens a second window
+  (compact by default, the minimal editor). Dragging the grabber from XCUITest did not
+  resize, the default 375 pt window is compact while the half-screen tile (688 pt) is
+  regular, and one SpringBoard crash later `simctl erase` was the way back to full
+  screen; the app's window layout persists across reinstalls otherwise.
+- **The input kind of a drag is not exposed**: `draggable` and `DragSession` carry none
+  on 27.0, and `GestureInputKinds` (`TapGesture(count:inputKinds:)`,
+  `LongPressGesture(inputKinds:)`, `DragGesture(inputKinds:)`) only filters which inputs
+  a gesture accepts. `SpatialEventGesture` (iOS 18) reports each press's `kind` (`.touch`,
+  `.pencil`, `.pointer`; `.pencil` is `@available(iOS)` only, so the mapping sits in the
+  `ModifierKeys` seam) and `modifierKeys`, so one simultaneous gesture at the editor's root
+  records the latest press and `ModifierKeys.current` reads its modifiers on iOS: the
+  iPad's ⌘-click and ⇧-click multi-select. It took nothing from the drags: the #18 touch
+  probe (Boneyard → day, strip → day, strip → Boneyard, `press(forDuration: 0.5,
+  thenDragTo:)`) passed with it in place. The simulator's XCUITest presses are touches, so
+  the pointer path is on the device checklist.
+- **A `nonisolated` `Hashable` on `ScheduleDragPayload.Kind` holding `[Scene]` warned**
+  "main actor-isolated conformance of 'Scene' to 'Equatable' cannot be used in nonisolated
+  context" at `<unknown>:0` (the 2026-09-18 #14 note); `Scene: nonisolated Hashable` was
+  the one-word cascade, with no further one (its enums' conformances were already fine).
+- **`xcodebuild test` needs the runner launched by SpringBoard**; on the Mac it fails
+  headless with "System authentication is running" (Automation consent), so the Mac's
+  Edit menu path is on the human checklist.
+
+---
+
 ## 2026-09-20 — List editors: a `NavigationStack` around the form alone keeps the chrome, the header owns Back, and an XCUITest's `buttons["Back"]` is the window's (#20)
 
 Rebuilding the call sheet editor and Production Setup as forms whose cast, crew and roster

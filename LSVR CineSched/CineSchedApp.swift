@@ -7,13 +7,19 @@
 //  The app is document-based on every platform (ADR 0004). On the Mac (#8) `DocumentGroup`
 //  opens one window per `ProjectDocument`, and the system supplies New, Open, Open Recent,
 //  Save, Duplicate, Rename, Move To, Revert To, Close, the edited indicator, autosave in
-//  place, and the Edit menu's Undo and Redo. The menus below add only what is CineSched's
-//  own, and each item reaches the frontmost window through `ProjectCommands` (a focused
-//  scene value). On iOS, iPadOS and visionOS (#12, ADR 0006) the same `DocumentGroup`
-//  opens one file at a time from the system's launch screen (title, New Project, Import
-//  Script…, Import Project… (#13), recents, the document browser), which starts in the
-//  CineSched folder in iCloud Drive, into `ProjectEditor` (#17): the three-column
-//  editor in regular width, the minimal editor in compact width.
+//  place, and the Edit menu's Undo, Redo, Cut, Copy and Paste. The menus below add only
+//  what is CineSched's own, and each item reaches the frontmost window through
+//  `ProjectCommands` (a focused scene value). On iOS, iPadOS and visionOS (#12, ADR 0006)
+//  the same `DocumentGroup` opens one file at a time from the system's launch screen
+//  (title, New Project, Import Script…, Import Project… (#13), recents, the document
+//  browser), which starts in the CineSched folder in iCloud Drive, into `ProjectEditor`
+//  (#17): the three-column editor in regular width, the minimal editor in compact width.
+//  The same `menus` go on that scene too (#22): iPadOS 27 shows them in its menu bar (a
+//  hardware keyboard's shortcuts, or the bar revealed from the top of the screen), with
+//  the system's File and Edit items, so New, Open, Save, Undo, Redo, Cut, Copy, Paste, the
+//  exports, Production Setup, Scan for Conflicts, Breakdown Browser and Color Legend
+//  carry the Mac's shortcuts and act on the frontmost project through the same focused
+//  value; a compact-width window publishes none and the items are disabled there.
 
 import SwiftUI
 #if os(macOS)
@@ -40,7 +46,12 @@ struct CineSchedApp: App {
 
     /// The key window's command slots; nil while no project window is key, which disables
     /// every item that needs one.
-    @FocusedValue(\.projectCommands) private var commands
+    @FocusedValue(\.projectCommands) private var focusedCommands
+    /// The active window's commands where the focused value is nil without an engaged
+    /// focus system (iPadOS; see ActiveProjectCommands.swift). The non-Mac editor
+    /// publishes into it; the Mac never sees it and keeps the focused value alone.
+    @State private var activeProject = ActiveProjectCommands()
+    private var commands: ProjectCommands? { focusedCommands ?? activeProject.commands }
 
     // Platform seam: the delegate that recovers the legacy UserDefaults working copy on
     // the first launch of the document model (#10). Mac-only because the copy was.
@@ -51,6 +62,15 @@ struct CineSchedApp: App {
     // flow serves both buttons; `makeDocument` awaits it and the presentation modifier
     // on the launch scene shows its picker and summary.
     @State private var launchImport = LaunchImportFlow()
+    #endif
+
+    // Platform seam: the Dark Mode toggle is the Mac's (its window applies the scheme);
+    // the iPad's appearance follows the system (#17), so its menu bar leaves the item
+    // out rather than offer a switch that changes nothing there.
+    #if os(macOS)
+    private static let offersDarkModeToggle = true
+    #else
+    private static let offersDarkModeToggle = false
     #endif
 
     init() {
@@ -96,6 +116,7 @@ struct CineSchedApp: App {
         DocumentGroup(editor: { document in
             ProjectEditor(document: document)
                 .accentColor(currentTheme.primaryAccent(isDarkMode: isDarkMode))
+                .environment(activeProject)
         }, makeDocument: { configuration, context in
             // New Project and an opened file alike start from the template; an opened
             // file's contents arrive through the reader and `apply` straight after. The
@@ -117,6 +138,7 @@ struct CineSchedApp: App {
                 deviceOverrides: SceneColorSettings.deviceOverrides()
             )
         })
+        .commands { menus }
 
         // The system's launch screen: title, the actions below, the recents grid and a
         // Browse button into the document browser, which starts in the CineSched folder
@@ -136,6 +158,11 @@ struct CineSchedApp: App {
         #endif
     }
 
+    /// The app's own menu items, on every platform's document scene; the system's New,
+    /// Open, Save, Undo, Redo, Cut, Copy and Paste sit beside them. Each item is disabled
+    /// while no project window is key (`commands == nil`). Nothing here touches a
+    /// platform API, so the one `CommandsBuilder` serves the Mac's menu bar and the
+    /// iPad's alike.
     @CommandsBuilder
     private var menus: some Commands {
         // File menu — the import and export items, between the system's Save group and Print
@@ -216,8 +243,10 @@ struct CineSchedApp: App {
         // View menu — appearance for the app, then the key window's view state
         CommandGroup(after: .toolbar) {
             Divider()
-            Toggle(L("Dark Mode", lang: appLanguage), isOn: $isDarkMode)
-                .keyboardShortcut("d", modifiers: [.command, .shift])
+            if Self.offersDarkModeToggle {
+                Toggle(L("Dark Mode", lang: appLanguage), isOn: $isDarkMode)
+                    .keyboardShortcut("d", modifiers: [.command, .shift])
+            }
 
             Picker(L("Schedule View", lang: appLanguage), selection: commands?.viewMode ?? .constant(.calendar)) {
                 ForEach(ScheduleViewMode.allCases, id: \.self) { mode in

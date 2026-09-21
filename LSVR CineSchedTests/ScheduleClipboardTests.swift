@@ -76,6 +76,17 @@ struct ScheduleClipboardTests {
         #expect(back.copiedScenes == [a, event])
     }
 
+    @Test func thePasteboardBytesAreTheDragBytes() async throws {
+        // Copy writes `pasteboardData()`; a drop of the same payload would carry the
+        // transfer representation. One shape, so either side reads the other.
+        let payload = ScheduleDragPayload(.sceneCopies([a, c]))
+        let bytes = try payload.pasteboardData()
+        #expect(try ScheduleDragPayload(pasteboardData: bytes) == payload)
+        #expect(try await ScheduleDragPayload(importing: bytes, contentType: .cineschedDragPayload) == payload)
+        let dragBytes = try await payload.exported(as: .cineschedDragPayload)
+        #expect(try ScheduleDragPayload(pasteboardData: dragBytes) == payload)
+    }
+
     // MARK: - Where a paste lands
 
     @Test func nothingSelectedPastesIntoTheBoneyard() {

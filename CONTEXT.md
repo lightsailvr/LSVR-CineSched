@@ -82,7 +82,10 @@ Film-production terms first, then app-specific ones.
 | **Adaptive editor** | One of the editors rebuilt as a form for every container: the scene editor (`SceneEditSheet`), the day detail (`DayDetailSheet`), the banner input, the calendar event input and Send to Day (#19), the call sheet editor and Production Setup (#20). Each is `EditorChrome` (a header, a grouped `Form`, a footer button row, the same in every container) around a **draft** (`SceneDraft`, `BannerDraft`, `CalendarEventDraft` in `EditorDrafts.swift`; `CallSheetDraft`, `ProductionSetupDraft` in `CallSheetDrafts.swift`: the fields as plain values, read from the model, validated, written back as one assignment, so Save is one `perform` and one undo step) with `editorContainer` at its root. The shared settings and reports (#21) take the same shape without a draft, being live or read-only: the Stripboard fields picker (writes the app preference as each switch flips), Customize Scene Colors (each pick through `perform` into the project's palette), the color legend (swatches from the `scenePalette` environment), the conflict report, the schedule lock report, the import summary (both modes) and the month PDF options. |
 | **Detail page** | A page an adaptive editor's list pushes for one entry whose fields outnumber a row (#20): a cast call or crew call of the call sheet, a cast member (with the unavailable date ranges), crew member or location of the setup. Pushed inside the editor's own `NavigationStack`, under the editor's header (which shows Back and the entry) and footer (Remove, Done); an Add row appends a blank entry and pushes its page, and the draft drops a row left blank on Save. |
 | **Editor container** | Where an adaptive editor is presented and how the sheet is sized, the `PlatformEditorContainer` seam over `EditorSheetSize` (the editor's platform-free numbers): the Mac's fixed-frame sheet at the size the old sheet had, a sheet with detents on the iPhone, a form-sized sheet on iPad and Vision Pro (at the editor's own height for a short one), and nothing in the inspector, where the form fills the column. |
-| **Project commands** | `ProjectCommands`: the closure slots (and View-menu bindings) a `ContentView` publishes as a focused scene value so the app-wide menus act on the frontmost window. |
+| **Project commands** | `ProjectCommands`: the closure slots (and View-menu bindings) a `ContentView` publishes as a focused scene value so the app-wide menus act on the frontmost window. The same menus are the iPad's menu bar (#22), where the focused value is nil unless the focus system is engaged, so the non-Mac editor also publishes them into `ActiveProjectCommands` (an observable holder keyed by window activity) and the menu falls back to it. |
+| **Scene clipboard** | Edit ▸ Copy, Cut and Paste of scenes (#22): Copy puts the multi-selection (or the inspector's scene) on the pasteboard as one drag payload of kind `sceneCopies`, the scenes by value, so a paste may land in another open project; Paste inserts them as new scenes with new ids after the selected strip, at the end of the selected day, or into the Boneyard (script scenes only), and selects them; Cut is Copy plus one removal edit. The pure part is `ScheduleClipboard`; the system's three Edit items reach it through the **pasteboard responder** (`PlatformPasteboardResponder`, a seam), a first responder behind the board that every selection on the board takes over from any text field. |
+| **Input press** | Which input last pressed the board (#22): a finger, an Apple Pencil or a pointer (`InputKind`), with the modifier keys it carried (`InputPress`). Recorded at the editor's root through `SpatialEventGesture` where there are no flags to poll (iOS, visionOS), and read by the `ModifierKeys` seam when a tap selects: a pointer's click carries ⌘ and ⇧ for the multi-selection, a finger and a Pencil select one strip. The drag itself is the system's and reports no kind. |
+| **Inactive dimming** | The board and the Boneyard of a window that is not the active one fade (`dimsWhenInactive`, on the environment's `appearsActive`), so with two projects open it is plain which one the keyboard and the pasteboard act on (#22). |
 | **Window preference** | `@WindowPreference`: view state that belongs to one window (Calendar vs Stripboard, cast row, times vs pages, all days, grid vs list), seeded from the last-used value and written back for the next window. Distinct from an app preference (Dark Mode, Theme, Stripboard fields), which applies everywhere at once. |
 | **Export request** | `PDFExportRequest` (#23): what one PDF export produces before the platform decides where it goes: the document's kind, the file name the user sees (`.pdf` included, the Mac's save panel's name) and the exporter's bytes. Built by `PDFExport`, one function per document from the project and the export's parameters, the only place the exporters are called with the project's values, so a request is the same bytes on every platform. Delivered to the **export presentation**. |
 | **Export presentation** | Where an export request goes: the Mac's save panel (`FilePanels`, unchanged), or on iPad, iPhone and Vision Pro the **preview sheet** (`PDFExportPreviewSheet`: the PDF through PDFKit, Done, Share), whose share sheet offers AirDrop, Messages, Mail, Print, Save to Files and the rest for the file under its export name. `PlatformExportPresentation` (a seam) decides; the iPad reaches it from the toolbar's Export menu, the calendar's Export Month button, the Stripboard day header, the day inspector and the call sheet editor. |
@@ -103,6 +106,7 @@ MinimalProjectEditor.swift  The compact-width editor until M4 (title field, shoo
                           launch screen's background. Platform-free.
 CineSchedFolder.swift     The iCloud container identifier, folder name and the Mac's derivation of its on-disk path (pure).
 ProjectCommands.swift     The closure slots a ContentView publishes for those menus (focused scene value).
+ActiveProjectCommands.swift  The iPad menu bar's fallback to the active window's commands, by window activity (#22).
 ContentView.swift         The editor for one document: sidebar, toolbar, calendar and stripboard, in the Mac's
                           two-column layout or the iPad's three-column layout with the inspector (#17). Reads
                           `document.project`, writes only through `edit` / bindings built on `perform`.
@@ -140,6 +144,10 @@ ProjectDocument.swift     The project document (27 Document protocol), URL reade
 CalendarView.swift        Month grid / full-schedule scroll, drag & drop, day cells. Holds the shared drop plumbing.
 StripboardView.swift      Strip schedule with time cascade and auto-meal sync.
 ScheduleDrag.swift        The one typed drag payload every schedule drag carries and the pure moves a drop makes (#18).
+ScheduleClipboard.swift   Copy, Cut and Paste of scenes as pure moves over the project, and the payload's pasteboard bytes (#22).
+  ContentView+Clipboard.swift      wires them to the system's Edit items through the pasteboard responder.
+InputPress.swift          The kind and modifier keys of the latest press on the board, recorded for the selection (#22).
+InactiveDimming.swift     The inactive window's dimmed board (#22).
 *Sheet.swift              Modal editors (Scene, CallSheet, ProductionSetup, Banner, CalendarEvent, SendToDay, ...);
                           the scene, day detail, banner, calendar event and Send to Day ones are adaptive (#19), as
                           are the Stripboard fields picker, scene colors, the conflict and schedule lock reports and
@@ -159,7 +167,7 @@ SceneColorSettings.swift                                              The color 
 HoverTooltip.swift, LocationAutocompleteField.swift                            UI utilities.
 FilePanels, SelectAllTextField, WindowAccessor, ModifierKeys, PlatformControlStyles,
 PlatformColors, PlatformDocumentTypes, PlatformInspector, PlatformExportPresentation,
-LegacyProjectHandoff, MacAppDelegate                                  Platform seams (ADR 0003).
+PlatformPasteboardResponder, LegacyProjectHandoff, MacAppDelegate     Platform seams (ADR 0003).
 LegacyWorkingCopyRecovery.swift                                       The first-launch decision over the pre-document builds' UserDefaults
                                                                        working copy and file bookmark (#10); MacAppDelegate acts on it.
 SyncState.swift                                                       The sync state beside the title (#14): the five states and the pure
@@ -204,7 +212,11 @@ PlatformConflictResolution.swift                                      Seam: whet
    that the model was replaced under them (undo, redo, reload only).
 5. Menu commands reach the key window through `ProjectCommands`: `ContentView` publishes its
    closures with `.focusedSceneValue`, `CineSchedApp` reads `@FocusedValue` and disables the item
-   when no project window is key.
+   when no project window is key. On iOS and visionOS the editor also publishes them into
+   `ActiveProjectCommands` while its window appears active, the menu bar's fallback where
+   the focused value is nil (#22). Edit ▸ Cut, Copy and Paste are the system's items and go
+   down the responder chain: a text field takes them, otherwise the pasteboard responder
+   behind the board does, calling `ScheduleClipboard` through `edit`.
 6. Exporters are pure functions from model values to `Data` (PDF). `PDFExport` calls them with the
    project's values and wraps the result in a `PDFExportRequest` (kind, file name, bytes); the
    actions in `ContentView+PDFExports.swift` deliver a request to the Mac's save panel

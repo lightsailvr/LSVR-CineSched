@@ -88,7 +88,11 @@ the build inputs outside it, see Working agreements):
   the Mac one window per document plus the menus, which act on the key window through
   `@FocusedValue(\.projectCommands)`; on iOS and visionOS `ProjectEditor` as the editor
   and the system's `DocumentGroupLaunchScene` (New Project, Import Script…, Import Project…,
-  recents, the document browser). The two imports (#13) are `NewDocumentButton`s with a
+  recents, the document browser). The one `menus` builder goes on both scenes (#22): the
+  iPad's menu bar shows it with the Mac's shortcuts, and reaches the active window through
+  `ActiveProjectCommands` (`ActiveProjectCommands.swift`, an `@Observable` holder the
+  non-Mac editor publishes into by `appearsActive`) because `@FocusedValue` is nil on
+  iPadOS unless the focus system is engaged; the Mac never sees the holder. The two imports (#13) are `NewDocumentButton`s with a
   `DocumentCreationSource`; `makeDocument` switches on `context.creationSource` and awaits
   `LaunchImportFlow` for the project. The button's `prepareDocumentURL` closure is never
   invoked by the 27.0 launch scene; do not move the flow there.
@@ -159,13 +163,35 @@ the build inputs outside it, see Working agreements):
   `ContentView` wires to the selection, the sheets and the funnel.
 - `ScheduleDrag.swift`: the one typed drag payload every drag on the schedule carries (#18),
   pure: `ScheduleDragPayload` (a `Transferable` on the exported `UTType.cineschedDragPayload`,
-  with kinds scenes/day/dayType/calendarEvent), `SceneDropDestination` (a day and a place —
+  with kinds scenes/day/dayType/calendarEvent, plus `sceneCopies`, the pasteboard's kind
+  with the scenes by value, #22), `SceneDropDestination` (a day and a place —
   `.before(sceneID)` or `.end`), and `ScheduleMoves.moveScenes` / `.returnToBoneyard`, the
   pure moves a drop makes over `[ShootDay]` and the Boneyard (`ScheduleDragTests`). The
   calendar, the Stripboard and the Boneyard drag with `.draggable`/`.dropDestination` on this
   type (not the 27 reorder container — it crashes beside a heterogeneous drag container, see
   CalendarView's header and learnings.md 2026-09-20); `CalendarView` holds the shared
   `DropIndicatorView`, `DragSessionTracking` and `DropTargetTracking`.
+- `ScheduleClipboard.swift`: Copy, Cut and Paste of scenes (#22), pure: the payload's
+  pasteboard bytes (`pasteboardData()`, the drag's JSON), `ScheduleClipboard.scenes(copying:in:)`
+  (board order, no auto-meals), `payload(copying:in:)`, `destination(for:in:)` (after the
+  selected strip, the end of the selected day, or the Boneyard → `PasteDestination`),
+  `paste(_:at:into:)` (new ids, everything else as copied, notice strips kept out of the
+  Boneyard, returns the new ids) and `remove(_:from:)` (`ScheduleClipboardTests`).
+  `ContentView+Clipboard.swift` wires them: `applyClipboard` puts the `PasteboardResponder`
+  (a seam) behind the board, every selection calls `focusEditor()` so it takes first
+  responder, and `copyPayload` / `cutPayload` / `paste` act on the multi-selection or the
+  inspector's scene through `edit` ("Cut", "Paste"); a paste selects what it inserted.
+- `InactiveDimming.swift`: `dimsWhenInactive()`, the modifier the board and the Boneyard
+  carry (#22): `@Environment(\.appearsActive)` (every platform) fades them in a window that
+  is not the active one.
+- `InputPress.swift`: which input pressed the board last (#22): `InputKind` (touch, pencil,
+  pointer, other), `InputPress` (kind and modifiers; `selectionModifiers` is the click's for
+  a pointer, none for a finger or a Pencil), `InputPressRecorder.shared` and the
+  `recordsInputPresses()` modifier, a `SpatialEventGesture` at the editor's root that
+  records every press without claiming it (`InputPressTests`). `ModifierKeys.current` reads
+  it on iOS and visionOS, so ⌘-click and ⇧-click multi-select with a trackpad or mouse
+  there; the Mac keeps polling `NSEvent` and carries no gesture. `draggable` and
+  `DragSession` report no input kind on 27.0; the distinction is made at the press.
 - `ContentView+Inspector.swift`: the three-column layout's trailing column: the project
   statistics when nothing is selected, `SceneEditSheet` bound to the selected scene by id
   (Save is one gesture, Cancel and Delete clear the selection), `DayDetailSheet` for the
@@ -296,7 +322,12 @@ the build inputs outside it, see Working agreements):
   `PDFExporter` (the month calendar), `CallSheetExporter`, `BreakdownExporter`,
   `DaysOutOfDaysExporter`) draw on it and build everywhere (its header comment is the recipe
   for writing one). `Fountain*`, `FinalDraftParser`, `HighlandArchiveReader`: importers.
-- Platform seams (ADR 0003): `FilePanels`, `SelectAllTextField`, `WindowAccessor`, `ModifierKeys`,
+- Platform seams (ADR 0003): `FilePanels`, `SelectAllTextField`, `WindowAccessor`, `ModifierKeys`
+  (the Mac polls `NSEvent`; the others read the recorded press, and the event-kind mapping
+  lives here because `.pencil` is iOS-only), `PlatformPasteboardResponder` (the first
+  responder that answers Edit ▸ Cut, Copy and Paste for scenes with `NSPasteboard` or
+  `UIPasteboard`; SwiftUI's `copyable` family needs the focus system, which the iPad engages
+  only for a hardware keyboard, #22),
   `PlatformControlStyles`, `PlatformColors`, `PlatformDocumentTypes`, `PlatformConflictResolution`
   (whether the system presents its own conflict UI: the Mac's NSDocument sheet, so the app
   resolves only on iOS and visionOS), `PlatformInspector` (the three-column layout's
@@ -308,7 +339,8 @@ the build inputs outside it, see Working agreements):
   `editorNavigationBarHidden()`, which hides the bar of an editor's own navigation stack
   where there is one), `LegacyProjectHandoff`,
   `MacAppDelegate`, plus the
-  editor/launch-scene choice, the tabbing choice and the delegate adaptor in `CineSchedApp`.
+  editor/launch-scene choice, the tabbing choice, the Dark Mode menu item (the Mac's
+  only) and the delegate adaptor in `CineSchedApp`.
   These are the only files allowed to contain `#if os(...)`.
 
 ## Conventions
@@ -318,6 +350,9 @@ the build inputs outside it, see Working agreements):
   slot's assignment in `ContentView.projectCommands`. Do not add `Notification.Name`s for menus:
   a notification reaches every open window. A View-menu toggle for window state is a `Binding`
   slot bound to a `@WindowPreference`, not an `@AppStorage`, or it flips every open project.
+  The same `menus` serve the iPad's menu bar (#22): keep them free of platform APIs, and
+  never add a Button with ⌘C, ⌘X or ⌘V (it would replace the system's Edit items and take
+  them from every text field; scenes answer those through the pasteboard responder).
 - **Adding a sheet**: add a case to `ContentView.ActiveSheet` and to the `switch` in `applySheets`.
   Sheets take `@Binding var isPresented` and an `onSave` closure; editors copy the model into local
   `@State` on appear and write back in an explicit save function.
@@ -437,6 +472,12 @@ validation, the value written back, the Custom type's blank-means-none rule),
 `CallSheetDraft` and `ProductionSetupDraft` (`CallSheetDraftsTests`: every pre-fill on
 opening, each list mutation, the character renames reported, every field written back with
 the unshown ones carried, an untouched draft writing an equal value, blank rows dropped),
+`ScheduleClipboard` (what Copy carries, where a paste lands, what a paste inserts into this
+or another project, what Cut removes, the pasteboard bytes against the drag's) in
+`ScheduleClipboardTests`, `InputPress` and the recorder in `InputPressTests`; the pasteboard
+responder, the menu bar and the dimming have no unit seam (learnings.md 2026-09-20 #22 has
+the iPad probe recipe: `typeKey` after a warm-up key, windows tiled through SpringBoard's
+Zoom menu),
 `ScriptImport.parse`, `LaunchImport` and `LaunchImportFlow` driven through its callbacks
 (`LaunchImportTests`: one parse per format, the script → new project step, the legacy `.json`
 read against `ProjectCodec` with the source bytes pinned, and every cancellation path),
