@@ -39,6 +39,24 @@ struct DaySummariesTests {
         }
     }
 
+    // MARK: - The day's label
+
+    @Test func labelNamesTheDayNumberAndTheDate() {
+        let list    = days(3, scheduled: [0, 1, 2])
+        let numbers = productionDayNumbers(for: list)
+        let summary = DaySummary(day: list[1], dayNumbers: numbers)
+        #expect(summary.label == "\(L("Day")) 2 · \(formattedDate(list[1].date))")
+        #expect(DaySummary.label(dayNumber: 2, date: list[1].date) == summary.label)
+    }
+
+    @Test func labelOfAnUnnumberedDayIsTheDateAlone() {
+        let list    = days(2, scheduled: [0])
+        let summary = DaySummary(day: list[1], dayNumbers: productionDayNumbers(for: list))
+        #expect(summary.productionDayNumber == nil)
+        #expect(summary.label == formattedDate(list[1].date))
+        #expect(DaySummary.label(dayNumber: nil, date: list[1].date) == formattedDate(list[1].date))
+    }
+
     // MARK: - DaySummary
 
     @Test func summaryReadsTheDayNumberFromTheTable() {

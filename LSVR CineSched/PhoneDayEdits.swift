@@ -57,6 +57,9 @@ struct PhoneDayEdits {
     let beginGesture: () -> Void
     /// Presents an editor over the editor (`PhoneEditor.editSheet`).
     let present: (PhoneEditSheet) -> Void
+    /// The production range as the Production tab's pickers hold it, for Clear Day Type:
+    /// a typed day outside it that is emptied goes (the inspector's rule); nil drops nothing.
+    let productionRange: () -> ClosedRange<Date>?
     /// The call sheet editor's Export PDF: the request into the preview sheet.
     let exportCallSheet: (ShootDay) -> Void
 
@@ -100,8 +103,11 @@ struct PhoneDayEdits {
         edit(L("Set Day Type")) { $0.setDayType(type, forDayID: dayID) }
     }
 
+    /// Clear Day Type: a plain shoot day with no note; an emptied day outside the
+    /// production range is dropped with it, as the inspector's and the calendar's do.
     func clearDayType(dayID: UUID) {
-        edit(L("Clear Day Type")) { $0.clearDayType(forDayID: dayID) }
+        let range = productionRange()
+        edit(L("Clear Day Type")) { $0.clearDayType(forDayID: dayID, productionRange: range) }
     }
 
     // MARK: Scenes
@@ -294,7 +300,7 @@ private struct PhoneDaySceneEditor: View {
                 onPrevious:     steps ? { if let p = position, p > 0 { sceneID = siblings[p - 1] } } : nil,
                 onNext:         steps ? { if let p = position, p < siblings.count - 1 { sceneID = siblings[p + 1] } } : nil,
                 positionLabel:  steps ? position.map { String(format: L("Scene %d of %d"), $0 + 1, siblings.count) } : nil,
-                knownLocations: knownLocations,
+                knownLocations: project.knownLocations,
                 onDuplicate:    { dayEdits.duplicateScene(id: sceneID) }
             )
             .id(sceneID)
@@ -329,16 +335,5 @@ private struct PhoneDaySceneEditor: View {
         case .scheduled: moves.returnToBoneyard([scene.id])
         case nil:        break
         }
-    }
-
-    /// The location roster plus every real location in use (the inspector's rule).
-    private var knownLocations: [String] {
-        var set = Set<String>()
-        for day in project.shootDays {
-            for scene in day.scenes where !scene.realLocation.isEmpty { set.insert(scene.realLocation) }
-        }
-        for scene in project.allScenes where !scene.realLocation.isEmpty { set.insert(scene.realLocation) }
-        for location in (project.productionInfo ?? ProductionInfo()).locationRoster where !location.name.isEmpty { set.insert(location.name) }
-        return Array(set).sorted()
     }
 }

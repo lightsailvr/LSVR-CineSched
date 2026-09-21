@@ -82,11 +82,13 @@ struct ProductionTab: View {
     /// Typing in the title is one gesture per focus session.
     @State private var titleGesture = EditGesture()
     @FocusState private var titleFocused: Bool
-    /// The range pickers' pending dates, seeded from the shoot days' bounds and re-seeded
-    /// only when the project is replaced under the view and those bounds changed.
-    @State private var startDate: Date
-    @State private var endDate:   Date
-    @State private var seededRange: ClosedRange<Date>?
+    /// The range pickers' pending dates, the editor's state (`PhoneEditor` seeds them from
+    /// the shoot days' bounds and re-seeds them on `restoreCount`; the Day screen's Clear
+    /// Day Type reads the same range to know which days lie outside it).
+    @Binding var startDate: Date
+    @Binding var endDate:   Date
+    /// The bounds the pickers were last seeded from.
+    @Binding var seededRange: ClosedRange<Date>?
     @State private var pendingRangePreview: ProductionRangePreview?
     @State private var showingRangeConfirmation = false
 
@@ -103,36 +105,13 @@ struct ProductionTab: View {
     @AppStorage(MonthPDFOptionSettings.pagesKey)  private var monthPDFShowPages: Bool = MonthPDFOptions.default.includePageCount
     @AppStorage(MonthPDFOptionSettings.timeKey)   private var monthPDFShowTime:  Bool = MonthPDFOptions.default.includeEstimatedTime
 
-    init(
-        document: ProjectDocument,
-        derived: DerivedScheduleState,
-        edit: @escaping ProjectEdit,
-        editCoalescing: @escaping CoalescedProjectEdit,
-        beginEditGestureIfNeeded: @escaping () -> Void,
-        command: Binding<ProductionCommand?>,
-        exportPreview: Binding<PDFExportRequest?>,
-        jumpToDate: @escaping (Date) -> Void
-    ) {
-        self.document                 = document
-        self.derived                  = derived
-        self.edit                     = edit
-        self.editCoalescing           = editCoalescing
-        self.beginEditGestureIfNeeded = beginEditGestureIfNeeded
-        self.jumpToDate               = jumpToDate
-        _command       = command
-        _exportPreview = exportPreview
-        let range      = Self.dateRange(of: document.project.shootDays)
-        _startDate     = State(initialValue: range?.lowerBound ?? Date())
-        _endDate       = State(initialValue: range?.upperBound ?? Date())
-        _seededRange   = State(initialValue: range)
-    }
-
     private var project:        ProjectData    { document.project }
     private var shootDays:      [ShootDay]     { project.shootDays }
     private var productionInfo: ProductionInfo { project.productionInfo ?? ProductionInfo() }
     private var sceneCount:     Int            { project.allScenes.count + shootDays.reduce(0) { $0 + $1.scenes.count } }
 
-    private static func dateRange(of days: [ShootDay]) -> ClosedRange<Date>? {
+    /// The shoot days' bounds, what the range pickers are seeded from (`ContentView`'s rule).
+    static func dateRange(of days: [ShootDay]) -> ClosedRange<Date>? {
         guard let first = days.first?.date, let last = days.last?.date, first <= last else { return nil }
         return first...last
     }
@@ -160,7 +139,6 @@ struct ProductionTab: View {
         }
         .onChange(of: command) { _, newValue in run(newValue) }
         .onAppear { run(command) }
-        .onChange(of: document.restoreCount) { _, _ in seedRangePickers() }
         .onChange(of: titleFocused) { _, focused in
             if !focused { titleGesture = EditGesture() }
         }
@@ -447,7 +425,7 @@ struct ProductionTab: View {
                 positionLabel: String(format: L("Scene %d of %d — script order"), position + 1, browser.count),
                 breakdownExpandedByDefault: true,
                 closeAfterDelete: false,
-                knownLocations: knownLocations
+                knownLocations: project.knownLocations
             )
             .id(id)
         } else {
@@ -491,17 +469,6 @@ struct ProductionTab: View {
         if next == nil { activeSheet = nil }
     }
 
-    /// The location roster plus every real location in use, for the editor's suggestions.
-    private var knownLocations: [String] {
-        var set = Set<String>()
-        for day in shootDays {
-            for scene in day.scenes where !scene.realLocation.isEmpty { set.insert(scene.realLocation) }
-        }
-        for scene in project.allScenes where !scene.realLocation.isEmpty { set.insert(scene.realLocation) }
-        for location in productionInfo.locationRoster where !location.name.isEmpty { set.insert(location.name) }
-        return Array(set).sorted()
-    }
-
     // MARK: - Production Setup
 
     private var productionInfoBinding: Binding<ProductionInfo> {
@@ -509,31 +476,12 @@ struct ProductionTab: View {
     }
 
     /// The character name join (CONTEXT.md): a renamed character reaches every scene's
-    /// cast and every call sheet's cast override, in the gesture the setup's own write
-    /// then joins, so the rename and the roster are one undo step (the Mac's rule).
+    /// cast and every call sheet's cast override (`ProjectData.renameCharacter`), in the
+    /// gesture the setup's own write then joins, so the rename and the roster are one undo
+    /// step (the Mac's rule).
     private func renameCastCharacter(from oldName: String, to newName: String) {
-        let old = oldName.trimmingCharacters(in: .whitespaces)
-        let new = newName.trimmingCharacters(in: .whitespaces)
-        guard !old.isEmpty, !new.isEmpty, old.caseInsensitiveCompare(new) != .orderedSame else { return }
-
-        func renamed(_ cast: [String]) -> [String] {
-            cast.map { $0.caseInsensitiveCompare(old) == .orderedSame ? new : $0 }
-        }
-
         beginEditGestureIfNeeded()
-        edit(L("Edit Production Setup")) { data in
-            for i in data.allScenes.indices {
-                data.allScenes[i].cast = renamed(data.allScenes[i].cast)
-            }
-            for d in data.shootDays.indices {
-                for s in data.shootDays[d].scenes.indices {
-                    data.shootDays[d].scenes[s].cast = renamed(data.shootDays[d].scenes[s].cast)
-                }
-                if let override = data.shootDays[d].callSheet.castOverride {
-                    data.shootDays[d].callSheet.castOverride = renamed(override)
-                }
-            }
-        }
+        edit(L("Edit Production Setup")) { $0.renameCharacter(from: oldName, to: newName) }
     }
 
     // MARK: - Conflicts and the schedule lock
@@ -544,20 +492,13 @@ struct ProductionTab: View {
     }
 
     private func lockSchedule() {
-        let working = ScheduleLockScanner.currentWorkingDays(shootDays: shootDays)
-        var stored: [String: [Date]] = [:]
-        for (character, dates) in working { stored[character] = dates.sorted() }
-        edit(L("Lock Schedule")) { data in
-            var info = data.productionInfo ?? ProductionInfo()
-            info.scheduleLock = ScheduleLock(lockedAt: Date(), workingDays: stored)
-            data.productionInfo = info
-        }
+        edit(L("Lock Schedule")) { $0.lockSchedule() }
         alertMessage = L("Schedule locked. You'll be notified in the Schedule Lock Report if any actor's working days change from here.")
     }
 
     private func unlockSchedule() {
         guard productionInfo.scheduleLock != nil else { return }
-        edit(L("Unlock Schedule")) { $0.productionInfo?.scheduleLock = nil }
+        edit(L("Unlock Schedule")) { $0.unlockSchedule() }
     }
 
     // MARK: - Appearance
@@ -633,13 +574,6 @@ struct ProductionTab: View {
         return days == 1 ? L("1 day") : String(format: L("%d days"), days)
     }
 
-    private func seedRangePickers() {
-        guard let range = Self.dateRange(of: shootDays), range != seededRange else { return }
-        startDate   = range.lowerBound
-        endDate     = range.upperBound
-        seededRange = range
-    }
-
     /// Update Calendar: a range that would send scenes back to the Boneyard is confirmed
     /// first (there is no visible Undo on a phone); any other applies at once.
     private func requestRangeUpdate() {
@@ -662,11 +596,16 @@ struct ProductionTab: View {
         seededRange = Self.dateRange(of: shootDays)
     }
 
+    /// What the change does besides the displaced scenes: with Shift Schedule on and the
+    /// start moved, everything slides with it; otherwise everything stays on its date.
     private func rangeConfirmationMessage(_ preview: ProductionRangePreview) -> String {
         let scenes = preview.displacedSceneCount == 1
             ? L("1 scene on a day outside the new range will return to the Boneyard.")
             : String(format: L("%d scenes on days outside the new range will return to the Boneyard."), preview.displacedSceneCount)
-        return scenes + " " + L("Call sheets, calendar events, day types and notes stay on their dates.")
+        let rest = preview.shifts
+            ? L("Call sheets, calendar events, day types and notes move with the schedule to the new start.")
+            : L("Call sheets, calendar events, day types and notes stay on their dates.")
+        return scenes + " " + rest
     }
 
     // MARK: - Exports

@@ -73,7 +73,7 @@ struct BoneyardTab: View {
         }
         .sheet(isPresented: $showingNewScene) {
             NewSceneSheet(
-                knownLocations: knownLocations,
+                knownLocations: project.knownLocations,
                 onAdd: { scene in
                     showingNewScene = false
                     addScene(scene)
@@ -327,17 +327,6 @@ struct BoneyardTab: View {
             onNext:        { if let position, position < ids.count - 1 { editorRequest = PhoneSceneEditorRequest(sceneID: ids[position + 1]) } },
             positionLabel: position.map { String(format: L("Scene %d of %d"), $0 + 1, ids.count) }
         )
-    }
-
-    /// The location roster plus every real location in use, for the new scene's field.
-    private var knownLocations: [String] {
-        var set = Set<String>()
-        for day in project.shootDays {
-            for scene in day.scenes where !scene.realLocation.isEmpty { set.insert(scene.realLocation) }
-        }
-        for scene in project.allScenes where !scene.realLocation.isEmpty { set.insert(scene.realLocation) }
-        for location in project.productionInfo?.locationRoster ?? [] where !location.name.isEmpty { set.insert(location.name) }
-        return Array(set).sorted()
     }
 
     // MARK: - Edits

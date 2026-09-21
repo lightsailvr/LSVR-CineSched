@@ -27,6 +27,10 @@ nonisolated struct ProductionRangePreview: Equatable {
     /// Script scenes (not banners) that no longer fit a day and would return to the
     /// Boneyard with the rest of their day's strips.
     var displacedSceneCount: Int
+    /// Whether everything slides with the start (shift mode on and the start moved), or
+    /// stays on its dates (shift off, or the start unchanged): what the confirmation says
+    /// happens to the call sheets, events, day types and notes.
+    var shifts:              Bool
 }
 
 extension ProjectData {
@@ -38,7 +42,6 @@ extension ProjectData {
     mutating func updateProductionRange(from newStart: Date, to newEnd: Date, calendar cal: Calendar = .current) {
         let normNewStart = cal.startOfDay(for: newStart)
         let normNewEnd   = cal.startOfDay(for: newEnd)
-        let shiftEnabled = isShiftModeEnabled ?? false
 
         // 1. Bucket everything by date: script scenes, calendar events, call sheets, and day
         //    types/notes. In shift mode all of it slides by the same offset, so a travel day
@@ -73,14 +76,13 @@ extension ProjectData {
             }
         }
 
-        // 2. Find old shooting start date (from actual script scenes or previous start)
-        let sortedScriptDates = scriptScenesByDate.keys.sorted()
-        let oldScriptStart = sortedScriptDates.first ?? normNewStart
-        let dayOffset = cal.dateComponents([.day], from: oldScriptStart, to: normNewStart).day ?? 0
+        // 2. The shift offset: from the old shooting start (the first day with script
+        //    scenes, else the new start) to the new start. Zero unless shift mode is on.
+        let dayOffset = shiftDayOffset(toStart: normNewStart, calendar: cal)
 
         // Re-key a per-date map by the shift offset. Identity when shift mode is off.
         func shifted<T>(_ map: [Date: T]) -> [Date: T] {
-            guard shiftEnabled, dayOffset != 0 else { return map }
+            guard dayOffset != 0 else { return map }
             var out: [Date: T] = [:]
             for (date, value) in map {
                 if let moved = cal.date(byAdding: .day, value: dayOffset, to: date) {
@@ -147,6 +149,18 @@ extension ProjectData {
         shootDays = updatedDays
     }
 
+    /// How many days everything slides by in shift mode: from the old shooting start (the
+    /// first day holding script scenes, else `newStart` itself) to `newStart`. Zero with
+    /// shift mode off, so the merge rules apply as they are.
+    private func shiftDayOffset(toStart normNewStart: Date, calendar cal: Calendar) -> Int {
+        guard isShiftModeEnabled ?? false else { return 0 }
+        let oldScriptStart = shootDays
+            .filter { day in day.scenes.contains { !$0.isCalendarEvent } }
+            .map { cal.startOfDay(for: $0.date) }
+            .min() ?? normNewStart
+        return cal.dateComponents([.day], from: oldScriptStart, to: normNewStart).day ?? 0
+    }
+
     /// The regeneration's outcome for `newStart...newEnd` without applying it.
     func previewProductionRange(from newStart: Date, to newEnd: Date, calendar cal: Calendar = .current) -> ProductionRangePreview {
         var copy = self
@@ -157,7 +171,8 @@ extension ProjectData {
         let scriptScenes = { (project: ProjectData) in project.allScenes.filter { !$0.isBanner }.count }
         return ProductionRangePreview(
             dayCount:            days,
-            displacedSceneCount: max(0, scriptScenes(copy) - scriptScenes(self))
+            displacedSceneCount: max(0, scriptScenes(copy) - scriptScenes(self)),
+            shifts:              shiftDayOffset(toStart: start, calendar: cal) != 0
         )
     }
 

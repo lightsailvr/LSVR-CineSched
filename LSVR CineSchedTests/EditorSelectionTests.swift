@@ -45,6 +45,21 @@ struct EditorSelectionTests {
         #expect(project.dayIndex(forDayID: UUID()) == nil)
     }
 
+    // MARK: - Known locations
+
+    @Test func knownLocationsAreTheRosterAndEveryRealLocationInUseSortedOnce() {
+        var project = self.project
+        project.allScenes[0].realLocation = "Stage 4"
+        project.shootDays[1].scenes[1].realLocation = "Alameda Warehouse"
+        project.shootDays[1].scenes.append(Scene(title: "INT. HALL - DAY", sceneNumber: "3", realLocation: "Stage 4"))
+        project.productionInfo = ProductionInfo(locationRoster: [Location(name: "City Hall"), Location(name: ""), Location(name: "Stage 4")])
+        #expect(project.knownLocations == ["Alameda Warehouse", "City Hall", "Stage 4"])
+    }
+
+    @Test func knownLocationsSkipBlanksAndAreEmptyForABareProject() {
+        #expect(project.knownLocations.isEmpty)
+    }
+
     // MARK: - Pruning
 
     @Test func aSelectionWhoseTargetExistsIsKept() {

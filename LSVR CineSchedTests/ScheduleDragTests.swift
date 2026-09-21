@@ -384,4 +384,23 @@ struct ScheduleDragTests {
         #expect(!ScheduleMoves.swapDays(UUID(), days[0].id, in: &days))
         #expect(days == before)
     }
+
+    // MARK: - The adjacent day (Move to Next Day / Move to Previous Day)
+
+    @Test func theAdjacentDayIsTheNextOrPreviousEntryOfTheList() {
+        var (days, _) = board()
+        // An empty typed day between the two is still "tomorrow" to the scheduler.
+        let travel = ShootDay(date: Date(timeIntervalSince1970: 1_800_043_200), dayType: .travel)
+        days.insert(travel, at: 1)
+        #expect(ScheduleMoves.adjacentDayID(of: days[0].id, .next,     in: days) == travel.id)
+        #expect(ScheduleMoves.adjacentDayID(of: travel.id,  .next,     in: days) == days[2].id)
+        #expect(ScheduleMoves.adjacentDayID(of: days[2].id, .previous, in: days) == travel.id)
+    }
+
+    @Test func theFirstDayHasNoPreviousAndTheLastNoNext() {
+        let (days, _) = board()
+        #expect(ScheduleMoves.adjacentDayID(of: days[0].id, .previous, in: days) == nil)
+        #expect(ScheduleMoves.adjacentDayID(of: days[1].id, .next,     in: days) == nil)
+        #expect(ScheduleMoves.adjacentDayID(of: UUID(),     .next,     in: days) == nil)
+    }
 }

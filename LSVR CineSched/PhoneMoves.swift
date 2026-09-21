@@ -169,9 +169,7 @@ private struct PhoneMoveSheetContent: View {
             )
         case .swapDay(let dayID):
             let dayNumbers = productionDayNumbers(for: shootDays)
-            let name = shootDays.first { $0.id == dayID }.map { day in
-                (dayNumbers[day.id].map { "\(L("Day")) \($0) · " } ?? "") + formattedDate(day.date)
-            } ?? L("this day")
+            let name = shootDays.first { $0.id == dayID }.map { DaySummary.label(dayNumber: dayNumbers[$0.id], date: $0.date) } ?? L("this day")
             SendToDaySheet(
                 shootDays:        shootDays,
                 sceneCount:       0,
@@ -189,9 +187,7 @@ private struct PhoneMoveSheetContent: View {
             let dayNumbers = productionDayNumbers(for: shootDays)
             let day        = shootDays.first { $0.id == dayID }
             AddScenesSheet(
-                dayName: day.map { day in
-                    (dayNumbers[day.id].map { "\(L("Day")) \($0) · " } ?? "") + formattedDate(day.date)
-                } ?? "",
+                dayName: day.map { DaySummary.label(dayNumber: dayNumbers[$0.id], date: $0.date) } ?? "",
                 boneyard: boneyard,
                 onAdd: { selected in
                     moves.addScenes(selected, inDisplayOrder: boneyard.map(\.id), to: dayID)

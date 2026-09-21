@@ -22,7 +22,9 @@
 // are three more over the same arrays: `reorderStrips` turns a list's `onMove` offsets
 // into one `moveScenes`, `addScenes` lands the checked Boneyard scenes in display order,
 // and `swapDays` exchanges everything two days hold (the day handle's swap, as a pure
-// function the phone's Swap with Day calls; the Mac's two private copies are untouched).
+// function the phone's Swap with Day calls; the Mac's two private copies are untouched);
+// `adjacentDayID` names the day a strip's Move to Next Day / Move to Previous Day lands
+// on, and the move itself is a `moveScenes` to its end.
 //
 // The payload is never persisted: it lives for the length of one drag, so its shape is
 // free to change (no `CodingKeys` promise, unlike the project file).
@@ -132,6 +134,11 @@ nonisolated struct SceneDropDestination: Hashable, Sendable {
 
 // MARK: - The moves a drop makes
 
+/// Which way Move to Next Day / Move to Previous Day looks along the schedule.
+nonisolated enum DayDirection: Hashable, Sendable {
+    case previous, next
+}
+
 enum ScheduleMoves {
 
     /// Moves the scenes with `ids`, from the Boneyard or from any day, to `destination`.
@@ -225,9 +232,19 @@ enum ScheduleMoves {
     @discardableResult
     static func addScenes(_ selected: Set<UUID>, inDisplayOrder displayOrder: [UUID], to dayID: UUID,
                           days: inout [ShootDay], boneyard: inout [Scene]) -> Bool {
-        let ordered = displayOrder.filter { selected.contains($0) }
+        let ordered = BoneyardSelection.ordered(selected, inDisplayOrder: displayOrder)
         guard !ordered.isEmpty else { return false }
         return moveScenes(ordered, to: SceneDropDestination(dayID: dayID), days: &days, boneyard: &boneyard)
+    }
+
+    /// The day before or after `dayID` in `days` (the next entry of the schedule, so an
+    /// empty or typed day counts: to the scheduler "tomorrow" is the next date on the board,
+    /// whatever is on it), for Move to Next Day and Move to Previous Day; nil at the first
+    /// or last day and for an unknown id.
+    static func adjacentDayID(of dayID: UUID, _ direction: DayDirection, in days: [ShootDay]) -> UUID? {
+        guard let index = days.firstIndex(where: { $0.id == dayID }) else { return nil }
+        let neighbour = direction == .next ? index + 1 : index - 1
+        return days.indices.contains(neighbour) ? days[neighbour].id : nil
     }
 
     /// Swap with day: exchanges everything the two days hold — scenes (the calendar events

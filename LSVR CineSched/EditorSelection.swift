@@ -9,6 +9,11 @@
 // in the editor): that set says which strips move together; this value says which single
 // thing the inspector is editing. On the Mac the inspector does not exist and the value is
 // never set; on the iPad every single tap on a strip or a day writes it.
+//
+// Also here, beside `locate(sceneID:)`: the by-id write-back every editor bound by id
+// makes (`replaceScene`, `removeScene(withID:)`, #28) and the location suggestions the
+// scene editors share (`knownLocations`), because each is the same lookup over the
+// Boneyard and the days.
 
 import Foundation
 
@@ -65,5 +70,47 @@ extension ProjectData {
     /// The day's index in `shootDays`; nil when no day has that id.
     nonisolated func dayIndex(forDayID id: UUID) -> Int? {
         shootDays.firstIndex { $0.id == id }
+    }
+
+    // MARK: - Write-back by id
+
+    /// Replaces the scene with `scene.id` wherever it is, in the Boneyard or on a day.
+    /// Returns false, and changes nothing, when no scene has that id.
+    @discardableResult
+    nonisolated mutating func replaceScene(_ scene: Scene) -> Bool {
+        switch locate(sceneID: scene.id) {
+        case .boneyard(let index):                     allScenes[index] = scene
+        case .scheduled(let dayIndex, let sceneIndex): shootDays[dayIndex].scenes[sceneIndex] = scene
+        case nil:                                      return false
+        }
+        return true
+    }
+
+    /// Removes the scene with `id` from wherever it is (the Boneyard or a day) outright,
+    /// what the breakdown browser's Delete does on the Mac. Returns false when no scene
+    /// has that id.
+    @discardableResult
+    nonisolated mutating func removeScene(withID id: UUID) -> Bool {
+        switch locate(sceneID: id) {
+        case .boneyard(let index):                     allScenes.remove(at: index)
+        case .scheduled(let dayIndex, let sceneIndex): shootDays[dayIndex].scenes.remove(at: sceneIndex)
+        case nil:                                      return false
+        }
+        return true
+    }
+
+    // MARK: - Locations
+
+    /// The location roster plus every real location a scene names, once each, sorted:
+    /// what the scene editors' location field suggests (the inspector's and the
+    /// Stripboard sheet's rule, which keep their own copies).
+    nonisolated var knownLocations: [String] {
+        var set = Set<String>()
+        for day in shootDays {
+            for scene in day.scenes where !scene.realLocation.isEmpty { set.insert(scene.realLocation) }
+        }
+        for scene in allScenes where !scene.realLocation.isEmpty { set.insert(scene.realLocation) }
+        for location in productionInfo?.locationRoster ?? [] where !location.name.isEmpty { set.insert(location.name) }
+        return Array(set).sorted()
     }
 }

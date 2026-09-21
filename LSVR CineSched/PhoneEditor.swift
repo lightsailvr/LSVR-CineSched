@@ -108,6 +108,40 @@ struct PhoneEditor: View {
     /// What an export could not do (`PDFExportError`), shown as an alert.
     @State private var alertMessage: String? = nil
 
+    // MARK: - Production range
+
+    /// The range pickers' pending dates (the Production tab's Start Date and End Date),
+    /// seeded from the shoot days' bounds and re-seeded only when the project is replaced
+    /// under the editor (undo, redo, reload) *and* those bounds changed, so an unrelated
+    /// Undo leaves a half-typed range alone (`ContentView`'s rule). Held here rather than
+    /// in the tab because the Day screen's Clear Day Type reads the same range: a typed
+    /// day outside it that is emptied goes, as the inspector's does.
+    @State private var rangeStart: Date
+    @State private var rangeEnd:   Date
+    /// The bounds the pickers were last seeded from.
+    @State private var seededRange: ClosedRange<Date>?
+
+    init(document: ProjectDocument) {
+        self.document = document
+        let range    = ProductionTab.dateRange(of: document.project.shootDays)
+        _rangeStart  = State(initialValue: range?.lowerBound ?? Date())
+        _rangeEnd    = State(initialValue: range?.upperBound ?? Date())
+        _seededRange = State(initialValue: range)
+    }
+
+    /// The pickers' range as whole days, nil while the end precedes the start (a half-edited
+    /// range drops nothing).
+    private var productionRange: ClosedRange<Date>? {
+        rangeStart <= rangeEnd ? rangeStart...rangeEnd : nil
+    }
+
+    private func seedRangePickers() {
+        guard let range = ProductionTab.dateRange(of: document.project.shootDays), range != seededRange else { return }
+        rangeStart  = range.lowerBound
+        rangeEnd    = range.upperBound
+        seededRange = range
+    }
+
     private var palette: ScenePalette { document.project.resolvedPalette }
 
     // MARK: - Body
@@ -147,7 +181,10 @@ struct PhoneEditor: View {
                     jumpToDate:               { date in
                         selectedTab  = .days
                         scrollToDate = date
-                    }
+                    },
+                    startDate:                $rangeStart,
+                    endDate:                  $rangeEnd,
+                    seededRange:              $seededRange
                 )
             }
             Tab(value: .search, role: .search) {
@@ -185,6 +222,7 @@ struct PhoneEditor: View {
         // from the environment rather than from the device.
         .environment(\.scenePalette, palette)
         .syncMonitored(syncMonitor, document: document)
+        .onChange(of: document.restoreCount) { _, _ in seedRangePickers() }
         .pdfExportPresentation($exportPreview)
         .phoneMoveSheets($moveSheet, document: document, boneyard: derived.sortedBoneyard.map(\.scene), moves: moves)
         .phoneEditSheets($editSheet, document: document, dayEdits: dayEdits, moves: moves)
@@ -274,6 +312,7 @@ struct PhoneEditor: View {
             edit:            projectEdit,
             beginGesture:    { if activeGesture == nil { beginEditGesture() } },
             present:         { editSheet = $0 },
+            productionRange: { productionRange },
             exportCallSheet: { day in
                 // The closure literal's thrown type is inferred untyped (learnings 2026-09-21 #28).
                 do {
@@ -347,9 +386,8 @@ private struct TodayControl: View {
 
     /// "Day 3 · Wed Nov 4" for today's shoot day; "Next: …" or "Last: …" when today has none.
     private func description(of day: ShootDay, dayNumber: Int?, now: Date, calendar: Calendar) -> String {
-        let name = dayNumber.map { "\(L("Day")) \($0) · " } ?? ""
-        let date = formattedDate(day.date)
-        if calendar.isDate(day.date, inSameDayAs: now) { return name + date }
-        return (day.date > now ? L("Next: ") : L("Last: ")) + name + date
+        let label = DaySummary.label(dayNumber: dayNumber, date: day.date)
+        if calendar.isDate(day.date, inSameDayAs: now) { return label }
+        return (day.date > now ? L("Next: ") : L("Last: ")) + label
     }
 }

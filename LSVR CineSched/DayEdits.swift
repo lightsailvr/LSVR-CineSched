@@ -72,13 +72,26 @@ extension ProjectData {
         return true
     }
 
-    /// Back to a plain shoot day with no note. The phone's days are the production range
-    /// itself, so unlike the calendar's Clear Day Type there is no out-of-range day to drop.
+    /// Back to a plain shoot day with no note. A day outside `productionRange` (the range
+    /// pickers', whole days) exists only to hold something — a type, a note, an event, a
+    /// call sheet (`updateProductionRange` keeps such days past the range's edges, and the
+    /// Mac's calendar creates them) — so once the type and note are cleared and nothing
+    /// else is on it, the day goes entirely, as the inspector's and the calendar's Clear
+    /// Day Type do. With no range known nothing is dropped. False when no day has that id.
     @discardableResult
-    mutating func clearDayType(forDayID dayID: UUID) -> Bool {
+    mutating func clearDayType(forDayID dayID: UUID, productionRange: ClosedRange<Date>?, calendar: Calendar = .current) -> Bool {
         guard let index = dayIndex(forDayID: dayID) else { return false }
         shootDays[index].dayType = .shoot
         shootDays[index].dayNote = ""
+        if let productionRange {
+            let day     = shootDays[index]
+            let start   = calendar.startOfDay(for: productionRange.lowerBound)
+            let end     = calendar.startOfDay(for: productionRange.upperBound)
+            let inRange = day.date >= start && day.date <= end
+            if !inRange, day.scenes.isEmpty, !day.hasCallSheetData {
+                shootDays.remove(at: index)
+            }
+        }
         return true
     }
 

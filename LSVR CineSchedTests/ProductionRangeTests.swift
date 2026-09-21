@@ -176,6 +176,14 @@ struct ProductionRangeTests {
         #expect(preview.dayCount == 5)
     }
 
+    @Test func previewSaysWhetherTheScheduleSlides() {
+        // Shift on and the start moved: everything slides. Shift off, or the start
+        // unchanged: everything stays on its date.
+        #expect(project(shiftMode: true).previewProductionRange(from: day(9), to: day(13), calendar: calendar).shifts)
+        #expect(!project(shiftMode: true).previewProductionRange(from: day(2), to: day(10), calendar: calendar).shifts)
+        #expect(!project(shiftMode: false).previewProductionRange(from: day(9), to: day(13), calendar: calendar).shifts)
+    }
+
     // MARK: - Months spanned
 
     @Test func productionMonthsRunFromTheFirstDayToTheLast() {

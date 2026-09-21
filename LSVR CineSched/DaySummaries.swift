@@ -58,6 +58,15 @@ struct DaySummary: Equatable, Identifiable {
 
     /// The pages as the board prints them ("1 7/8", "0").
     var pagesText: String { FractionParser.formatEighths(totalEighths) }
+
+    /// "Day 3 · Mon Nov 2", or the date alone for a day with no production day number:
+    /// how the phone names a day wherever one is named in a line (the Today control, the
+    /// Send to Day and Add Scenes pickers, a search result).
+    var label: String { Self.label(dayNumber: productionDayNumber, date: date) }
+
+    static func label(dayNumber: Int?, date: Date) -> String {
+        (dayNumber.map { "\(L("Day")) \($0) · " } ?? "") + formattedDate(date)
+    }
 }
 
 // MARK: - Week strip

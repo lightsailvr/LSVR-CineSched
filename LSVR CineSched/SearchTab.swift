@@ -178,8 +178,7 @@ struct SearchTab: View {
     /// "Day 3 · Mon Nov 2", a typed or empty day's date alone, or "Boneyard".
     private func whereText(day: ShootDay?, dayNumbers: [UUID: Int]) -> String {
         guard let day else { return L("Boneyard") }
-        let number = dayNumbers[day.id].map { "\(L("Day")) \($0) · " } ?? ""
-        return number + formattedDate(day.date)
+        return DaySummary.label(dayNumber: dayNumbers[day.id], date: day.date)
     }
 
     /// The cast, else the summary's first lines; nil when the scene has neither.

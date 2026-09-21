@@ -1,16 +1,17 @@
 // BreakdownBrowser.swift
 // The Breakdown Browser's pure part (#28): which scenes it pages through and in what
-// order, and the by-id write-back its Save and Delete make. The list is the one the Mac's
-// browser has always built (`ContentView.populateBreakdownBrowserScenes`): every scene of
+// order. The list is the one the Mac's browser has always built, as a second copy of the
+// order (`ContentView.populateBreakdownBrowserScenes`, which stays as it is): every scene of
 // the project, Boneyard first and then the days, once each, sorted by `scriptOrderKey`
 // (12, 12A, 12B, 13; scenes without a number after them, by title). Banners count as the
 // Mac counts them, so the two browsers show the same list for the same project.
 //
 // The phone drives `SceneEditSheet` by id rather than by a snapshot of scenes, so the
 // browser is rebuilt from the project on every body and a scene edited under it (or
-// moved, or undone) is the current one. `replaceScene` and `removeScene(withID:)` are the
-// writes: they find the scene wherever it lives (`locate(sceneID:)`), so the caller
-// never holds an index across an edit. Pure; tested in `BreakdownBrowserTests`.
+// moved, or undone) is the current one. Its writes are `ProjectData.replaceScene` and
+// `removeScene(withID:)` (EditorSelection.swift, beside `locate(sceneID:)`), which find
+// the scene wherever it lives, so the caller never holds an index across an edit. Pure;
+// tested in `BreakdownBrowserTests`.
 
 import Foundation
 
@@ -60,34 +61,5 @@ struct BreakdownBrowser: Equatable {
     /// `id` was the last one left.
     func successor(of id: UUID) -> UUID? {
         self.id(after: id) ?? self.id(before: id)
-    }
-}
-
-// MARK: - Write-back by id
-
-extension ProjectData {
-    /// Replaces the scene with `scene.id` wherever it is, in the Boneyard or on a day.
-    /// Returns false, and changes nothing, when no scene has that id.
-    @discardableResult
-    nonisolated mutating func replaceScene(_ scene: Scene) -> Bool {
-        switch locate(sceneID: scene.id) {
-        case .boneyard(let index):                     allScenes[index] = scene
-        case .scheduled(let dayIndex, let sceneIndex): shootDays[dayIndex].scenes[sceneIndex] = scene
-        case nil:                                      return false
-        }
-        return true
-    }
-
-    /// Removes the scene with `id` from wherever it is (the Boneyard or a day) outright,
-    /// what the breakdown browser's Delete does on the Mac. Returns false when no scene
-    /// has that id.
-    @discardableResult
-    nonisolated mutating func removeScene(withID id: UUID) -> Bool {
-        switch locate(sceneID: id) {
-        case .boneyard(let index):                     allScenes.remove(at: index)
-        case .scheduled(let dayIndex, let sceneIndex): shootDays[dayIndex].scenes.remove(at: sceneIndex)
-        case nil:                                      return false
-        }
-        return true
     }
 }

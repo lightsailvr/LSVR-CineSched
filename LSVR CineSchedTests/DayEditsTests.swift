@@ -26,11 +26,12 @@ struct DayEditsTests {
     private let event  = Scene.createCalendarEvent(title: "Tech scout", time: "9:00 AM")
 
     /// Day 1 holds a, the banner, b and the event; day 2 holds nothing; c is in the Boneyard.
+    /// The dates are whole days in the current calendar, as the app's shoot days are.
     private func project() -> ProjectData {
-        var day1 = ShootDay(date: Date(timeIntervalSince1970: 1_800_000_000))
+        var day1 = ShootDay(date: Calendar.current.startOfDay(for: Date(timeIntervalSince1970: 1_800_000_000)))
         day1.scenes = [a, banner, b, event]
         day1.callSheet.generalCallTime = "07:00 AM"
-        let day2 = ShootDay(date: Date(timeIntervalSince1970: 1_800_086_400))
+        let day2 = ShootDay(date: Calendar.current.startOfDay(for: Date(timeIntervalSince1970: 1_800_086_400)))
         return ProjectData(allScenes: [c], shootDays: [day1, day2], projectTitle: "Fixture")
     }
 
@@ -138,16 +139,77 @@ struct DayEditsTests {
         #expect(data.shootDays[1].dayNote == "Fly LAX → ABQ")
     }
 
+    /// The fixture's two days as the production range (the pickers' range on the phone).
+    private var fixtureRange: ClosedRange<Date> {
+        let data = project()
+        return data.shootDays[0].date...data.shootDays[1].date
+    }
+
     @Test func clearDayTypeReturnsTheDayToAPlainShootDayWithNoNote() {
         var data = project()
         let dayID = data.shootDays[1].id
         _ = data.setDayType(.holiday, forDayID: dayID)
         _ = data.setDayNote("Labor Day", forDayID: dayID)
-        let ok5 = data.clearDayType(forDayID: dayID)
+        let ok5 = data.clearDayType(forDayID: dayID, productionRange: fixtureRange)
         #expect(ok5)
         #expect(data.shootDays[1].dayType == .shoot)
         #expect(data.shootDays[1].dayNote.isEmpty)
-        #expect(data.shootDays.count == 2, "the phone's days are the range; a cleared day stays")
+        #expect(data.shootDays.count == 2, "a day inside the range stays, empty or not")
+    }
+
+    /// A day outside the pickers' range exists only to hold something (a type, a note, an
+    /// event, a call sheet); once the type and note are cleared and nothing else is on it,
+    /// it goes, as the inspector's and the calendar's Clear Day Type do.
+    @Test func clearDayTypeDropsAnEmptiedTypedDayOutsideTheRange() {
+        var data = project()
+        let range = fixtureRange
+        let later = ShootDay(date: Date(timeIntervalSince1970: 1_800_086_400 + 14 * 86_400), dayType: .travel, dayNote: "Fly home")
+        data.shootDays.append(later)
+        let ok = data.clearDayType(forDayID: later.id, productionRange: range)
+        #expect(ok)
+        #expect(data.shootDays.count == 2)
+        #expect(!data.shootDays.contains { $0.id == later.id })
+    }
+
+    @Test func clearDayTypeKeepsAnOutsideDayThatStillHoldsSomething() {
+        var data = project()
+        let range = fixtureRange
+        var withEvent = ShootDay(date: Date(timeIntervalSince1970: 1_800_086_400 + 14 * 86_400), dayType: .travel)
+        withEvent.scenes = [event]
+        var withCallSheet = ShootDay(date: Date(timeIntervalSince1970: 1_800_086_400 + 15 * 86_400), dayType: .scout)
+        withCallSheet.callSheet.generalCallTime = "06:00 AM"
+        data.shootDays.append(contentsOf: [withEvent, withCallSheet])
+
+        _ = data.clearDayType(forDayID: withEvent.id, productionRange: range)
+        _ = data.clearDayType(forDayID: withCallSheet.id, productionRange: range)
+
+        #expect(data.shootDays.count == 4)
+        #expect(data.shootDays[2].dayType == .shoot)
+        #expect(data.shootDays[3].dayType == .shoot)
+    }
+
+    @Test func clearDayTypeWithoutARangeDropsNothing() {
+        var data = project()
+        let later = ShootDay(date: Date(timeIntervalSince1970: 1_800_086_400 + 14 * 86_400), dayType: .travel)
+        data.shootDays.append(later)
+        _ = data.clearDayType(forDayID: later.id, productionRange: nil)
+        #expect(data.shootDays.count == 3)
+        #expect(data.shootDays[2].dayType == .shoot)
+    }
+
+    @Test func clearDayTypeComparesWholeDays() {
+        // A range whose bounds carry a time of day still covers the day's date (the
+        // inspector normalizes both bounds to the start of their day).
+        let calendar = Calendar.current
+        var data = project()
+        for index in data.shootDays.indices {
+            data.shootDays[index].date = calendar.startOfDay(for: data.shootDays[index].date)
+        }
+        let dayID = data.shootDays[1].id
+        _ = data.setDayType(.holiday, forDayID: dayID)
+        let noon = data.shootDays[0].date.addingTimeInterval(12 * 3600)...data.shootDays[1].date.addingTimeInterval(12 * 3600)
+        _ = data.clearDayType(forDayID: dayID, productionRange: noon, calendar: calendar)
+        #expect(data.shootDays.count == 2)
     }
 
     @Test func dayEditsRefuseAnUnknownDay() {
@@ -158,7 +220,7 @@ struct DayEditsTests {
         #expect(!ok6)
         let ok7 = data.setDayNote("x", forDayID: stranger)
         #expect(!ok7)
-        let ok8 = data.clearDayType(forDayID: stranger)
+        let ok8 = data.clearDayType(forDayID: stranger, productionRange: nil)
         #expect(!ok8)
         #expect(data == before)
     }
