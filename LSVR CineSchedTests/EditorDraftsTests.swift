@@ -187,6 +187,24 @@ struct EditorDraftsTests {
         #expect(SceneDraft(scene: original).applied(to: original) == original)
     }
 
+    /// A whole number of pages shows as "1" or "2", which the parser reads as eighths
+    /// (the New Scene rule: a bare integer is eighths); an untouched pages field must
+    /// still write the stored length back, not one eighth (found by the M4 fix-up probe).
+    @Test func sceneDraftRoundTripsWholePagesUntouched() {
+        var original = Self.scene()
+        original.duration = 16
+        let draft = SceneDraft(scene: original)
+        #expect(draft.duration == "2")
+        #expect(draft.applied(to: original).duration == 16)
+        // Typed over, the field means what it says: "2" is two eighths.
+        var typed = draft
+        typed.duration = "2 "
+        #expect(typed.applied(to: original).duration == 2)
+        var retyped = draft
+        retyped.duration = "3 4/8"
+        #expect(retyped.applied(to: original).duration == 28)
+    }
+
     /// A blank length keeps the stored value, except on a Custom scene, where blank
     /// means none (the old editor's rule for banners edited as scenes).
     @Test func sceneDraftBlankLengthsKeepOrClearByType() {

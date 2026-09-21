@@ -36,6 +36,12 @@ struct SceneDraft: Equatable {
     var vfx:              String
     var breakdownNotes:   String
 
+    /// The pages as seeded and the eighths they stand for: a whole number of pages
+    /// shows as "1" or "2", which the parser would read as eighths (a bare integer is
+    /// eighths, the New Scene rule), so an untouched field writes the stored length back.
+    private let seededDuration: String
+    private let seededEighths:  Int
+
     /// The fields as the scene holds them. A number still at the front of the title (the
     /// shape projects had before the scene-number field) is split out for editing.
     init(scene: Scene) {
@@ -45,6 +51,8 @@ struct SceneDraft: Equatable {
         title            = numbered.title
         realLocation     = scene.realLocation
         duration         = scene.duration      > 0 ? FractionParser.formatEighths(scene.duration) : ""
+        seededDuration   = duration
+        seededEighths    = scene.duration
         estimatedTime    = scene.estimatedTime > 0 ? Self.minutesForEditing(scene.estimatedTime) : ""
         dayNightType     = scene.dayNightType
         castText         = scene.cast.joined(separator: ", ")
@@ -64,7 +72,10 @@ struct SceneDraft: Equatable {
 
     // MARK: Validation
 
-    var parsedEighths: Int? { FractionParser.parseToEighths(duration) }
+    /// The pages as typed; the seeded text untouched is the seeded length (see above).
+    var parsedEighths: Int? {
+        duration == seededDuration && seededEighths > 0 ? seededEighths : FractionParser.parseToEighths(duration)
+    }
     var parsedMinutes: Int? { TimeParser.parseToMinutes(estimatedTime) }
 
     /// Blank is valid (the stored value stays, see `applied`); only a malformed entry is not.
