@@ -8,9 +8,9 @@ show the sync indicator and the conflict notice (#12–#15, ADR 0006). In regula
 Vision Pro) the editor is `ContentView` in its three-column layout with a trailing inspector
 (#17, the foundation of milestone 3 of #1); in compact width (iPhone, a narrow iPad pane) the
 iPhone editor (#24, the foundation of milestone 4): a tab view whose Days tab is the
-Stripboard as a list of day cards under a week strip, with a read-only Day screen; its
-Boneyard, Production and Search tabs are stubs until #27 and #28. Nothing else about those
-platforms is placeholder.
+Stripboard as a list of day cards under a week strip, with a read-only Day screen, and
+whose Production tab (#28) holds every Mac menu command as rows; its Boneyard and Search
+tabs are stubs until #27. Nothing else about those platforms is placeholder.
 Read `CONTEXT.md` for the glossary and system map before touching the code, and `learnings.md`
 for things that have already cost time.
 
@@ -103,16 +103,52 @@ the build inputs outside it, see Working agreements):
   width gets `ContentView(document:layout: .threeColumn)`, compact width `PhoneEditor`
   (#24). Platform-free.
 - `PhoneEditor.swift`: the compact-width editor (#24): a `TabView` with Days (`DaysTab`),
-  Boneyard, Production (stubs, one `PhoneTabPlaceholder` line each for #27 and #28) and a
-  Search tab in the search role, and the Today control (`TodayControl`, `todayTarget`)
-  as the tab bar accessory, with the bar minimizing on scroll, through the `phoneTabBar`
-  seam (both APIs are iOS-only in the 27 SDK). Owns what `ContentView` owns for the other layouts: the
-  document and `edit(_:_:)` (the same `perform` under an `EditGesture`, handed to the tabs
-  as a `ProjectEdit` closure; `beginEditGesture()` for #25's and #26's multi-write
-  actions), the `SyncMonitor` (its indicator is a toolbar item at the root, which lands in
-  the document infrastructure's bar), the `scenePalette` environment at the root, the
-  `DerivedScheduleState` cache and `.pdfExportPresentation($exportPreview)` with the
-  `exportPreview` request #26 and #28 set. Platform-free.
+  Boneyard (a stub, one `PhoneTabPlaceholder` line for #27), Production (`ProductionTab`,
+  #28) and a Search tab in the search role, and the Today control (`TodayControl`,
+  `todayTarget`) as the tab bar accessory, with the bar minimizing on scroll, through the
+  `phoneTabBar` seam (both APIs are iOS-only in the 27 SDK). Owns what `ContentView` owns
+  for the other layouts: the document and `edit(_:_:)` (the same `perform` under an
+  `EditGesture`, handed to the tabs as a `ProjectEdit` closure; `edit(_:coalescing:_:)`,
+  handed down as `CoalescedProjectEdit`, for a gesture the caller keeps across calls, the
+  title's typing burst and a color slot's picks; `beginEditGesture()` for #25's and #26's
+  multi-write actions, and the "open one if none is open" closure the Production tab's
+  character renames take), the `SyncMonitor` (its indicator is a toolbar item at the
+  root, which lands in the document infrastructure's bar), the `scenePalette` environment
+  at the root, the `DerivedScheduleState` cache, `.pdfExportPresentation($exportPreview)`
+  with the `exportPreview` request the Production tab (#28) and #26 set, and the
+  `ProjectCommands` for the iPad's menu bar in a narrow window (#22): published as the
+  focused scene value and into `ActiveProjectCommands` by `appearsActive`, every closure a
+  switch to the Production tab plus a `ProductionCommand` in the `productionCommand`
+  binding the tab consumes (the View menu's bindings are constants: no calendar, no cast
+  row, no all-days toggle on the phone). Platform-free.
+- `ProductionTab.swift`: the Production tab (#28): a grouped `List` (no stack of its own,
+  nothing pushes) of rows in five sections, each presenting what already exists through
+  one `ActiveSheet` enum and `.sheet(item:)`: Production (`ProductionSetupSheet` with the
+  character-rename fan-out; Scan for Conflicts → `ConflictReportSheet`, whose rows
+  `jumpToDate` into the Days list; Lock / Unlock as one row that switches; the
+  `ScheduleLockReportSheet`; the Breakdown Browser: `SceneEditSheet` driven by id over
+  `BreakdownBrowser`, Previous / Next step, Save closes, Delete removes outright and
+  steps, a `ContentUnavailableView` sheet for a project without scenes), Appearance
+  (`ColorLegendView`, `SceneColorSettingsSheet` through `editCoalescing` with one token
+  per slot, `StripboardFieldsSheet` on the app-wide `@AppStorage` key), Project (the
+  title field on a per-focus-session token, the two `DatePicker`s seeded from the shoot
+  days' bounds and re-seeded on `restoreCount`, Shift Schedule, Update Calendar, which
+  confirms through `previewProductionRange` when scenes would return to the Boneyard and
+  applies `updateProductionRange` as one `edit`), Export (the six `PDFExport` requests
+  into `exportPreview`, the month one through a `Menu` of `productionMonths` and
+  `MonthPDFOptionsSheet` on the calendar's `@AppStorage` keys, Include Hold as a row) and
+  Import (`fileImporter` → `ScriptImport.parse` → `ImportSummaryView` in its
+  `.existingProject` confirmation → one `edit` on Add to Boneyard). Row details (cast
+  count, conflicted scenes, lock date, changes, scene count) come from the project and
+  `DerivedScheduleState`. `ProductionCommand` is what the menu bar hands it (consumed in
+  `onChange` and on appear). Platform-free.
+- `BreakdownBrowser.swift`: the Breakdown Browser's pure part (#28,
+  `BreakdownBrowserTests`): `BreakdownBrowser(project:)` (every scene once, Boneyard then
+  days, sorted by `scriptOrderKey`: the Mac browser's list, banners included), `first`,
+  `position(of:)`, `id(before:)`, `id(after:)`, `successor(of:)` (next, else previous,
+  for after a delete), and `ProjectData.replaceScene(_:)` / `removeScene(withID:)`, the
+  by-id write-back through `locate(sceneID:)`. The Mac's `ContentView` keeps its own
+  snapshot copy.
 - `DaysTab.swift`: the Days list (#24): a `NavigationStack` (its own bar hidden at the root,
   because the document infrastructure's outer bar is the phone's one bar and it mirrors
   its Back and title into any inner bar) holding the week strip (`WeekStrip`; the month
@@ -328,7 +364,10 @@ the build inputs outside it, see Working agreements):
   enum, and the cache that computes it once per `ProjectDocument.changeCount`. Add new
   whole-project derivations here, not as `@State` recomputed in an `onChange`.
 - `ProductionRange.swift`: `ProjectData.updateProductionRange`, the range regeneration (merge or
-  shift) that Update Calendar applies as one edit; pure, tested in `ProductionRangeTests`.
+  shift) that Update Calendar applies as one edit; `previewProductionRange` (the same run
+  on a copy: the day count and the script scenes it would send to the Boneyard, for the
+  phone's confirmation, #28) and `productionMonths` (the months the shoot days span, for
+  the month export's choice); pure, tested in `ProductionRangeTests`.
 - `LegacyWorkingCopyRecovery.swift`: the first-launch decision over the two UserDefaults keys
   the pre-document builds wrote (`SavedProject`, `CineSchedCurrentFileBookmark`): launch
   normally, open the bookmarked file, or open the working copy untitled; pure, one test per
@@ -487,7 +526,12 @@ the build inputs outside it, see Working agreements):
   sheet of its own. No `navigationTitle` or toolbar on the Days root: the document
   infrastructure's bar is the one bar, and a root toolbar item on `PhoneEditor` lands in
   it. Nothing per row builds a formatter (`formattedDate(_:pattern:)` caches; the
-  weekday letter is the `"EEEEE"` pattern).
+  weekday letter is the `"EEEEE"` pattern). A command the phone answers from the menu
+  bar (#28) is a `ProductionCommand` case, a closure in `PhoneEditor.projectCommands`
+  that sets it with the tab switch, and a line in `ProductionTab.run`; a write that must
+  coalesce across calls under a token the view owns goes through `editCoalescing`, never
+  `document.perform`. In a tinted `List` row button, `Color.primary` (the color), not the
+  hierarchical `.primary`, which resolves to the tint.
 - **Colors**: resolve scene colors only via `Scene.stripColor(in:)`, with the project's palette
   (`ProjectData.resolvedPalette`): views read `@Environment(\.scenePalette)`, which `ContentView`
   sets once at its root; an exporter that draws strips takes `palette:` with the project. Nothing
@@ -544,6 +588,12 @@ cascade, custom starts, the 15-minute default, banners, a zero-length strip, mid
 `DaySummary`, `WeekStrip`, `todayTarget` and `dayScrollTarget` (`DaySummariesTests`, in a
 fixed UTC calendar; the views themselves have no unit seam: the iPhone probe recipe is in
 learnings.md 2026-09-21 #24),
+`BreakdownBrowser` and the by-id write-back (`BreakdownBrowserTests`: the order across
+Boneyard and days with letter suffixes, de-duplication, stepping, the successor after a
+delete, replace and remove), `previewProductionRange` and `productionMonths` (in
+`ProductionRangeTests`; the Production tab's rows, sheets and the narrow-iPad menu bar
+have no unit seam: learnings.md 2026-09-21 #28 has the probe, including how to get a
+compact iPad window),
 `EditorSelection`, `ProjectData.locate(sceneID:)` and the pruning (`EditorSelectionTests`),
 `ScheduleDragPayload` (round-trip per kind, including multi-scene) and `ScheduleMoves`
 (from the Boneyard, within a day, across days, before a strip or at the end, back to the

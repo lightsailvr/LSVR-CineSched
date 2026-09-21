@@ -9,6 +9,68 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-21 — The Production tab: a tinted row's `.primary` is the tint, a closure literal never throws a typed error, a typed-throws `#expect` captures immutably, and a fresh 11-inch iPad needs Windowed Apps on before a window can be narrow (#28)
+
+Building the phone's Production tab (every Mac menu command as rows over the existing
+sheets) on the iPhone 17 clone and a fresh iPad Pro 11-inch, driven by throwaway
+XCUITests (the #24 recipe: `build-for-testing`, terminate, `simctl install`, `openurl`
+the fixture, `test-without-building` with `-parallel-testing-enabled NO`):
+
+- **`Text(title).foregroundStyle(.primary)` inside a `Button` row of a `List` drew the
+  whole row in the accent color**: the hierarchical `.primary` is a level of the *current*
+  foreground style, which the default button style sets to the tint. `Color.primary` (the
+  color) is what makes the title black beside a tinted icon; `Color.secondary` likewise
+  for the detail. `Label` inside a `Button` in the same list stayed black on its own.
+- **A closure literal passed to a `() throws(PDFExportError) -> T` parameter is inferred
+  as throwing `any Error`** ("invalid conversion of thrown error type"), even when its
+  body only calls a typed-throws function. Take an untyped `() throws -> T` and catch the
+  typed error with `catch let error as PDFExportError`.
+- **A `mutating` call inside `#expect(...)` fails to compile** ("cannot use mutating
+  member on immutable value: '$0' is immutable"): the macro captures the operands. Call
+  first, keep the `Bool`, expect on that.
+- **The scratchpad directory is shared by the parallel M4 agents** (it is the
+  orchestrator's session): another agent's fixture writer overwrote `fixture/Probe.cinesched`
+  between my write and my install, and the breakdown browser probe paged through a
+  60-scene project with no 12A in it. Keep probe files, DerivedData and shots in a
+  subdirectory named for the issue (`scratchpad/i28/`), and put the issue number in the
+  fixture's name.
+- **`confirmationDialog` presented from a `List` row on the iPhone comes up as a popover
+  anchored to the row** (with `presenting:`), not the bottom action sheet; both buttons
+  are in the app's tree as `app.buttons["Update Calendar"]` / `["Cancel"]`.
+- **The system color picker (`ColorPicker`'s `UIColorPickerViewController`) is not in the
+  app's accessibility tree**; its grid swatches and its Close button have to be tapped by
+  coordinate (`app.coordinate(withNormalizedOffset:)`; the X sat at (0.888, 0.38) of the
+  iPhone 17 screen). The `ColorPicker` rows themselves are `Button`s labelled by their
+  title with the color name as `value` ("INT. Day", value "white"), so the well is
+  `app.buttons["INT. Day"]`. A pick reached the Days list at once (scene 104's strip went
+  maroon) because `perform` runs synchronously and the palette is the root environment.
+- **A fresh iPad Pro 11-inch simulator runs apps full screen: Windowed Apps is off**, so
+  there is no `resize-grabber`, no window dots and no `Zoom-button` (the #22 recipe assumed
+  the 13-inch's setting). Settings ▸ Multitasking & Gestures ▸ Windowed Apps is reachable
+  from an XCUITest on `com.apple.Preferences` (the sidebar rows are not `cells`; match
+  `descendants(matching: .any)` by label). With it on, SpringBoard's
+  `otherElements["resize-grabber"]` *does* resize from XCUITest with
+  `press(forDuration: 0.6, thenDragTo:withVelocity: .slow, thenHoldForDuration:)` (the #22
+  note said a drag did not; the hold before and after is the difference): dragging it to
+  (0.42, 0.85) left a 375 pt window, compact, showing the phone editor. `typeKey` after the
+  warm-up ⌘Z then drove ⇧⌘P, ⇧⌘K and ⌘E into the Production tab's sheets from the Days tab,
+  and a ⌘Z after typing in the title field undid the whole burst in one step.
+- **The minimized tab bar lists only the selected tab**; a tap on that pill
+  (`app.tabBars.buttons.firstMatch`) expands it, more reliably than a swipe down on the
+  list. The `fileImporter` on the iPhone opens on Recents; the #13 path (the last
+  "Browse", `DOC.sidebar.item.On My iPhone`, `CineSched, Container`, the file's cell by
+  label) still holds, and a `.fountain` copied into the app's Documents shows there.
+- **`DatePicker(.date)` in a `List` row** is a `Button` labelled "Date Picker" with the
+  date as its value; its popover's days are buttons labelled "Wednesday, November 4", and
+  a tap on the section header text dismisses it.
+- The Mac's own breakdown browser keeps its snapshot of `[Scene]`; switching it to the
+  pure `BreakdownBrowser` would be an id-to-scene lookup per scene rather than one line,
+  so it was left alone as the brief allowed. `updateProductionRange` sends a dropped day's
+  banners to the Boneyard with its scenes (they are not calendar events); the range
+  preview counts script scenes only, so the confirmation does not call a lunch a scene.
+
+---
+
 ## 2026-09-21 — The iPhone editor: the document's bar mirrors into every stack and a root toolbar item lands in it, `onScrollVisibilityChange` never fires for a `List` row, and a `LabeledContent` around a `Label` grows a row to 400 pt (#24)
 
 Building the compact editor (a `TabView` with a `NavigationStack` in the Days tab) on the

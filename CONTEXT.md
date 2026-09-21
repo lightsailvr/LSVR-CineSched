@@ -6,8 +6,8 @@ scenes, drag scenes onto shoot days, track cast availability, and export industr
 the product today; one target also builds iOS, iPadOS and visionOS, which open, create and
 autosave projects from the CineSched folder in iCloud Drive (#12) into the three-column
 editor with an inspector in regular width (#17) and the iPhone editor in compact width
-(#24: the Days list, the week strip and the Day screen; the other tabs follow) while the
-port (#1) is in progress.
+(#24: the Days list, the week strip and the Day screen; #28: the Production tab; the
+Boneyard and Search tabs follow) while the port (#1) is in progress.
 
 This file is the glossary and system map. Use these terms exactly in issues, code, and tests.
 Architecture decisions live in `docs/adr/`. Hard-won surprises live in `learnings.md`.
@@ -75,11 +75,15 @@ Film-production terms first, then app-specific ones.
 | **CineSched folder** | The iCloud Documents container `iCloud.com.lsvr.LSVR-CineSched`, public and named "CineSched", so iCloud Drive shows it as a folder on every device of the account (ADR 0006). Owned by the iOS, iPadOS and visionOS builds through their entitlement (`Config/CineSched-iOS.entitlements`); their launch screen and document browser start in it. The Mac has no iCloud entitlement, so it reaches the folder like any other (user-selected files); `CineSchedFolder` derives its on-disk path (`~/Library/Mobile Documents/iCloud~com~lsvr~LSVR-CineSched/Documents`) and `MacAppDelegate` points the Open and Save panels there once, the first launch on which it exists. It exists only after a device has saved a project in it. |
 | **Launch screen** | The system's `DocumentGroupLaunchScene` on iOS and visionOS: the title, New Project, Import Script…, Import Project… (the screen shows two actions and folds the rest into a More… menu), the recents grid and the document browser. The Mac has no equivalent; it opens windows and, with iCloud Drive on, the Open panel. |
 | **Launch import** | Import Script… and Import Project… on the launch screen (#13): a new project made from a screenplay (its scenes in the Boneyard, its title page's title as the name) or from a legacy `.json` (its contents exactly, older shapes included), created in the CineSched folder like New Project. Each is a `NewDocumentButton` with a **creation source** (`DocumentCreationSource`, `.importScript` / `.importProject`); `makeDocument` sees it in its context and awaits `LaunchImportFlow`, which presents the file picker (and, for a script, the import summary with Create Project), then hands back the `ProjectData`. Cancelling anywhere throws, and the launch screen creates nothing. The original file is never written. Pure steps: `LaunchImport`; shared with the Mac's menu: `ScriptImport`. |
-| **iPhone editor** | `PhoneEditor` (#24), what a project document shows in a compact-width window on iOS and iPadOS (an iPhone, a narrow iPad Split View or Slide Over pane): a tab view with the **Days tab**, the **Boneyard tab** and **Search tab** (#27) and the **Production tab** (#28), the tab bar minimizing on scroll with the **Today control** as its bottom accessory. It owns the document, the edit funnel (`edit(_:_:)`, handed to the tabs as a `ProjectEdit` closure), the sync monitor, the palette environment, the derived-state cache and the PDF preview. Replaced the minimal editor (#12–#17: the title as a field and the days with their scene counts) that stood in until milestone 4. |
+| **iPhone editor** | `PhoneEditor` (#24), what a project document shows in a compact-width window on iOS and iPadOS (an iPhone, a narrow iPad Split View or Slide Over pane): a tab view with the **Days tab**, the **Boneyard tab** and **Search tab** (#27) and the **Production tab** (#28), the tab bar minimizing on scroll with the **Today control** as its bottom accessory. It owns the document, the edit funnel (`edit(_:_:)`, handed to the tabs as a `ProjectEdit` closure; `edit(_:coalescing:_:)` for a gesture a tab keeps across calls), the sync monitor, the palette environment, the derived-state cache, the PDF preview and, in a narrow iPad window, the **project commands** the menu bar acts through (each one a switch to the Production tab with a **production command** for it to run). Replaced the minimal editor (#12–#17: the title as a field and the days with their scene counts) that stood in until milestone 4. |
 | **Days list** | The Days tab (`DaysTab`): the Stripboard as a scrolling list of **day cards** under the **week strip**, driven by the Stripboard's own row function (`stripboardRows` with `showAllDays` off), so gap folding, event-only days and typed days behave as on the Mac. A day card is its header (the `DaySummary`: production day number, date, day type badge, scene count, pages, general call, events, note; a tap opens the **Day screen**), its event chips and its strips with the time cascade; a **gap card** stands for a run of empty days and expands on a tap (each expanded card has a Hide empty days row that folds the run back). The week strip, the month popover and the Today control scroll it to a date (`dayScrollTarget`; a date folded into a gap opens the gap first). |
 | **Week strip** | The seven days, Sunday first (a lineage fact), of one week above the Days list (`WeekStrip`, pure): each cell its date, the script scene count (a dot for an event-only day), the day type's tint, a ring on today, dimmed and inert outside the production range. Chevrons page by week; the month title opens the **month popover** (a graphical date picker over the production range) and a picked date scrolls the list. The strip follows the earliest day card on screen. |
 | **Today control** | The tab bar accessory: one tap lands the Days list on `todayTarget` — the shoot day dated today, else the first day after today, else the last day of the range (nothing for a project without days) — and names which ("Day 4 · Mon Sep 21", "Next: …", "Last: …") while expanded; the word alone beside the minimized bar. |
 | **Day screen** | Everything about one shoot day on the iPhone (`DayScreen`), a navigation destination (not a sheet) bound to the day by id: the header (`DaySummary`), the day type and note, the **call sheet card** (general call, ready to shoot, lunch, snack, dinner, wrap, basecamp), the calendar events and the strips with the cascade. Read-only in #24; #25 adds moves and #26 the edits, each in its section. |
+| **Production tab** | The iPhone editor's third tab (`ProductionTab`, #28): every Mac menu command that is not about one strip or one day, as rows of a grouped list in five sections. Production: Production Setup, Scan for Conflicts (the conflicted scene count on the row; a report row jumps to Days at that date), Lock Schedule or Unlock Schedule (one row, switching with the lock's state), the Schedule Lock Report, the **Breakdown Browser**. Appearance: Color Legend, Customize Scene Colors, Stripboard Fields. Project: the title, the production range with Shift Schedule and Update Calendar (confirmed first when scenes would return to the Boneyard, through the **range preview**). Export: the six documents into the export presentation, the month one after a month choice and its options. Import: Import Script…, whose summary comes before the one write that adds the scenes to the Boneyard. Every row presents an adaptive editor, report or setting that already exists; the tab adds no behaviour of its own. |
+| **Production command** | `ProductionCommand` (#28): what the menu bar of a narrow iPad window asks the Production tab to do (open the setup, scan, browse, lock, unlock, the reports, the appearance sheets, import, the four keyed exports). `PhoneEditor` sets it with the tab switch; the tab runs it on the next change or on appear and clears it, so the sheets' state stays in the tab. |
+| **Breakdown Browser** | The scene editor stepped over every scene of the project in **script order** with Previous and Next, on the Mac (Production ▸ Breakdown Browser…) and the iPhone's Production tab. Its pure part on the phone is `BreakdownBrowser` (#28): the scene ids in order (Boneyard first, then the days, once each, sorted by `scriptOrderKey`, banners included as the Mac counts them), the stepping, the successor after a delete (next, else previous), and the by-id write-back (`ProjectData.replaceScene`, `removeScene(withID:)`); the phone drives `SceneEditSheet` by id, so a scene edited, moved or undone under the open browser is the current one. Save closes, Previous and Next save and step, Delete removes the scene outright (a scheduled one too, the Mac's rule) and steps. |
+| **Range preview** | `ProductionRangePreview` (#28): what Update Calendar would do before it does it, from `previewProductionRange` (the regeneration run on a copy): the day count of the new range and how many script scenes (not banners) would return to the Boneyard. The phone confirms a change that displaces any; the Mac applies without asking. |
 | **Day summary** | `DaySummary` (pure, #24): what a day's header says, built from a `ShootDay` and the production day-number table: the day number or nil, date, type, script scene count (banners are strips, not scenes), strip count, total eighths, general call (as typed, else the cascade's start), event count, note, and whether a call sheet has data. |
 | **Editor layout** | Which window `ContentView` draws for (`EditorLayout`, #17): **two-column**, the Mac window (sidebar and detail, the toolbar row, the menus), or **three-column**, the iPad and Vision Pro window in regular width (the same sidebar, the schedule under a system toolbar, the **inspector**). `ProjectEditor` picks three-column or the iPhone editor by the window's horizontal size class. One `ContentView`, one set of state and sheets, two bodies. |
 | **Inspector** | The three-column layout's trailing column (340 pt): the selected scene's **adaptive editor** (the same form the sheets show; Save applies as one undo step and keeps the selection, Cancel and Delete clear it) or the selected day's detail (the same form as the Day Detail sheet: statistics, day type and note, its actions, call sheet milestones, events, scenes), or the project's statistics when nothing is selected. Bound to the **editor selection**; opened and closed from the toolbar, per window. |
@@ -108,14 +112,21 @@ CineSchedApp.swift        @main; a DocumentGroup over ProjectDocument on every p
                           on iOS and visionOS ProjectEditor and the system's launch screen (#12, #17).
 ProjectEditor.swift       The non-Mac editor by size class (#17): ContentView's three-column layout in regular width,
                           PhoneEditor in compact width. Platform-free.
-PhoneEditor.swift         The iPhone editor (#24): the tab view (Days; Boneyard, Production and Search as stubs for
-                          #27 and #28), the Today control as the tab bar accessory, the edit funnel the tabs get as a
-                          closure, the sync monitor, the palette, the derived-state cache, the PDF preview. Platform-free.
+PhoneEditor.swift         The iPhone editor (#24): the tab view (Days, Production; Boneyard and Search as stubs for
+                          #27), the Today control as the tab bar accessory, the edit funnel the tabs get as a
+                          closure (plain and under a caller-owned gesture), the sync monitor, the palette, the
+                          derived-state cache, the PDF preview, the project commands for the iPad's menu bar
+                          in a narrow window (#28). Platform-free.
   DaysTab.swift                    the Days list: the week strip and month popover over the day and gap cards
                                    (stripboardRows), scrolling to a date, the Day screen as its destination.
   DayScreen.swift                  the Day screen: header, day type and note, call sheet card, events, strips.
   PhoneStripRow.swift              the strip row both lists draw, the event chip, the long-press preview, and
                                    PhoneStripActions (the one place a strip's menu items and swipe actions are built).
+  ProductionTab.swift              the Production tab (#28): the Mac's Production, View and File menu commands
+                                   as rows (setup, conflicts, lock, lock report, breakdown browser; legend,
+                                   colors, fields; title and range; the six exports; import script), each
+                                   presenting an existing editor, report or setting; ProductionCommand.
+BreakdownBrowser.swift    The Breakdown Browser's script-ordered scene ids, stepping and by-id write-back (pure, #28).
 DaySummaries.swift        DaySummary, WeekStrip, todayTarget and dayScrollTarget (pure, #24).
 DayTimeline.swift         The time cascade (dayTimeline, dayStartMinutes), moved out of StripboardView for the phone (#24).
 ProjectLaunchBackground.swift  The launch screen's background (#12). Platform-free.
@@ -177,7 +188,8 @@ PDFCanvas.swift           Shared PDF drawing helper: pages, rects, lines, TextKi
 Fountain*.swift, FinalDraftParser.swift, HighlandArchiveReader.swift   Script importers (pure Swift).
 Parsers.swift, Formatting.swift                                        Eighths/time parsing, date/number formatting.
 ConflictScanner.swift, ScheduleLockScanner.swift                       Pure analysis over shoot days.
-ProductionRange.swift                                                  Regenerating the shoot days for a new range (merge or shift), as one edit.
+ProductionRange.swift                                                  Regenerating the shoot days for a new range (merge or shift), as one edit;
+                                                                       its preview (day count, displaced scenes, #28) and the months a range spans.
 DerivedScheduleState.swift                                             What the editor derives from the whole project (sorted Boneyard,
                                                                        conflict sets, lock drift) and the per-window cache that memoizes it.
 Localization.swift, ThemeManager.swift                                Cross-cutting settings.
@@ -214,7 +226,8 @@ PlatformConflictResolution.swift                                      Seam: whet
    `PhoneEditor` owns the same pieces for the compact window (the funnel as `edit`, the
    sync monitor, the palette, the derived cache, the PDF preview) and hands its tabs the
    document plus an `edit` closure; the tabs and the Day screen read the project and
-   write only through that closure.
+   write only through that closure (the Production tab also takes `editCoalescing`, the
+   funnel under a token it keeps for the title's typing and a color slot's picks).
 2. `ContentView` reads `document.project` and hands the calendar and Stripboard `Binding`s whose
    setters call `edit`, i.e. `document.perform(…, undoManager: environment's)`. The child views'
    callbacks are `onBeforeSceneChange` (open an `EditGesture` so the action's several binding
@@ -236,7 +249,8 @@ PlatformConflictResolution.swift                                      Seam: whet
    closures with `.focusedSceneValue`, `CineSchedApp` reads `@FocusedValue` and disables the item
    when no project window is key. On iOS and visionOS the editor also publishes them into
    `ActiveProjectCommands` while its window appears active, the menu bar's fallback where
-   the focused value is nil (#22). Edit ▸ Cut, Copy and Paste are the system's items and go
+   the focused value is nil (#22); `PhoneEditor` publishes the same way, each command a
+   switch to the Production tab with a `ProductionCommand` for it to run (#28). Edit ▸ Cut, Copy and Paste are the system's items and go
    down the responder chain: a text field takes them, otherwise the pasteboard responder
    behind the board does, calling `ScheduleClipboard` through `edit`.
 6. Exporters are pure functions from model values to `Data` (PDF). `PDFExport` calls them with the
