@@ -1,12 +1,12 @@
 // EditorDrafts.swift
 // The drafts the adaptive editors edit (#19): the plain values a scene editor, the
-// banner input, the calendar event input and the iPhone's new-scene form (#27) hold
-// between opening and Save, with what each reads from the model and the one value it
-// writes back. Pure and view-free, so every conversion (eighths to "1 7/8" and back,
-// minutes to "2:30", comma lists, the Custom type's blank-means-none rule, the time of
-// day read off a slugline) is pinned in `EditorDraftsTests`. A view keeps one draft in
-// `@State`, repopulates it when its subject changes, and on Save assigns
-// `draft.applied(to:)` (or `makeBanner()` / `makeEvent()` / `makeScene()`) to its
+// banner input, the calendar event input, the iPhone's new-scene form (#27) and the Set
+// Time sheet (#26) hold between opening and Save, with what each reads from the model and
+// the one value it writes back. Pure and view-free, so every conversion (eighths to
+// "1 7/8" and back, minutes to "2:30", comma lists, the Custom type's blank-means-none
+// rule, the time of day read off a slugline) is pinned in `EditorDraftsTests`. A view
+// keeps one draft in `@State`, repopulates it when its subject changes, and on Save
+// assigns `draft.applied(to:)` (or `makeBanner()` / `makeEvent()` / `makeScene()`) to its
 // binding **once**, so a Save is one `perform` and one undo step by construction
 // (learnings, 2026-09-17 #9).
 
@@ -135,6 +135,29 @@ struct BannerDraft: Equatable {
     var note:          String     = ""
     var estimatedTime: String     = "0:30"
     var colorHex:      String     = "8B5CF6"   // violet
+    /// The banner being edited (#26), whose id and fixed start `applied(to:)` keeps;
+    /// nil when adding, the only case the Mac's Stripboard has.
+    private(set) var existingID: UUID?
+
+    static let defaultColorHex = "8B5CF6"
+
+    /// A new banner: the defaults the old sheet started with.
+    init() {}
+
+    /// An existing banner's fields, read back the way `makeBanner` wrote them: the
+    /// start time from `bannerNote`, the note from `summary` only when there is no
+    /// start time (with one, the old sheet kept no note), the estimate as "h:mm".
+    init(banner: Scene) {
+        type          = banner.bannerType ?? .notice
+        title         = banner.bannerTitle.isEmpty ? banner.title : banner.bannerTitle
+        startTime     = banner.bannerNote
+        note          = banner.bannerNote.isEmpty ? banner.summary : ""
+        estimatedTime = "\(banner.estimatedTime / 60):" + String(format: "%02d", banner.estimatedTime % 60)
+        colorHex      = banner.bannerColorHex.isEmpty ? Self.defaultColorHex : banner.bannerColorHex
+        existingID    = banner.id
+    }
+
+    var isEditing: Bool { existingID != nil }
 
     static let colorOptions: [(name: String, hex: String)] = [
         ("Indigo",   "6366F1"),
@@ -173,6 +196,15 @@ struct BannerDraft: Equatable {
         banner.summary    = cleanTime.isEmpty ? note : cleanTime
         banner.bannerNote = cleanTime
         return banner
+    }
+
+    /// The edit's write (#26): `makeBanner()` in the place of `banner`, keeping its id and
+    /// the fixed start time Set Time may have given it (the form does not edit that).
+    func applied(to banner: Scene) -> Scene {
+        var saved = makeBanner()
+        saved.id              = banner.id
+        saved.customStartTime = banner.customStartTime
+        return saved
     }
 }
 
@@ -298,5 +330,52 @@ struct NewSceneDraft: Equatable {
             dayNightType:  resolvedDayNightType,
             realLocation:  realLocation.trimmingCharacters(in: .whitespaces)
         )
+    }
+}
+
+// MARK: - Quick time (Set Time)
+
+/// The Set Time sheet's fields (#26; the Stripboard's `QuickTimeEditSheet` seeded them on
+/// appear): whether the strip starts at a fixed time or where the cascade puts it, that
+/// time, and the estimate as hours and minutes.
+struct QuickTimeDraft: Equatable {
+    var isCustomTime:   Bool
+    var customTimeText: String
+    var hours:          Int
+    var minutes:        Int
+
+    /// The old sheet's seeding: a fixed time as set, else automatic with "08:00 AM" ready
+    /// to switch to; the estimate as stored, else the cascade's 15 minutes for a script
+    /// scene and 30 for a banner.
+    init(scene: Scene) {
+        let start      = scene.customStartTime.trimmingCharacters(in: .whitespaces)
+        isCustomTime   = !start.isEmpty
+        customTimeText = start.isEmpty ? "08:00 AM" : start
+        let duration   = scene.estimatedTime > 0 ? scene.estimatedTime : (scene.isBanner ? 30 : 15)
+        hours          = duration / 60
+        minutes        = duration % 60
+    }
+
+    var durationMinutes: Int { hours * 60 + minutes }
+
+    /// A fixed time must parse ("11:00 AM", "13:30"); the text is ignored when automatic.
+    var isValid: Bool { !isCustomTime || parseTimeToMinutes(customTimeText) != nil }
+
+    /// The old sheet's preview line: the fixed range with the duration, or the duration
+    /// with a reminder that the cascade places it.
+    var previewText: String {
+        if isCustomTime, let start = parseTimeToMinutes(customTimeText) {
+            return "\(formatMinutesToClock(start)) ➔ \(formatMinutesToClock(start + durationMinutes)) (\(formattedTimeHM(durationMinutes)))"
+        }
+        return "\(L("Duration")): \(formattedTimeHM(durationMinutes)) (\(L("cascades by day order")))"
+    }
+
+    /// The one write: the fixed start (trimmed, or cleared when automatic) and the
+    /// estimate; everything else is carried.
+    func applied(to scene: Scene) -> Scene {
+        var saved = scene
+        saved.customStartTime = isCustomTime ? customTimeText.trimmingCharacters(in: .whitespaces) : ""
+        saved.estimatedTime   = durationMinutes
+        return saved
     }
 }

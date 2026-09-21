@@ -271,6 +271,147 @@ struct EditorDraftsTests {
         #expect(banner.bannerNote == "")
     }
 
+    // MARK: - Banner draft: editing (#26)
+
+    @Test func bannerDraftReadsAnExistingBannersFields() {
+        var draft = BannerDraft()
+        draft.setType(.companyMove)
+        draft.title         = "Move to the pier"
+        draft.startTime     = "1:30 PM"
+        draft.estimatedTime = "1:15"
+        draft.colorHex      = "EF4444"
+        let banner = draft.makeBanner()
+
+        let reread = BannerDraft(banner: banner)
+        #expect(reread.isEditing)
+        #expect(reread.type          == .companyMove)
+        #expect(reread.title         == "Move to the pier")
+        #expect(reread.startTime     == "1:30 PM")
+        #expect(reread.note          == "", "with a start time the old sheet kept no note")
+        #expect(reread.estimatedTime == "1:15")
+        #expect(reread.colorHex      == "EF4444")
+        #expect(!BannerDraft().isEditing)
+    }
+
+    @Test func bannerDraftReadsTheNoteOfABannerWithoutAStartTime() {
+        var draft = BannerDraft()
+        draft.startTime     = ""
+        draft.note          = "Generator swap"
+        draft.estimatedTime = "0:45"
+        let banner = draft.makeBanner()
+
+        let reread = BannerDraft(banner: banner)
+        #expect(reread.startTime     == "")
+        #expect(reread.note          == "Generator swap")
+        #expect(reread.estimatedTime == "0:45")
+    }
+
+    @Test func bannerDraftReadsABlankColorAsViolet() {
+        var banner = Scene.createBanner(type: .notice, title: "Notice", colorHex: "")
+        banner.bannerColorHex = ""
+        #expect(BannerDraft(banner: banner).colorHex == "8B5CF6")
+    }
+
+    @Test func bannerDraftAppliedKeepsTheIdAndTheFixedTime() {
+        var banner = Scene.createBanner(type: .notice, title: "Notice")
+        banner.customStartTime = "02:00 PM"
+        var draft = BannerDraft(banner: banner)
+        draft.setType(.mealBreak)
+        draft.title     = "Second meal"
+        draft.startTime = "6:00 PM"
+        draft.colorHex  = "D97706"
+        let saved = draft.applied(to: banner)
+        #expect(saved.id              == banner.id)
+        #expect(saved.customStartTime == "02:00 PM", "Set Time's fixed start survives an edit of the other fields")
+        #expect(saved.bannerType      == .mealBreak)
+        #expect(saved.title           == "Second meal")
+        #expect(saved.bannerTitle     == "Second meal")
+        #expect(saved.bannerNote      == "6:00 PM")
+        #expect(saved.bannerColorHex  == "D97706")
+        #expect(saved.isBanner && !saved.isCalendarEvent && !saved.isAutoMeal)
+    }
+
+    @Test func bannerDraftMakeBannerMintsANewIdForANewBanner() {
+        var draft = BannerDraft()
+        draft.title = "Notice"
+        #expect(draft.makeBanner().id != draft.makeBanner().id)
+    }
+
+    // MARK: - Quick time draft (#26)
+
+    @Test func quickTimeDraftSeedsFromASceneWithNoFixedTime() {
+        let scene = Scene(title: "INT. KITCHEN - DAY", estimatedTime: 0)
+        let draft = QuickTimeDraft(scene: scene)
+        #expect(!draft.isCustomTime)
+        #expect(draft.customTimeText == "08:00 AM", "the old sheet's example start")
+        #expect(draft.hours == 0 && draft.minutes == 15, "a script scene with no estimate is the cascade's 15 minutes")
+        #expect(draft.isValid)
+    }
+
+    @Test func quickTimeDraftSeedsABannerWithThirtyMinutes() {
+        var banner = Scene.createBanner(type: .notice, title: "Notice")
+        banner.estimatedTime = 0
+        let draft = QuickTimeDraft(scene: banner)
+        #expect(draft.hours == 0 && draft.minutes == 30)
+    }
+
+    @Test func quickTimeDraftSeedsFromASceneWithAFixedTimeAndEstimate() {
+        var scene = Scene(title: "INT. KITCHEN - DAY", estimatedTime: 135)
+        scene.customStartTime = " 11:00 AM "
+        let draft = QuickTimeDraft(scene: scene)
+        #expect(draft.isCustomTime)
+        #expect(draft.customTimeText == "11:00 AM")
+        #expect(draft.hours == 2 && draft.minutes == 15)
+    }
+
+    @Test func quickTimeDraftValidatesOnlyAFixedTimeThatParses() {
+        var draft = QuickTimeDraft(scene: Scene(title: "X"))
+        draft.isCustomTime   = true
+        draft.customTimeText = "eleven"
+        #expect(!draft.isValid)
+        draft.customTimeText = "11:00 AM"
+        #expect(draft.isValid)
+        draft.isCustomTime = false
+        draft.customTimeText = "eleven"
+        #expect(draft.isValid, "the cascade ignores the text when the time is automatic")
+    }
+
+    @Test func quickTimeDraftPreviewsTheRangeOrTheDuration() {
+        var draft = QuickTimeDraft(scene: Scene(title: "X"))
+        draft.hours   = 1
+        draft.minutes = 30
+        #expect(draft.previewText == "Duration: 1:30 (cascades by day order)")
+        draft.isCustomTime   = true
+        draft.customTimeText = "11:00 AM"
+        #expect(draft.previewText == "11:00 AM ➔ 12:30 PM (1:30)")
+    }
+
+    @Test func quickTimeDraftAppliedWritesTheFixedTimeAndTheEstimate() {
+        var scene = Scene(title: "INT. KITCHEN - DAY", sceneNumber: "7", estimatedTime: 15, cast: ["Alex"])
+        scene.isCompleted = true
+        var draft = QuickTimeDraft(scene: scene)
+        draft.isCustomTime   = true
+        draft.customTimeText = " 11:00 AM "
+        draft.hours          = 1
+        draft.minutes        = 5
+        let saved = draft.applied(to: scene)
+        #expect(saved.id              == scene.id)
+        #expect(saved.customStartTime == "11:00 AM")
+        #expect(saved.estimatedTime   == 65)
+        #expect(saved.sceneNumber == "7" && saved.cast == ["Alex"] && saved.isCompleted, "everything else is carried")
+    }
+
+    @Test func quickTimeDraftAppliedClearsTheFixedTimeWhenAutomatic() {
+        var scene = Scene(title: "INT. KITCHEN - DAY", estimatedTime: 15)
+        scene.customStartTime = "11:00 AM"
+        var draft = QuickTimeDraft(scene: scene)
+        draft.isCustomTime = false
+        draft.minutes      = 45
+        let saved = draft.applied(to: scene)
+        #expect(saved.customStartTime.isEmpty)
+        #expect(saved.estimatedTime == 45)
+    }
+
     // MARK: - Calendar event draft
 
     @Test func calendarEventDraftStartsBlankForANewEvent() {
