@@ -361,15 +361,15 @@ struct ContentView: View {
             // day header exports one day) and the inspected day's call sheet. Each opens
             // the preview sheet with Share (#23).
             Menu {
-                Button(L("Schedule Calendar (PDF)…"))  { projectCommands.exportSchedulePDF() }
-                Button(L("Strip Schedule (PDF)…"))     { projectCommands.exportStripboardPDF() }
-                Button(L("Shooting Schedule (PDF)…"))  { showShootingSchedulePDFSavePanel() }
+                Button(L("Schedule Calendar…"))  { projectCommands.exportSchedulePDF() }
+                Button(L("Strip Schedule…"))     { projectCommands.exportStripboardPDF() }
+                Button(L("Shooting Schedule…"))  { showShootingSchedulePDFSavePanel() }
                 Divider()
-                Button(L("Days Out of Days (PDF)…"))   { projectCommands.exportDaysOutOfDays() }
-                Button(L("Scene Breakdowns (PDF)…"))   { projectCommands.exportBreakdowns() }
+                Button(L("Days Out of Days…"))   { projectCommands.exportDaysOutOfDays() }
+                Button(L("Scene Breakdowns…"))   { projectCommands.exportBreakdowns() }
                 if let day = selectedDay {
                     Divider()
-                    Button("\(L("Call Sheet for")) \(formattedDate(day.date)) (PDF)…") { showCallSheetPDFSavePanel(for: day) }
+                    Button("\(L("Call Sheet for")) \(formattedDate(day.date))…") { showCallSheetPDFSavePanel(for: day) }
                 }
             } label: {
                 Label(L("Export"), systemImage: "square.and.arrow.up")

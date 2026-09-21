@@ -29,6 +29,7 @@ starts with a header comment saying why the seam exists and what the non-Mac sid
 | Legacy `.json` handoff | `LegacyProjectHandoff.swift` | Moves a `.json`'s contents to an untitled document | Not built (#13 imports instead) |
 | Conflict resolution owner | `PlatformConflictResolution.swift` | `systemPresentsConflictUI` true: NSDocument's conflict sheet resolves iCloud versions, `SyncMonitor` only observes (#15) | False: `SyncMonitor` runs `ConflictPolicy` over `NSFileVersion`'s conflict versions |
 | Application delegate | `MacAppDelegate.swift` | Legacy working-copy recovery (#10), panel directory seeding (#12) | Not built |
+| Export presentation | `PlatformExportPresentation.swift` | `previewsExports` false: the save panels in `ContentView+PDFExports.swift` (#23); PDFKit's `PDFView` as an `NSViewRepresentable`, compiled and never shown | True: the preview sheet with Done and Share (`PDFExportPresentation`); `PDFView` as a `UIViewRepresentable` for the iPad and the Vision Pro alike |
 | Inspector column | `PlatformInspector.swift` | `.inspector(isPresented:)` (#17; the Mac never shows the three-column layout today) | iPadOS: `.inspector`; visionOS, where the modifier is unavailable: a trailing pane in an `HStack` |
 
 (Until #6 the two AppKit-drawn exporters and `ContentView+PDFExports.swift` (then `ProjectStore+PDFExports.swift`) were a temporary
@@ -48,7 +49,9 @@ Rules that follow from this:
   views themselves carry no conditionals.
 - Color arithmetic goes through SwiftUI's `Color.Resolved`, not `NSColor` / `UIColor`.
 - Every exporter call site lives in `ContentView+PDFExports.swift`, so lifting the exporter
-  gate later is a change to the exporters and that one file.
+  gate later is a change to the exporters and that one file. (Since #23 each call site builds
+  a `PDFExportRequest` and the seam says where it goes, so the same bytes reach the Mac's
+  panel and the iPad's share sheet.)
 
 ## Consequences
 
@@ -65,7 +68,9 @@ Rules that follow from this:
   everywhere (its save panel is the `FilePanels` seam). An exporter must not grow an
   `#if os`; it draws through the helper or the helper grows.
 - `FilePanels` is inert off the Mac by design; the document infrastructure of milestone 2
-  replaces it rather than growing an iOS document picker inside it.
+  replaced it for the project's own files, and the preview sheet with Share (#23,
+  `PlatformExportPresentation`) for the PDF exports, rather than growing an iOS document
+  picker inside it.
 - The hand-written `LSVR CineSched/Info.plist` was deleted: it was never used by the target
   (`GENERATE_INFOPLIST_FILE = YES`) and, because the folder is synchronized, it was copied
   into the bundle as a resource, which collides with the generated `Info.plist` in a flat iOS

@@ -80,6 +80,8 @@ Film-production terms first, then app-specific ones.
 | **Touch affordances** | How the Mac's pointer gestures map on iPad and Vision Pro (#17): a single tap selects into the inspector, a double tap opens the full editor sheet, a long press opens the context menu (SwiftUI's `.contextMenu` is the Mac's right-click and the touch long-press alike), a pointer or trackpad hover shows the strip tooltip. The schedule views take them as optional parameters (`onSelectDay`, `selectedDayID`) the Mac leaves nil; `ModifierKeys` reports none on touch, so a tap is a plain single select. |
 | **Project commands** | `ProjectCommands`: the closure slots (and View-menu bindings) a `ContentView` publishes as a focused scene value so the app-wide menus act on the frontmost window. |
 | **Window preference** | `@WindowPreference`: view state that belongs to one window (Calendar vs Stripboard, cast row, times vs pages, all days, grid vs list), seeded from the last-used value and written back for the next window. Distinct from an app preference (Dark Mode, Theme, Stripboard fields), which applies everywhere at once. |
+| **Export request** | `PDFExportRequest` (#23): what one PDF export produces before the platform decides where it goes: the document's kind, the file name the user sees (`.pdf` included, the Mac's save panel's name) and the exporter's bytes. Built by `PDFExport`, one function per document from the project and the export's parameters, the only place the exporters are called with the project's values, so a request is the same bytes on every platform. Delivered to the **export presentation**. |
+| **Export presentation** | Where an export request goes: the Mac's save panel (`FilePanels`, unchanged), or on iPad, iPhone and Vision Pro the **preview sheet** (`PDFExportPreviewSheet`: the PDF through PDFKit, Done, Share), whose share sheet offers AirDrop, Messages, Mail, Print, Save to Files and the rest for the file under its export name. `PlatformExportPresentation` (a seam) decides; the iPad reaches it from the toolbar's Export menu, the calendar's Export Month button, the Stripboard day header, the day inspector and the call sheet editor. |
 | **Pure core** | The platform-free part of the code: models, parsers and importers, scanners, formatting, row logic, palette settings. Compiles on every platform with no `#if os`. |
 | **Platform seam** | A file that exists to hold a platform difference (`FilePanels`, `ModifierKeys`, `PlatformControlStyles`, …). The only places `#if os(...)` may appear; each starts with a comment saying why. See ADR 0003. |
 
@@ -103,7 +105,12 @@ ContentView.swift         The editor for one document: sidebar, toolbar, calenda
   ContentView+Inspector.swift      the three-column layout's trailing column: the selected scene's editor, the selected
                                    day's detail and its edits, the project statistics when nothing is selected.
   ContentView+ScriptImport.swift   File ▸ Import Script… (Final Draft, Fountain, Highland) into the Boneyard.
-  ContentView+PDFExports.swift     every "generate then save" PDF action; the panel comes from FilePanels.
+  ContentView+PDFExports.swift     every PDF export action: build the PDFExportRequest, deliver it to the save panel
+                                   (Mac, FilePanels) or the preview sheet (iOS, visionOS).
+PDFExportRequest.swift    The export request and PDFExport, one pure function per document from the project to a
+                          request or a PDFExportError (#23).
+PDFExportPresentation.swift  The preview sheet with Done and Share, the request as a Transferable file, the modifier
+                          ContentView hangs off its root. Platform-free.
 BoneyardListView.swift    The Boneyard list both layouts draw (strip rows, drag out, drop back, tooltip, menu).
 EditorSelection.swift     The inspector's selection (a scene or a day by id), locating it in the project, pruning (pure).
 EditorPresentation.swift  The environment value telling an editor it is in the inspector rather than a sheet.
@@ -134,8 +141,8 @@ Localization.swift, ThemeManager.swift                                Cross-cutt
 SceneColorSettings.swift                                              The color slots, the project palette, the legacy device-overrides reader and the palette environment key.
 HoverTooltip.swift, LocationAutocompleteField.swift                            UI utilities.
 FilePanels, SelectAllTextField, WindowAccessor, ModifierKeys, PlatformControlStyles,
-PlatformColors, PlatformDocumentTypes, PlatformInspector, LegacyProjectHandoff,
-MacAppDelegate                                                        Platform seams (ADR 0003).
+PlatformColors, PlatformDocumentTypes, PlatformInspector, PlatformExportPresentation,
+LegacyProjectHandoff, MacAppDelegate                                  Platform seams (ADR 0003).
 LegacyWorkingCopyRecovery.swift                                       The first-launch decision over the pre-document builds' UserDefaults
                                                                        working copy and file bookmark (#10); MacAppDelegate acts on it.
 SyncState.swift                                                       The sync state beside the title (#14): the five states and the pure
@@ -181,8 +188,11 @@ PlatformConflictResolution.swift                                      Seam: whet
 5. Menu commands reach the key window through `ProjectCommands`: `ContentView` publishes its
    closures with `.focusedSceneValue`, `CineSchedApp` reads `@FocusedValue` and disables the item
    when no project window is key.
-6. Exporters are pure functions from model values to `Data` (PDF). The save-panel actions around them
-   live in `ContentView+PDFExports.swift`; the panels themselves come from `FilePanels`.
+6. Exporters are pure functions from model values to `Data` (PDF). `PDFExport` calls them with the
+   project's values and wraps the result in a `PDFExportRequest` (kind, file name, bytes); the
+   actions in `ContentView+PDFExports.swift` deliver a request to the Mac's save panel
+   (`FilePanels`) or, on iOS and visionOS, to the preview sheet with Share
+   (`PDFExportPresentation`, the choice in `PlatformExportPresentation`, #23).
 7. The sync state and the conflict notice (#14, #15) come from a `SyncMonitor` each editor
    owns through the `syncMonitored(_:document:)` modifier, which starts it with the document
    and hands it every `changeCount`, `restoreCount` and `writtenChangeCount` change, the scene

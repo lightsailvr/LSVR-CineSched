@@ -145,7 +145,20 @@ the build inputs outside it, see Working agreements):
   the Final Draft mapping come from `ScriptImport`). `ImportSummaryView.swift`: the import
   summary sheet, the Mac's Done mode after a Fountain import and, given `onConfirm`, the
   launch screen's Cancel / Create Project mode before one.
-  `ContentView+PDFExports.swift`: every PDF export call site and its save panel.
+  `ContentView+PDFExports.swift`: every PDF export call site: each builds a `PDFExportRequest`
+  and delivers it to the Mac's save panel or, where `PlatformExportPresentation.previewsExports`
+  (iOS, visionOS), sets `exportPreview` for the preview sheet (#23).
+- `PDFExportRequest.swift`: the export request (#23), pure: `PDFExportRequest` (kind, file name
+  with `.pdf`, the exporter's bytes; `Equatable` by those, `Identifiable` per presentation) and
+  `PDFExport`, one function per document (`scheduleCalendar`, `monthCalendar`, `stripSchedule`,
+  `shootingSchedule`, `daysOutOfDays`, `breakdowns`, `callSheet`) from the project and the
+  per-export parameters to a request, or a `PDFExportError` with the alert's message. The one
+  place the exporters are called with the project's values, so every platform gets the same
+  bytes (`PDFExportRequestTests`).
+- `PDFExportPresentation.swift`: the preview sheet (`PDFExportPreviewSheet`: the PDF, Done, a
+  `ShareLink`), the request's `Transferable` conformance (a file under the export name, written
+  on demand into the temporary directory) and the `pdfExportPresentation(_:)` modifier
+  `ContentView` hangs off its root on every platform. Platform-free; the Mac never presents it.
 - `ProjectCodec.swift`: the one encoder/decoder for project files (pretty JSON, ISO dates, legacy
   shapes). Every save and load path uses it; nothing else constructs a `JSONEncoder` for a project.
 - `ProjectDocument.swift`: the project document (ADR 0004) on the 27 `Document` protocol, its URL
@@ -226,7 +239,9 @@ the build inputs outside it, see Working agreements):
   (whether the system presents its own conflict UI: the Mac's NSDocument sheet, so the app
   resolves only on iOS and visionOS), `PlatformInspector` (the three-column layout's
   trailing column: `.inspector` where it exists, a trailing pane on visionOS, which has no
-  such modifier), `LegacyProjectHandoff`, `MacAppDelegate`, plus the
+  such modifier), `PlatformExportPresentation` (whether an export opens the preview sheet
+  with Share or the Mac's save panel, and PDFKit's `PDFView` wrapped for SwiftUI on each
+  view layer), `LegacyProjectHandoff`, `MacAppDelegate`, plus the
   editor/launch-scene choice, the tabbing choice and the delegate adaptor in `CineSchedApp`.
   These are the only files allowed to contain `#if os(...)`.
 
@@ -273,6 +288,10 @@ the build inputs outside it, see Working agreements):
   sets once at its root; an exporter that draws strips takes `palette:` with the project. Nothing
   reads `SceneColorSettings.deviceOverrides` except the document constructors (adoption, #11).
   Exporters must not hardcode strip colors.
+- **Adding a PDF export**: a function in `PDFExport` (the exporter call, the file name, the
+  failure message) with a `PDFExportRequestTests` row, a `Kind` case with its title, and a call
+  site in `ContentView+PDFExports.swift` that `deliver`s the request; never a direct exporter
+  call from a view, and never a platform check at the call site (the seam decides).
 - **PDF drawing**: new or migrated exporters draw through `PDFCanvas` (`PDFFont`, `CGColor`
   helpers, `draw(_:in:)` / `draw(_:at:)`), never through `NSFont` / `NSColor` /
   `NSAttributedString.draw`. Do not add `#if os` to an exporter; migrate it instead.
@@ -323,6 +342,9 @@ read against `ProjectCodec` with the source bytes pinned, and every cancellation
 and per-slot undo are in `ProjectDocumentTests`, the file shape in `ProjectCodecTests`),
 `L(_:)` (`LocalizationTests`),
 `DaysOutOfDaysExporter.buildRows`, `PDFCanvas`, `ProjectCodec` (`ProjectCodecTests`),
+`PDFExport` and `PDFExportRequest` (`PDFExportRequestTests`: each request against its exporter's
+output with the PDF's time-derived bytes masked, the file names, the failure messages, the
+shared temporary file),
 `ProjectDocument` with its reader, writer, type and undo funnel (`ProjectDocumentTests`, against a
 real `UndoManager` with `groupsByEvent` off), and all six exporters (rendered from the shared
 fixture in `PDFTestSupport.swift` and read back through PDFKit in `SchedulePDFExporterTests`,

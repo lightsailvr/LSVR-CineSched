@@ -54,6 +54,7 @@ struct PDFExportPreviewSheet: View {
                 .ignoresSafeArea(edges: .bottom)
                 .navigationTitle(request.kind.title)
                 .toolbarTitleDisplayMode(.inline)
+                .navigationBarBackButtonHidden(true)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button(L("Done")) { dismiss() }

@@ -9,6 +9,57 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-20 — PDF export on the iPad: a `Transferable` file names the share, PDFKit's view previews on visionOS, and the document's Back button is mirrored into a sheet's bar too (#23)
+
+Building the preview sheet with Share over the existing exporters:
+
+- **`ShareLink` on a `Transferable` with a `FileRepresentation` is what puts the file name
+  in the share sheet** ("The_Long_Way_Home_StripSchedule.pdf" in its header, in Save to
+  Files and as the attachment); a `DataRepresentation` shares nameless "PDF document"
+  bytes. The exporting closure writes the bytes into
+  `temporaryDirectory/PDFExports/<request id>/<name>` on demand, so nothing is written
+  before the user taps Share and two exports of the same document never collide.
+  `Transferable` requires `Sendable`, and a conformance declared in another file than the
+  struct warns ("conformance to 'Sendable' must occur in the same source file"): the
+  request declares `Sendable` where it is defined and is `nonisolated`, with the one
+  main-actor member (`Kind.title`, which calls `L()`) marked `@MainActor`.
+- **PDFKit's `PDFView` renders on the visionOS simulator inside a `UIViewRepresentable`**,
+  the same wrapper as the iPad's; the share sheet there lists Copy, Markup, Print, Save
+  to Files and More. Quick Look was the alternative and takes a file URL, owns its
+  toolbar and opens in its own window on visionOS, so the app's Done and Share would
+  have been lost. `.presentationSizing(.page)` makes the sheet page-sized on iPad and
+  Vision Pro (the default form sheet shows a letter page at a third of its width) and
+  is full-screen in compact width. The share sheet's thumbnail is blank in the
+  simulator (no thumbnail service); the `SharePreview` image is only the fallback icon.
+- **The document infrastructure mirrors its Back button into a sheet's navigation bar
+  as well**, not just into every split-view column (2026-09-20 #17): the preview's
+  `NavigationStack` showed a chevron beside Done. Unlike in the columns,
+  `.navigationBarBackButtonHidden(true)` does remove it in a sheet.
+- **Presenting the preview while another sheet dismisses works without a delay** on the
+  27.0 iPad simulator: the month options sheet, the Day Detail sheet and the call sheet
+  editor each dismiss themselves and call the export closure synchronously, and the
+  root's `.sheet(item:)` still presents (SwiftUI queues the presentation). Nothing to
+  defer.
+- **Two renders of one PDF differ only in `/CreationDate`, `/ModDate` and the trailer
+  `/ID`** (2026-09-19 #32's 74 bytes), and Quartz breaks the line *between* the date key
+  and its value, so a mask that expects `/CreationDate (` never matches: match `\s+`.
+  `PDFExportRequestTests` pins each request to its exporter's output through that mask,
+  and a self-check test asserts the mask actually hit both dates and the ID.
+- **Probing the iPad's export paths from a throwaway XCUITest**: the toolbar `Menu`'s
+  items are `app.buttons["Strip Schedule…"]`, `ShareLink`'s button is labelled "Share…",
+  the calendar's "Export Month (PDF)" button is hidden beside the inspector in portrait
+  (rotate with `XCUIDevice.shared.orientation = .landscapeLeft`, iOS only), and
+  `app.staticTexts["2"].firstMatch` is the inspector's "2 unscheduled", not the day
+  cell: pick the match with the smallest `frame.minY`. On visionOS the toolbar's
+  buttons (an ornament) are absent from the app's accessibility tree, so the Export
+  menu there can only be checked by eye; the calendar's own button reaches the same
+  sheet. The Stripboard day header's icon buttons read "Plain Text Document", "Plus
+  Rectangle On In A Rectangle" and "Next Page" to accessibility (their `.help` is not a
+  label); tap them by SF Symbol identifier (`arrow.down.doc`). Worth a label pass in
+  the polish milestone.
+
+---
+
 ## 2026-09-20 — The iPad's three columns: a principal toolbar item becomes the document's title menu, the calendar needs its cells narrower than the Mac's, and an XCUITest probe attaches to whatever build is running (#17)
 
 Building the three-column editor (`ContentView(layout: .threeColumn)` with `.inspector`)
