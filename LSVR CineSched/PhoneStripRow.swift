@@ -12,12 +12,15 @@
 // `PhoneStripActions` is where the strip's tap, long-press menu and swipe actions are
 // built, one function each, so the tickets that add moves (#25) and edits (#26) have one
 // place to add to for both lists. Here: the long-press preview (`StripPreview`: number,
-// slugline, cast, summary), Open Day; the moves (#25): Send to Day… and Return to
-// Boneyard in the menu and as the trailing swipe; and the edits (#26): a tap opens the
-// strip's editor (the scene editor, the banner input, Set Time for an auto-meal), the
-// menu adds Edit, Set Time…, Duplicate Scene and Delete Banner, the leading swipe is
-// Edit and Set Time, the trailing swipe gains Duplicate for a script scene and Delete
-// for a banner (never a full swipe: a mis-swipe on a small screen must be harmless).
+// slugline, cast, summary), Open Day; the moves (#25): Send to Day…, Move to Next Day
+// and Move to Previous Day (the M4 review: the one-gesture slip to the adjacent day, the
+// next entry of the schedule whatever is on it, absent at the first and last day) and
+// Return to Boneyard in the menu and as the trailing swipe; and the edits (#26): a tap
+// opens the strip's editor (the scene editor, the banner input, Set Time for an
+// auto-meal), the menu adds Edit, Set Time…, Duplicate Scene and Delete Banner, the
+// leading swipe is Edit and Set Time, the trailing swipe gains Duplicate for a script
+// scene and Delete for a banner (never a full swipe: a mis-swipe on a small screen must
+// be harmless).
 
 import SwiftUI
 
@@ -288,22 +291,33 @@ struct StripPreview: View {
 /// screen. `stripContextMenu(for:)` is the long-press menu's items,
 /// `stripSwipeActions(for:)` the trailing swipe and `stripLeadingSwipeActions(for:)`
 /// the leading one; `open(_:)` is the tap. #25 put the moves here (Send to Day… for a
-/// script scene or a banner, Return to Boneyard for a script scene; auto-meals follow
-/// the call sheet and calendar events are never strips, so neither gets them) and #26
+/// script scene or a banner, Move to Next Day / Move to Previous Day for the same when
+/// the day has a neighbour — `hasPreviousDay` and `hasNextDay`, which the caller reads
+/// off the day's place in `shootDays` once per redraw — Return to Boneyard for a script
+/// scene; auto-meals follow the call sheet and calendar events are never strips, so
+/// none of them gets a move) and #26
 /// the edits (`PhoneDayEdits`: Edit, Set Time…, Duplicate Scene, Delete Banner; an
 /// auto-meal has Set Time only, because its call sheet's time would bring a deleted one
-/// back at the next sync). `edit` is the funnel every item writes through; `moves`
-/// (`PhoneMoves`) is the editor's move funnel and its pickers.
+/// back at the next sync). Every item writes through `moves` (`PhoneMoves`, the move
+/// funnel and its pickers) or `dayEdits` (`PhoneDayEdits`, the edit funnel and its
+/// editors); nothing here holds the raw `edit` closure.
 struct PhoneStripActions {
     let day:      ShootDay
-    let edit:     ProjectEdit
     let moves:    PhoneMoves
     let dayEdits: PhoneDayEdits
     /// Opens the Day screen for `day`; nil on the Day screen itself.
     let openDay: (() -> Void)?
+    /// Whether the schedule has a day before / after this one (Move to Previous Day and
+    /// Move to Next Day are absent otherwise).
+    var hasPreviousDay: Bool = false
+    var hasNextDay:     Bool = false
 
     /// Send to Day applies to what a drag would carry: a script scene or a banner.
     private func canSendToDay(_ scene: Scene) -> Bool { !scene.isCalendarEvent && !scene.isAutoMeal }
+    /// Move to Next / Previous Day is a Send to Day to the neighbour: the same strips.
+    private func canMoveToAdjacentDay(_ scene: Scene, _ direction: DayDirection) -> Bool {
+        canSendToDay(scene) && (direction == .next ? hasNextDay : hasPreviousDay)
+    }
     /// Only a script scene has a place in the Boneyard.
     private func canReturnToBoneyard(_ scene: Scene) -> Bool { !scene.isBanner && !scene.isCalendarEvent }
     /// Duplicate Scene copies a script scene.
@@ -352,6 +366,20 @@ struct PhoneStripActions {
         }
         Divider()
         // The moves (#25).
+        if canMoveToAdjacentDay(scene, .next) {
+            Button {
+                moves.moveToAdjacentDay([scene.id], from: day.id, .next)
+            } label: {
+                Label(L("Move to Next Day"), systemImage: "arrow.down.to.line")
+            }
+        }
+        if canMoveToAdjacentDay(scene, .previous) {
+            Button {
+                moves.moveToAdjacentDay([scene.id], from: day.id, .previous)
+            } label: {
+                Label(L("Move to Previous Day"), systemImage: "arrow.up.to.line")
+            }
+        }
         if canSendToDay(scene) {
             Button {
                 moves.presentSendToDay(sceneIDs: [scene.id])
@@ -376,8 +404,10 @@ struct PhoneStripActions {
         }
     }
 
-    /// The trailing swipe: Boneyard and Send to Day for a script scene (#25), then
-    /// Duplicate; Delete and Send to Day for a custom banner; nothing for an auto-meal.
+    /// The trailing swipe: Boneyard, Next Day, Previous Day and Send to Day for a script
+    /// scene (#25), then Duplicate; Delete and the moves for a custom banner; nothing for
+    /// an auto-meal. The first button is the one a short swipe reveals, so the adjacent
+    /// days come before the picker.
     @ViewBuilder
     func stripSwipeActions(for scene: Scene) -> some View {
         if canDeleteBanner(scene) {
@@ -394,6 +424,22 @@ struct PhoneStripActions {
                 Label(L("Boneyard"), systemImage: "tray.and.arrow.down")
             }
             .tint(.orange)
+        }
+        if canMoveToAdjacentDay(scene, .next) {
+            Button {
+                moves.moveToAdjacentDay([scene.id], from: day.id, .next)
+            } label: {
+                Label(L("Next Day"), systemImage: "arrow.down.to.line")
+            }
+            .tint(.green)
+        }
+        if canMoveToAdjacentDay(scene, .previous) {
+            Button {
+                moves.moveToAdjacentDay([scene.id], from: day.id, .previous)
+            } label: {
+                Label(L("Previous Day"), systemImage: "arrow.up.to.line")
+            }
+            .tint(.mint)
         }
         if canSendToDay(scene) {
             Button {

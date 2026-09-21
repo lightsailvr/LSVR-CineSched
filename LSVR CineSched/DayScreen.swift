@@ -28,8 +28,8 @@ struct DayScreen: View {
     let dayID: UUID
     let document: ProjectDocument
     let conflictSceneIDs: Set<UUID>
-    let edit: ProjectEdit
-    /// `edit` under a gesture the screen keeps across calls: the note's typing burst.
+    /// `edit` under a gesture the screen keeps across calls: the note's typing burst;
+    /// every other write goes through `moves` or `dayEdits`.
     let editCoalescing: CoalescedProjectEdit
     let moves: PhoneMoves
     let dayEdits: PhoneDayEdits
@@ -58,12 +58,15 @@ struct DayScreen: View {
     }
 
     private func content(for day: ShootDay) -> some View {
-        let dayNumbers = productionDayNumbers(for: document.project.shootDays)
+        let shootDays  = document.project.shootDays
+        let dayNumbers = productionDayNumbers(for: shootDays)
         let summary    = DaySummary(day: day, dayNumbers: dayNumbers)
         let strips     = day.scenes.filter { !$0.isCalendarEvent }
         let events     = day.scenes.filter { $0.isCalendarEvent }
         let timeline   = dayTimeline(for: day, scenes: strips)
-        let actions    = PhoneStripActions(day: day, edit: edit, moves: moves, dayEdits: dayEdits, openDay: nil)
+        let index      = shootDays.firstIndex { $0.id == dayID } ?? 0
+        let actions    = PhoneStripActions(day: day, moves: moves, dayEdits: dayEdits, openDay: nil,
+                                           hasPreviousDay: index > 0, hasNextDay: index < shootDays.count - 1)
 
         return List {
             headerSection(summary)

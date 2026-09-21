@@ -3,7 +3,10 @@
 // project, its results from `SceneSearch.results` (number, slugline, cast, summary and
 // real location; never a banner, an auto-meal or an event), grouped into the scheduled
 // scenes (each with its day) and the Boneyard. A result's tap opens the scene editor
-// (`PhoneSceneEditor`, bound by id); its trailing button, swipe and menu show the scene
+// (the phone's one, through `PhoneDayEdits.presentSceneEditor`, bound by id, with the
+// results shown as the siblings Previous and Next step through; its Delete follows where
+// the scene is: a scheduled one returns to the Boneyard, a Boneyard one is deleted); its
+// trailing button, swipe and menu show the scene
 // where it lives: Show in Days switches to the Days tab and scrolls it to the day
 // (`PhoneEditor.scrollToDate`, the hook the Today control and the reports use), Show in
 // Boneyard switches to the Boneyard tab and scrolls it to the scene. No recent
@@ -24,8 +27,8 @@ import SwiftUI
 
 struct SearchTab: View {
     let document: ProjectDocument
-    let edit:     ProjectEdit
-    let moves:    PhoneMoves
+    /// The scene editor (#26's funnel, the same on every tab).
+    let dayEdits: PhoneDayEdits
     /// Switches to the Days tab and scrolls it to the day with this date.
     let showInDays:     (Date) -> Void
     /// Switches to the Boneyard tab and scrolls it to this scene.
@@ -33,7 +36,6 @@ struct SearchTab: View {
     @Environment(\.scenePalette) private var palette
 
     @State private var query = ""
-    @State private var editorRequest: PhoneSceneEditorRequest? = nil
 
     private var project: ProjectData { document.project }
 
@@ -46,15 +48,6 @@ struct SearchTab: View {
                 .autocorrectionDisabled()
                 .navigationBarBackButtonHidden(true)
                 .toolbar(removing: .title)
-        }
-        .sheet(item: $editorRequest) { request in
-            PhoneSceneEditor(
-                sceneID:  request.sceneID,
-                document: document,
-                edit:     edit,
-                moves:    moves,
-                dismiss:  { editorRequest = nil }
-            )
         }
     }
 
@@ -81,14 +74,14 @@ struct SearchTab: View {
                 if !scheduled.isEmpty {
                     Section(scheduled.count == 1 ? L("1 scheduled") : String(format: L("%d scheduled"), scheduled.count)) {
                         ForEach(scheduled) { result in
-                            row(result, dayNumbers: dayNumbers)
+                            row(result, dayNumbers: dayNumbers, siblings: results)
                         }
                     }
                 }
                 if !boneyard.isEmpty {
                     Section(boneyard.count == 1 ? L("1 in the Boneyard") : String(format: L("%d in the Boneyard"), boneyard.count)) {
                         ForEach(boneyard) { result in
-                            row(result, dayNumbers: dayNumbers)
+                            row(result, dayNumbers: dayNumbers, siblings: results)
                         }
                     }
                 }
@@ -101,12 +94,12 @@ struct SearchTab: View {
 
     /// One hit: its strip color, number and slugline, where it is and what matched
     /// (the cast, else the summary); the trailing button shows it there, the tap opens
-    /// the editor.
-    private func row(_ result: SceneSearchResult, dayNumbers: [UUID: Int]) -> some View {
+    /// the editor over the results shown (`siblings`, what Previous and Next step).
+    private func row(_ result: SceneSearchResult, dayNumbers: [UUID: Int], siblings: [SceneSearchResult]) -> some View {
         let scene = result.scene
         let day   = result.dayIndex.map { project.shootDays[$0] }
         return Button {
-            editorRequest = PhoneSceneEditorRequest(sceneID: scene.id)
+            openEditor(for: result, siblings: siblings)
         } label: {
             HStack(spacing: 12) {
                 RoundedRectangle(cornerRadius: 2)
@@ -153,7 +146,7 @@ struct SearchTab: View {
         .accessibilityLabel(Text("\(scene.sceneNumber) \(scene.title)"))
         .contextMenu {
             Button {
-                editorRequest = PhoneSceneEditorRequest(sceneID: scene.id)
+                openEditor(for: result, siblings: siblings)
             } label: {
                 Label(L("Edit Scene"), systemImage: "pencil")
             }
@@ -190,5 +183,12 @@ struct SearchTab: View {
 
     private func show(_ result: SceneSearchResult, day: ShootDay?) {
         if let day { showInDays(day.date) } else { showInBoneyard(result.scene.id) }
+    }
+
+    /// The scene editor over a result, with the results shown as what Previous and Next
+    /// step through (no day: the editor's Delete reads where the scene is, so a scheduled
+    /// result still returns to the Boneyard and a Boneyard one is deleted).
+    private func openEditor(for result: SceneSearchResult, siblings: [SceneSearchResult]) {
+        dayEdits.presentSceneEditor(sceneID: result.scene.id, dayID: nil, siblingIDs: siblings.map(\.scene.id))
     }
 }

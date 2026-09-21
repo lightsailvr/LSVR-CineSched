@@ -45,8 +45,8 @@ struct DaysTab: View {
     /// A date to scroll to, set by the editor's Today control and by this tab's own week
     /// strip and month popover; cleared here once acted on.
     @Binding var scrollToDate: Date?
-    let edit: ProjectEdit
-    /// `edit` under a gesture the Day screen keeps across calls (its note's typing).
+    /// `edit` under a gesture the Day screen keeps across calls (its note's typing); every
+    /// other write goes through `moves` or `dayEdits`.
     let editCoalescing: CoalescedProjectEdit
     /// The moves and their pickers (#25), wired by the editor.
     let moves: PhoneMoves
@@ -103,7 +103,6 @@ struct DaysTab: View {
                     dayID:            dayID,
                     document:         document,
                     conflictSceneIDs: conflictSceneIDs,
-                    edit:             edit,
                     editCoalescing:   editCoalescing,
                     moves:            moves,
                     dayEdits:         dayEdits,
@@ -133,8 +132,8 @@ struct DaysTab: View {
             }
             ForEach(rows) { row in
                 switch row {
-                case .day(_, let day):
-                    daySection(day, dayNumbers: dayNumbers, fields: fields)
+                case .day(let index, let day):
+                    daySection(day, index: index, dayCount: shootDays.count, dayNumbers: dayNumbers, fields: fields)
                 case .gap(let gap):
                     gapSection(gap)
                 }
@@ -145,12 +144,15 @@ struct DaysTab: View {
 
     // MARK: - Day section
 
-    private func daySection(_ day: ShootDay, dayNumbers: [UUID: Int], fields: Set<StripboardField>) -> some View {
+    /// `index` is the day's place in `shootDays` (the row carries it), which says whether
+    /// Move to Previous / Next Day has a day to land on.
+    private func daySection(_ day: ShootDay, index: Int, dayCount: Int, dayNumbers: [UUID: Int], fields: Set<StripboardField>) -> some View {
         let summary  = DaySummary(day: day, dayNumbers: dayNumbers)
         let strips   = day.scenes.filter { !$0.isCalendarEvent }
         let events   = day.scenes.filter { $0.isCalendarEvent }
         let timeline = dayTimeline(for: day, scenes: strips)
-        let actions  = PhoneStripActions(day: day, edit: edit, moves: moves, dayEdits: dayEdits, openDay: { path.append(day.id) })
+        let actions  = PhoneStripActions(day: day, moves: moves, dayEdits: dayEdits, openDay: { path.append(day.id) },
+                                         hasPreviousDay: index > 0, hasNextDay: index < dayCount - 1)
         let displayed = strips.map(\.id)
 
         return Section {

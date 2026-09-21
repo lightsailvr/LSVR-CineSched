@@ -16,11 +16,13 @@
 // request in `@State` and `phoneEditSheets` presents it, so a sheet survives a swipe
 // action's row leaving the screen. Every editor is bound by id and reads the document on
 // each body, so a scene edited, moved or undone under an open sheet is the current one.
-// A Boneyard or search result opens a scene the same way (`presentSceneEditor` with no
-// day: its Delete then deletes, as the Mac's Boneyard editor does); #27's tabs landed
-// with their own `PhoneSceneEditor` for that, which this file's `PhoneDaySceneEditor`
-// (day-aware: Previous and Next over the day's script scenes, Duplicate Scene, the
-// gesture around Save) should absorb once the two branches meet.
+// `PhoneSceneEditor` is the one scene editor of the phone (the M4 review folded #27's
+// separate copy into it): a strip's tap opens it over its day (Previous and Next step
+// the day's script scenes, live), a Boneyard row or a search result opens it with no day
+// and the rows the tab shows as `siblingIDs` (Previous and Next step those; its Delete
+// then deletes, as the Mac's Boneyard editor does), and Duplicate Scene is in its footer
+// from every tab. A subject that left the project under an open sheet (an undo, a sync)
+// shows `PhoneEditorUnavailable`, sized by the editor container like every other sheet.
 //
 // Platform-free SwiftUI; the Mac compiles it and never shows it.
 
@@ -31,9 +33,11 @@ import SwiftUI
 /// An editor one of the lists asked for, presented as a sheet over the editor.
 struct PhoneEditSheet: Identifiable {
     enum Kind {
-        /// The scene editor for a scene; `dayID` is the day whose script scenes Previous
-        /// and Next step over, nil for a Boneyard scene.
-        case scene(sceneID: UUID, dayID: UUID?)
+        /// The scene editor for a scene. `dayID` is the day whose script scenes Previous
+        /// and Next step over (read live); nil for a Boneyard scene, when `siblingIDs` is
+        /// the list the tab showed (the filtered Boneyard, a search's results), stepped
+        /// as it was at the tap.
+        case scene(sceneID: UUID, dayID: UUID?, siblingIDs: [UUID])
         /// The banner input: edit the banner with `bannerID`, or add one to the day.
         case banner(dayID: UUID, bannerID: UUID?)
         /// The calendar event input: edit the event with `eventID`, or add one to the day.
@@ -65,8 +69,10 @@ struct PhoneDayEdits {
 
     // MARK: Presenting the editors
 
-    func presentSceneEditor(sceneID: UUID, dayID: UUID?) {
-        present(PhoneEditSheet(kind: .scene(sceneID: sceneID, dayID: dayID)))
+    /// The scene editor over `sceneID`: on a day (Previous and Next over its script
+    /// scenes), or off one with the tab's `siblingIDs` to step through.
+    func presentSceneEditor(sceneID: UUID, dayID: UUID?, siblingIDs: [UUID] = []) {
+        present(PhoneEditSheet(kind: .scene(sceneID: sceneID, dayID: dayID, siblingIDs: siblingIDs)))
     }
 
     func presentBannerEditor(dayID: UUID, bannerID: UUID? = nil) {
@@ -202,8 +208,8 @@ private struct PhoneEditSheetContent: View {
 
     var body: some View {
         switch request.kind {
-        case .scene(let sceneID, let dayID):
-            PhoneDaySceneEditor(document: document, dayID: dayID, dayEdits: dayEdits, moves: moves, sceneID: sceneID, dismiss: dismiss)
+        case .scene(let sceneID, let dayID, let siblingIDs):
+            PhoneSceneEditor(document: document, dayID: dayID, siblingIDs: siblingIDs, dayEdits: dayEdits, moves: moves, sceneID: sceneID, dismiss: dismiss)
 
         case .banner(let dayID, let bannerID):
             let existing = bannerID.flatMap { project.scene(withID: $0) }
@@ -228,7 +234,7 @@ private struct PhoneEditSheetContent: View {
                     onCancel: dismiss
                 )
             } else {
-                goneNotice(L("Strip Removed"))
+                PhoneEditorUnavailable(title: L("Set Time"), message: L("Strip Removed"), dismiss: dismiss)
             }
 
         case .callSheet(let dayID):
@@ -251,43 +257,64 @@ private struct PhoneEditSheetContent: View {
                     totalProductionDays: numbers.values.max() ?? 0
                 )
             } else {
-                goneNotice(L("Day Removed"))
+                PhoneEditorUnavailable(title: L("Call Sheet"), message: L("Day Removed"), dismiss: dismiss)
             }
         }
     }
+}
 
-    /// The subject left the project under the open sheet (an undo, a sync).
-    private func goneNotice(_ title: String) -> some View {
-        VStack(spacing: 16) {
-            ContentUnavailableView(title, systemImage: "xmark.circle", description: Text(L("It is no longer in the project.")))
-            Button(L("Done")) { dismiss() }
-                .buttonStyle(.borderedProminent)
+// MARK: - A subject that left the project
+
+/// What a sheet shows when its subject left the project under it (an undo, a sync): the
+/// editor's chrome around an unavailable view, sized by the editor container like every
+/// other sheet (never a `presentationDetents` of its own, which would size outside the
+/// seam).
+struct PhoneEditorUnavailable: View {
+    let title:   String
+    let message: String
+    let dismiss: () -> Void
+
+    static let sheetSize = EditorSheetSize(width: 400, height: 320, compactDetents: [.medium])
+
+    var body: some View {
+        EditorChrome {
+            EditorTitle(title: title)
+        } content: {
+            ContentUnavailableView(message, systemImage: "xmark.circle", description: Text(L("It is no longer in the project.")))
+        } footer: {
+            HStack {
+                Spacer()
+                Button(L("Done")) { dismiss() }
+                    .buttonStyle(.borderedProminent)
+            }
         }
-        .padding()
-        .presentationDetents([.medium])
+        .editorContainer(Self.sheetSize)
     }
 }
 
 // MARK: - The scene editor, by id
 
-/// `SceneEditSheet` over the scene with `sceneID`, which Previous and Next move along
-/// the day's script scenes (a new id is a new editor, as in the inspector). Save writes
-/// the scene back by id; Delete returns a scheduled scene to the Boneyard (the Mac's
-/// Stripboard sheet) and deletes a Boneyard one (the Mac's Boneyard editor); Duplicate
-/// puts a copy in the Boneyard.
-private struct PhoneDaySceneEditor: View {
-    let document: ProjectDocument
-    let dayID:    UUID?
-    let dayEdits: PhoneDayEdits
-    let moves:    PhoneMoves
+/// The phone's one scene editor: `SceneEditSheet` over the scene with `sceneID`, wherever
+/// it is. Previous and Next step along the day's script scenes when the editor was opened
+/// from a day (read live, so a reorder under the sheet is followed), else along the
+/// `siblingIDs` the tab supplied (a new id is a new editor, as in the inspector). Save
+/// writes the scene back by id; Delete returns a scheduled scene to the Boneyard (the
+/// Mac's Stripboard sheet) and deletes a Boneyard one (the Mac's Boneyard editor);
+/// Duplicate puts a copy in the Boneyard, in the gesture the Save before it opened.
+struct PhoneSceneEditor: View {
+    let document:   ProjectDocument
+    let dayID:      UUID?
+    let siblingIDs: [UUID]
+    let dayEdits:   PhoneDayEdits
+    let moves:      PhoneMoves
     @State var sceneID: UUID
-    let dismiss:  () -> Void
+    let dismiss:    () -> Void
 
     private var project: ProjectData { document.project }
 
     var body: some View {
         if let scene = project.scene(withID: sceneID) {
-            let siblings = siblingIDs
+            let siblings = currentSiblingIDs
             let position = siblings.firstIndex(of: sceneID)
             let steps    = siblings.count > 1 && position != nil
             SceneEditSheet(
@@ -305,20 +332,15 @@ private struct PhoneDaySceneEditor: View {
             )
             .id(sceneID)
         } else {
-            VStack(spacing: 16) {
-                ContentUnavailableView(L("Scene Removed"), systemImage: "xmark.circle", description: Text(L("It is no longer in the project.")))
-                Button(L("Done")) { dismiss() }
-                    .buttonStyle(.borderedProminent)
-            }
-            .padding()
-            .presentationDetents([.medium])
+            PhoneEditorUnavailable(title: L("Edit Scene"), message: L("Scene Removed"), dismiss: dismiss)
         }
     }
 
-    /// The day's script scenes in order, what Previous and Next step over; none for a
-    /// Boneyard scene.
-    private var siblingIDs: [UUID] {
-        guard let dayID, let day = project.shootDays.first(where: { $0.id == dayID }) else { return [] }
+    /// What Previous and Next step over: the day's script scenes in order, read live, when
+    /// the editor is over a day; otherwise the tab's list as it was at the tap.
+    private var currentSiblingIDs: [UUID] {
+        guard let dayID else { return siblingIDs }
+        guard let day = project.shootDays.first(where: { $0.id == dayID }) else { return [] }
         return day.scenes.filter { !$0.isBanner && !$0.isCalendarEvent }.map(\.id)
     }
 

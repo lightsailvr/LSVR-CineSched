@@ -3,10 +3,12 @@
 // Mac's six sorts (`BoneyardSort`, the same app-wide preference the Mac's sidebar menu
 // writes, so the phone and the Mac agree on the order) and narrowed by a text filter
 // (`SceneSearch.filter`: number, slugline, cast, summary, real location). A tap opens
-// the scene editor (`PhoneSceneEditor`, stepping through the displayed rows with
-// Previous and Next as the Mac's Boneyard editor does); a long press is the Mac's
-// Boneyard menu (Edit, Duplicate, Send to Day…, Delete) with the strip preview; the
-// trailing swipe sends one scene to a day or deletes it. Select puts the list in edit
+// the scene editor (the phone's one, `PhoneSceneEditor` through
+// `PhoneDayEdits.presentSceneEditor`, with the displayed rows as the siblings Previous
+// and Next step through, as the Mac's Boneyard editor does; its Duplicate Scene and
+// Delete are the Mac's Boneyard rules); a long press is the Mac's Boneyard menu (Edit,
+// Duplicate, Send to Day…, Delete) with the strip preview; the trailing swipe sends one
+// scene to a day, duplicates it or deletes it. Select puts the list in edit
 // mode (`listSelecting`, the seam over `editMode`) for a multi-selection that one Send
 // to Day places on the chosen day, all of them, in the order the list shows them
 // (`BoneyardSelection.ordered`; never widened from the set at the drop, learnings
@@ -34,14 +36,15 @@ struct BoneyardTab: View {
     /// A scene to show: the filter clears and the list scrolls to it. Set by the Search
     /// tab's Show in Boneyard and by a scene just added; cleared here once acted on.
     @Binding var revealSceneID: UUID?
-    let edit:  ProjectEdit
-    let moves: PhoneMoves
+    let edit:     ProjectEdit
+    let moves:    PhoneMoves
+    /// The scene editor, Duplicate Scene and Delete Scene (#26's funnel, the same on every tab).
+    let dayEdits: PhoneDayEdits
     @Environment(\.scenePalette) private var palette
 
     @State private var filter        = ""
     @State private var isSelecting   = false
     @State private var selectedIDs:  Set<UUID> = []
-    @State private var editorRequest: PhoneSceneEditorRequest? = nil
     @State private var showingNewScene = false
     @FocusState private var filterFocused: Bool
 
@@ -68,9 +71,6 @@ struct BoneyardTab: View {
             }
         }
         .background(Color.windowBackground)
-        .sheet(item: $editorRequest) { request in
-            editor(for: request.sceneID, in: displayed)
-        }
         .sheet(isPresented: $showingNewScene) {
             NewSceneSheet(
                 knownLocations: project.knownLocations,
@@ -189,7 +189,7 @@ struct BoneyardTab: View {
             } else {
                 Section {
                     ForEach(displayed) { scene in
-                        row(scene)
+                        row(scene, in: displayed)
                     }
                 }
             }
@@ -200,9 +200,10 @@ struct BoneyardTab: View {
 
     /// One Boneyard scene as its strip: a tap opens the editor (not while selecting,
     /// when the list's own tap toggles the row), a long press is the menu, the trailing
-    /// swipe Send to Day and Delete. A duplicate number wears the Mac's dashed red edge.
+    /// swipe Delete, Send to Day and Duplicate. A duplicate number wears the Mac's dashed
+    /// red edge.
     @ViewBuilder
-    private func row(_ scene: Scene) -> some View {
+    private func row(_ scene: Scene, in displayed: [Scene]) -> some View {
         let isDuplicate = derived.duplicateSceneNumberIDs.contains(scene.id)
         let strip = PhoneStripRow(scene: scene, timeText: "")
             .overlay {
@@ -217,7 +218,7 @@ struct BoneyardTab: View {
                 strip
             } else {
                 Button {
-                    editorRequest = PhoneSceneEditorRequest(sceneID: scene.id)
+                    openEditor(for: scene, in: displayed)
                 } label: {
                     strip
                 }
@@ -227,14 +228,14 @@ struct BoneyardTab: View {
         .stripListRow(color: PhoneStripRow.rowColor(for: scene, palette: palette))
         .contextMenu {
             Button {
-                editorRequest = PhoneSceneEditorRequest(sceneID: scene.id)
+                openEditor(for: scene, in: displayed)
             } label: {
                 Label(L("Edit Scene"), systemImage: "pencil")
             }
             Button {
-                duplicate(scene)
+                dayEdits.duplicateScene(id: scene.id)
             } label: {
-                Label(L("Duplicate Scene"), systemImage: "plus.square.on.square")
+                Label(L("Duplicate Scene"), systemImage: "doc.on.doc")
             }
             Button {
                 moves.presentSendToDay(sceneIDs: [scene.id])
@@ -243,7 +244,7 @@ struct BoneyardTab: View {
             }
             Divider()
             Button(role: .destructive) {
-                delete(scene.id)
+                dayEdits.deleteUnscheduledScene(id: scene.id)
             } label: {
                 Label(L("Delete Scene"), systemImage: "trash")
             }
@@ -252,7 +253,7 @@ struct BoneyardTab: View {
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) {
-                delete(scene.id)
+                dayEdits.deleteUnscheduledScene(id: scene.id)
             } label: {
                 Label(L("Delete"), systemImage: "trash")
             }
@@ -262,7 +263,18 @@ struct BoneyardTab: View {
                 Label(L("Send to Day"), systemImage: "arrow.turn.down.right")
             }
             .tint(.blue)
+            Button {
+                dayEdits.duplicateScene(id: scene.id)
+            } label: {
+                Label(L("Duplicate"), systemImage: "doc.on.doc")
+            }
+            .tint(.indigo)
         }
+    }
+
+    /// The scene editor over this row, with the displayed rows for Previous and Next.
+    private func openEditor(for scene: Scene, in displayed: [Scene]) {
+        dayEdits.presentSceneEditor(sceneID: scene.id, dayID: nil, siblingIDs: displayed.map(\.id))
     }
 
     // MARK: - Selection
@@ -309,62 +321,11 @@ struct BoneyardTab: View {
         }
     }
 
-    // MARK: - The editor
-
-    /// The scene editor over the displayed rows: Previous and Next step through them.
-    private func editor(for id: UUID, in displayed: [Scene]) -> some View {
-        let ids      = displayed.map(\.id)
-        let position = ids.firstIndex(of: id)
-        return PhoneSceneEditor(
-            sceneID:       id,
-            document:      document,
-            edit:          edit,
-            moves:         moves,
-            dismiss:       { editorRequest = nil },
-            canGoPrevious: (position ?? 0) > 0,
-            canGoNext:     position.map { $0 < ids.count - 1 } ?? false,
-            onPrevious:    { if let position, position > 0 { editorRequest = PhoneSceneEditorRequest(sceneID: ids[position - 1]) } },
-            onNext:        { if let position, position < ids.count - 1 { editorRequest = PhoneSceneEditorRequest(sceneID: ids[position + 1]) } },
-            positionLabel: position.map { String(format: L("Scene %d of %d"), $0 + 1, ids.count) }
-        )
-    }
-
     // MARK: - Edits
 
     private func addScene(_ scene: Scene) {
         edit(L("Add Scene")) { $0.allScenes.append(scene) }
         revealSceneID = scene.id
-    }
-
-    private func delete(_ id: UUID) {
-        edit(L("Delete Scene")) { $0.removeScene(withID: id) }
-    }
-
-    /// Duplicate Scene, the Mac's Boneyard menu item: a copy with a new id, " (Copy)"
-    /// on the title and the breakdown carried over; scheduling state (completion,
-    /// times) starts fresh. The Mac's copy of this rule is private to `ContentView`.
-    private func duplicate(_ scene: Scene) {
-        edit(L("Duplicate Scene")) { $0.allScenes.append(Scene(
-            title:            scene.title + " (Copy)",
-            sceneNumber:      scene.sceneNumber,
-            duration:         scene.duration,
-            estimatedTime:    scene.estimatedTime,
-            dayNightType:     scene.dayNightType,
-            cast:             scene.cast,
-            summary:          scene.summary,
-            realLocation:     scene.realLocation,
-            extras:           scene.extras,
-            props:            scene.props,
-            setDressing:      scene.setDressing,
-            wardrobe:         scene.wardrobe,
-            makeupHair:       scene.makeupHair,
-            vehicles:         scene.vehicles,
-            specialEquipment: scene.specialEquipment,
-            stunts:           scene.stunts,
-            sfx:              scene.sfx,
-            vfx:              scene.vfx,
-            breakdownNotes:   scene.breakdownNotes
-        )) }
     }
 
     // MARK: - Reveal

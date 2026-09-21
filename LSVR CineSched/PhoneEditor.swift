@@ -153,7 +153,6 @@ struct PhoneEditor: View {
                     document:         document,
                     conflictSceneIDs: derived.conflictSceneIDs,
                     scrollToDate:     $scrollToDate,
-                    edit:             projectEdit,
                     editCoalescing:   coalescedProjectEdit,
                     moves:            moves,
                     dayEdits:         dayEdits
@@ -166,7 +165,8 @@ struct PhoneEditor: View {
                     sort:          $boneyardSort,
                     revealSceneID: $revealBoneyardSceneID,
                     edit:          projectEdit,
-                    moves:         moves
+                    moves:         moves,
+                    dayEdits:      dayEdits
                 )
             }
             Tab(L("Production"), systemImage: "person.3", value: .production) {
@@ -190,8 +190,7 @@ struct PhoneEditor: View {
             Tab(value: .search, role: .search) {
                 SearchTab(
                     document: document,
-                    edit:     projectEdit,
-                    moves:    moves,
+                    dayEdits: dayEdits,
                     showInDays: { date in
                         selectedTab  = .days
                         scrollToDate = date

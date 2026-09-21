@@ -1,9 +1,12 @@
 // PhoneMoves.swift
 // The moves the iPhone makes to the schedule (#25), wired once by `PhoneEditor` and handed
 // to the Days list, the Day screen and (with #27) the Boneyard tab as one `PhoneMoves`
-// value: a reorder within a day (`reorder`), Send to Day (`sendToDay`), Add Scenes
-// (`addScenes`), Swap with Day (`swapDays`) and the swipe back to the Boneyard
-// (`returnToBoneyard`). Each is one `edit` over the pure `ScheduleMoves` functions, so a
+// value: a reorder within a day (`reorder`), Send to Day (`sendToDay`), Move to Next Day
+// and Move to Previous Day (`moveToAdjacentDay`: the one-gesture slip to tomorrow the
+// spec's story 34 asks for, since a sectioned `List` never carries a drag across days,
+// learnings 2026-09-21), Add Scenes (`addScenes`), Swap with Day (`swapDays`) and the
+// swipe back to the Boneyard (`returnToBoneyard`). Each is one `edit` over the pure
+// `ScheduleMoves` functions, so a
 // move is one undo step — the shake or the three-finger swipe reverses exactly it — and
 // each brings the auto-meal strips of the days it touched in line with their call sheets
 // inside that same edit, as the inspector's call sheet save does (learnings 2026-09-20,
@@ -71,6 +74,18 @@ struct PhoneMoves {
             let touched = data.daysHolding(ids) + [dayID]
             guard ScheduleMoves.moveScenes(ids, to: SceneDropDestination(dayID: dayID), days: &data.shootDays, boneyard: &data.allScenes) else { return }
             data.syncAutoMeals(of: touched)
+        }
+    }
+
+    /// Move to Next Day / Move to Previous Day: the scenes with `ids`, on `dayID`, to the
+    /// end of the adjacent day of the schedule (`ScheduleMoves.adjacentDayID`: the next
+    /// entry of `shootDays`, empty or typed days included, which is what "tomorrow" means
+    /// to a scheduler reading the board). Nothing happens at the first or last day.
+    func moveToAdjacentDay(_ ids: [UUID], from dayID: UUID, _ direction: DayDirection) {
+        edit(direction == .next ? L("Move to Next Day") : L("Move to Previous Day")) { data in
+            guard let target = ScheduleMoves.adjacentDayID(of: dayID, direction, in: data.shootDays) else { return }
+            guard ScheduleMoves.moveScenes(ids, to: SceneDropDestination(dayID: target), days: &data.shootDays, boneyard: &data.allScenes) else { return }
+            data.syncAutoMeals(of: [dayID, target])
         }
     }
 
