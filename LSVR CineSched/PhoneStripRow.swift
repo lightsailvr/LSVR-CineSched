@@ -178,34 +178,16 @@ struct PhoneStripRow: View {
         scene.isBanner ? bannerColor(for: scene) : scene.stripColor(in: palette)
     }
 
-    /// The banner's dark fill: meals and auto-meals near black, the general call navy,
-    /// ready-to-shoot green, wrap red; a banner with its own color keeps it (the same
-    /// rules the Stripboard's `BannerStripRow` applies).
+    /// The banner's fill and label are the Mac Stripboard's rules (`BannerAppearance.swift`:
+    /// an auto-meal by its kind, a meal banner near black, the legacy amber too, else its
+    /// own color or slate; the label without the "(01:00 PM)" suffix), so the same banner
+    /// draws the same here and on the Mac.
     static func bannerColor(for scene: Scene) -> Color {
-        if scene.isAutoMeal {
-            switch scene.mealKind {
-            case .generalCall:  return Color(hex: "1E3A8A")
-            case .readyToShoot: return Color(hex: "064E3B")
-            case .wrap:         return Color(hex: "991B1B")
-            default:            return Color(hex: "18181B")
-            }
-        }
-        if scene.bannerType == .mealBreak || scene.bannerColorHex == "F59E0B" {
-            return Color(hex: "18181B")
-        }
-        return Color(hex: scene.bannerColorHex.isEmpty ? "334155" : scene.bannerColorHex)
+        Color(hex: scene.bannerFillHex)
     }
 
-    /// The banner's label: an auto-meal by its kind, otherwise its title without the
-    /// "(01:00 PM)" time the auto-generated titles carry.
     static func bannerLabel(for scene: Scene) -> String {
-        if let kind = scene.mealKind {
-            return "\(kind.icon) \(kind.defaultTitle)"
-        }
-        let raw = scene.bannerTitle.isEmpty ? scene.title : scene.bannerTitle
-        return raw
-            .replacingOccurrences(of: #"\s*\(\s*\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)?\s*\)"#, with: "", options: .regularExpression)
-            .trimmingCharacters(in: .whitespaces)
+        scene.bannerDisplayLabel
     }
 }
 

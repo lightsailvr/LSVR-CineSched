@@ -1080,53 +1080,11 @@ struct BannerStripRow: View {
     let dragPayload: () -> ScheduleDragPayload
 
     private var isDragging: Bool { interactingSceneId == scene.id }
-    private var bannerColor: Color {
-        if scene.isAutoMeal {
-            if let kind = scene.mealKind {
-                switch kind {
-                case .lunch, .snack, .dinner: return Color(hex: "18181B")
-                case .generalCall:  return Color(hex: "1E3A8A")
-                case .readyToShoot: return Color(hex: "064E3B")
-                case .wrap:         return Color(hex: "991B1B")
-                }
-            }
-            return Color(hex: "18181B")
-        }
-        if scene.bannerType == .mealBreak || scene.title.lowercased().contains("almuerzo") || scene.title.lowercased().contains("lunch") || scene.title.lowercased().contains("cena") || scene.title.lowercased().contains("dinner") || scene.title.lowercased().contains("snack") || scene.title.lowercased().contains("merienda") {
-            return Color(hex: "18181B")
-        }
-        if scene.bannerColorHex == "F59E0B" {
-            return Color(hex: "18181B")
-        }
-        if scene.bannerColorHex.isEmpty { return Color(hex: "334155") }
-        return Color(hex: scene.bannerColorHex)
-    }
-
-    private var bannerDisplayTitle: String {
-        if let kind = scene.mealKind {
-            return "\(kind.icon) \(kind.defaultTitle)"
-        }
-        let raw = scene.title.replacingOccurrences(of: #"\s*\(\s*\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)?\s*\)"#, with: "", options: .regularExpression).trimmingCharacters(in: .whitespaces)
-        if raw == "Notice / Note" || raw == "Aviso / Nota" || raw == "Notice" || raw == "Nota" || raw == "Aviso" {
-            return L("Notice")
-        }
-        if raw.contains("ALMUERZO / LUNCH") || raw.contains("LUNCH / ALMUERZO") {
-            return "🍽️ \(L("LUNCH"))"
-        }
-        if raw.contains("MERIENDA / SNACK") || raw.contains("SNACK / MERIENDA") {
-            return "☕ \(L("SNACK"))"
-        }
-        if raw.contains("CENA / DINNER") || raw.contains("DINNER / CENA") {
-            return "🍕 \(L("DINNER"))"
-        }
-        if raw.contains("FIN DE RODAJE / WRAP") || raw.contains("WRAP / FIN DE RODAJE") {
-            return "🎬 \(L("WRAP"))"
-        }
-        if raw.contains("READY TO SHOOT / EN SET") {
-            return "🎬 \(L("READY TO SHOOT"))"
-        }
-        return raw
-    }
+    /// The fill and the label are `BannerAppearance.swift`'s (the rules this row had
+    /// inline, moved out so the iPhone's strip draws the same; pinned by
+    /// `BannerAppearanceTests`).
+    private var bannerColor: Color { Color(hex: scene.bannerFillHex) }
+    private var bannerDisplayTitle: String { scene.bannerDisplayLabel }
 
     var body: some View {
         HStack(spacing: 8) {
