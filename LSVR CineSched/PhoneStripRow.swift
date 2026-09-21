@@ -9,8 +9,9 @@
 //
 // `PhoneStripActions` is where the strip's long-press menu and swipe actions are built,
 // one function each, so the tickets that add moves (#25) and edits (#26) have one place
-// to add to for both lists. Here they hold the preview-only baseline: the long-press
-// preview (`StripPreview`: number, slugline, cast, summary) and Open Day.
+// to add to for both lists. Here: the long-press preview (`StripPreview`: number,
+// slugline, cast, summary), Open Day, and the moves (#25): Send to Day… and Return to
+// Boneyard in the menu, and as the trailing swipe.
 
 import SwiftUI
 
@@ -263,14 +264,22 @@ struct StripPreview: View {
 
 /// The actions a strip row offers, built in one place for the Days list and the Day
 /// screen. `stripContextMenu(for:)` is the long-press menu's items and
-/// `stripSwipeActions(for:)` the row's swipe actions; both are the baseline here (the
-/// menu opens the day, the swipe does nothing), and #25 (moves) and #26 (edits) add
-/// their items to these two functions. `edit` is the funnel every item writes through.
+/// `stripSwipeActions(for:)` the row's swipe actions; #25 put the moves here (Send to
+/// Day… for a script scene or a banner, Return to Boneyard for a script scene; auto-meals
+/// follow the call sheet and calendar events are never strips, so neither gets them) and
+/// #26 adds its edits to the same two functions. `edit` is the funnel every item writes
+/// through; `moves` (`PhoneMoves`) is the editor's move funnel and its pickers.
 struct PhoneStripActions {
-    let day:  ShootDay
-    let edit: ProjectEdit
+    let day:   ShootDay
+    let edit:  ProjectEdit
+    let moves: PhoneMoves
     /// Opens the Day screen for `day`; nil on the Day screen itself.
     let openDay: (() -> Void)?
+
+    /// Send to Day applies to what a drag would carry: a script scene or a banner.
+    private func canSendToDay(_ scene: Scene) -> Bool { !scene.isCalendarEvent && !scene.isAutoMeal }
+    /// Only a script scene has a place in the Boneyard.
+    private func canReturnToBoneyard(_ scene: Scene) -> Bool { !scene.isBanner && !scene.isCalendarEvent }
 
     @ViewBuilder
     func stripContextMenu(for scene: Scene) -> some View {
@@ -281,11 +290,43 @@ struct PhoneStripActions {
                 Label(L("Open Day"), systemImage: "calendar")
             }
         }
+        // The moves (#25). #26 adds its edits below these.
+        if canSendToDay(scene) {
+            Button {
+                moves.presentSendToDay(sceneIDs: [scene.id])
+            } label: {
+                Label(L("Send to Day…"), systemImage: "arrow.turn.down.right")
+            }
+        }
+        if canReturnToBoneyard(scene) {
+            Button {
+                moves.returnToBoneyard([scene.id])
+            } label: {
+                Label(L("Return to Boneyard"), systemImage: "tray.and.arrow.down")
+            }
+        }
     }
 
+    /// The trailing swipe: Send to Day… and, for a script scene, Boneyard. A banner's or
+    /// event's delete is #26's, so a notice strip has no Boneyard swipe here.
     @ViewBuilder
     func stripSwipeActions(for scene: Scene) -> some View {
-        EmptyView()
+        if canReturnToBoneyard(scene) {
+            Button {
+                moves.returnToBoneyard([scene.id])
+            } label: {
+                Label(L("Boneyard"), systemImage: "tray.and.arrow.down")
+            }
+            .tint(.orange)
+        }
+        if canSendToDay(scene) {
+            Button {
+                moves.presentSendToDay(sceneIDs: [scene.id])
+            } label: {
+                Label(L("Send to Day"), systemImage: "arrow.turn.down.right")
+            }
+            .tint(.blue)
+        }
     }
 }
 

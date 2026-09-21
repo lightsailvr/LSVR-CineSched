@@ -8,7 +8,18 @@
 // pages, general call) opens its Day screen, with the day's event chips and its strips,
 // each timed by the cascade (`DayTimeline`). Long-pressing a strip previews the scene and
 // offers the strip menu; the swipe actions and menu items are built in
-// `PhoneStripActions` (PhoneStripRow.swift) for #25 and #26 to add to.
+// `PhoneStripActions` (PhoneStripRow.swift), the moves among them (#25).
+//
+// The moves (#25): a long-press drag on a strip reorders it within its day through the
+// strips `ForEach`'s `.onMove` (`PhoneMoves.reorder`, one edit); the `List` gives the drag
+// handles and the edge auto-scroll. A strip cannot be dragged into another day's card,
+// because a `List` on iOS 27 does not deliver a cross-section drop — a row's or a
+// section's `.dropDestination` is never targeted and `onInsert` never fires for a drag
+// that started in another section (learnings 2026-09-21 #25) — and a `List` is what the
+// swipe actions need. Cross-day moves are Send to Day instead (the strip's swipe and
+// menu, `PhoneStripActions`), which lands the scene on any day picked. The day header's
+// long press is the day's menu (Open Day, Add Scenes…, Swap with Day…). No `dragContainer`
+// or `reorderContainer`: see ScheduleDrag.swift and learnings 2026-09-20.
 //
 // Scrolling to a date (the week strip, the month popover, the Today control through the
 // `scrollToDate` binding the editor owns) goes through `dayScrollTarget`: a date folded
@@ -28,6 +39,8 @@ struct DaysTab: View {
     /// strip and month popover; cleared here once acted on.
     @Binding var scrollToDate: Date?
     let edit: ProjectEdit
+    /// The moves and their pickers (#25), wired by the editor.
+    let moves: PhoneMoves
     @Environment(\.scenePalette) private var palette
     /// Compact vertically (an iPhone in landscape): the week strip is one row.
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -73,7 +86,7 @@ struct DaysTab: View {
             }
             .editorNavigationBarHidden()
             .navigationDestination(for: UUID.self) { dayID in
-                DayScreen(dayID: dayID, document: document, conflictSceneIDs: conflictSceneIDs, edit: edit)
+                DayScreen(dayID: dayID, document: document, conflictSceneIDs: conflictSceneIDs, edit: edit, moves: moves)
             }
         }
     }
@@ -111,7 +124,8 @@ struct DaysTab: View {
         let strips   = day.scenes.filter { !$0.isCalendarEvent }
         let events   = day.scenes.filter { $0.isCalendarEvent }
         let timeline = dayTimeline(for: day, scenes: strips)
-        let actions  = PhoneStripActions(day: day, edit: edit, openDay: { path.append(day.id) })
+        let actions  = PhoneStripActions(day: day, edit: edit, moves: moves, openDay: { path.append(day.id) })
+        let displayed = strips.map(\.id)
 
         return Section {
             dayHeader(day, summary: summary)
@@ -122,6 +136,10 @@ struct DaysTab: View {
                 PhoneStripRow(scene: scene, timeText: timeline[scene.id]?.timeDisplay ?? "", hasConflict: conflictSceneIDs.contains(scene.id))
                     .stripListRow(color: PhoneStripRow.rowColor(for: scene, palette: palette))
                     .stripInteractions(actions, scene: scene)
+                    .draggable(ScheduleDragPayload.scenes([scene.id], from: day.id))
+            }
+            .onMove { source, destination in
+                moves.reorder(displayed, fromOffsets: source, toOffset: destination, in: day.id)
             }
             if stripboardDayIsEmpty(day) {
                 // This day is only on screen because its gap was opened; offer the way back.
@@ -139,7 +157,8 @@ struct DaysTab: View {
         }
     }
 
-    /// The card's first row: what the day is, and the way into its Day screen.
+    /// The card's first row: what the day is, and the way into its Day screen; a long
+    /// press is the day's menu.
     private func dayHeader(_ day: ShootDay, summary: DaySummary) -> some View {
         let typeColor = Color(hex: day.dayType.colorHex)
         return NavigationLink(value: day.id) {
@@ -186,10 +205,32 @@ struct DaysTab: View {
         }
         .id(day.id)
         .listRowBackground(day.dayType.isShootable ? nil : typeColor.opacity(0.10))
+        .contextMenu { dayMenuItems(day) }
         // `onScrollVisibilityChange` never fires for a List row on 27.0; appear and
         // disappear do, one buffered cell late, which is close enough for the week.
         .onAppear    { visibleDayDates.insert(day.date); followVisibleDays() }
         .onDisappear { visibleDayDates.remove(day.date); followVisibleDays() }
+    }
+
+    /// The day header's long-press menu: the Day screen and the moves that act on the
+    /// whole day (#25). #26 adds its day edits here.
+    @ViewBuilder
+    private func dayMenuItems(_ day: ShootDay) -> some View {
+        Button {
+            path.append(day.id)
+        } label: {
+            Label(L("Open Day"), systemImage: "calendar")
+        }
+        Button {
+            moves.presentAddScenes(dayID: day.id)
+        } label: {
+            Label(L("Add Scenes…"), systemImage: "plus.rectangle.on.rectangle")
+        }
+        Button {
+            moves.presentSwapDay(dayID: day.id)
+        } label: {
+            Label(L("Swap with Day…"), systemImage: "arrow.left.arrow.right")
+        }
     }
 
     /// "6 scn · 4 2/8 pgs · Call 6:30 AM · 1 event", dropping what the day has none of.

@@ -14,6 +14,8 @@
 // `scenePalette` environment at the root (the one place the palette enters the tree), the
 // `DerivedScheduleState` cache (conflicts, once per change), the PDF preview presentation
 // with the `exportPreview` request the Production tab (#28) and the Day screen (#26) set,
+// the moves (#25): `PhoneMoves` over the funnel, handed to the tabs, with the pickers a
+// move asks for (Send to Day, Swap with Day, Add Scenes) presented here as `moveSheet`,
 // and the `ProjectCommands` the iPad's menu bar acts through in a narrow window (#22):
 // published as the focused scene value and into `ActiveProjectCommands` while the window
 // appears active, each command handing the Production tab a `ProductionCommand`.
@@ -73,6 +75,12 @@ struct PhoneEditor: View {
     /// tab switch, consumed and cleared by the tab.
     @State private var productionCommand: ProductionCommand? = nil
 
+    /// The picker a move asked for (#25: Send to Day, Swap with Day, Add Scenes), presented
+    /// as a sheet over the whole editor by `phoneMoveSheets`, so it outlives the row or the
+    /// Day screen that asked. Set through `moves.present…`; #27's Boneyard tab uses the
+    /// same `presentSendToDay(sceneIDs:)`.
+    @State private var moveSheet: PhoneMoveSheet? = nil
+
     private var palette: ScenePalette { document.project.resolvedPalette }
 
     // MARK: - Body
@@ -84,7 +92,8 @@ struct PhoneEditor: View {
                     document:         document,
                     conflictSceneIDs: derived.conflictSceneIDs,
                     scrollToDate:     $scrollToDate,
-                    edit:             projectEdit
+                    edit:             projectEdit,
+                    moves:            moves
                 )
             }
             Tab(L("Boneyard"), systemImage: "tray.full", value: .boneyard) {
@@ -129,6 +138,7 @@ struct PhoneEditor: View {
         .environment(\.scenePalette, palette)
         .syncMonitored(syncMonitor, document: document)
         .pdfExportPresentation($exportPreview)
+        .phoneMoveSheets($moveSheet, document: document, boneyard: derived.sortedBoneyard.map(\.scene), moves: moves)
         // The menu bar's commands (#22): the focused value, and the holder for the iPad,
         // where the focused value is nil without a hardware keyboard in use.
         .focusedSceneValue(\.projectCommands, projectCommands)
@@ -196,6 +206,11 @@ struct PhoneEditor: View {
     /// `edit(_:coalescing:_:)` as the closure the Production tab takes.
     private var coalescedProjectEdit: CoalescedProjectEdit {
         { token, actionName, change in edit(actionName, coalescing: token, change) }
+    }
+
+    /// The moves (#25) over `edit`, with their pickers presented here.
+    private var moves: PhoneMoves {
+        PhoneMoves(edit: projectEdit, present: { moveSheet = $0 })
     }
 
     /// Opens the gesture the following `edit`s fold into, and closes it at the end of the

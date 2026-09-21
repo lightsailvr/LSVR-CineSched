@@ -2,13 +2,16 @@
 // The iPhone's Day screen (#24): everything about one shoot day, pushed from the Days
 // list as a navigation destination (not a sheet). Bound to the day by id and read from
 // the document on every body, so it follows an edit, an undo or a sync under it, and
-// shows an empty state if a range change removes the day. Read-only here: the header
-// (`DaySummary`), the day type and note, the call sheet card (the call sheet's times and
-// basecamp, named as the day detail names them), the calendar events and the strips with
-// the time cascade, each its own `Section` with a `MARK`, because #25 adds moves to the
-// strips section and #26 makes the type, the note, the call sheet and the events
-// editable. The strips are the same `PhoneStripRow` the list draws, with the same
-// `PhoneStripActions` (no Open Day here; this is the day).
+// shows an empty state if a range change removes the day. The header (`DaySummary`, with
+// the day's menu: Add Scenes…, Swap with Day…), the day type and note, the call sheet
+// card (the call sheet's times and basecamp, named as the day detail names them), the
+// calendar events and the strips with the time cascade, each its own `Section` with a
+// `MARK`; #26 makes the type, the note, the call sheet and the events editable. The
+// strips are the same `PhoneStripRow` the list draws, with the same `PhoneStripActions`
+// (no Open Day here; this is the day), and the moves (#25): Reorder puts the list in edit
+// mode so the strips show drag handles (`onMove`, one edit per drop through
+// `PhoneMoves.reorder`; a long press alone is the strip's menu), and an Add Scenes… row
+// opens the Boneyard checklist. Every move is one undo step.
 //
 // Platform-free SwiftUI; the Mac compiles it and never shows it.
 
@@ -19,7 +22,11 @@ struct DayScreen: View {
     let document: ProjectDocument
     let conflictSceneIDs: Set<UUID>
     let edit: ProjectEdit
+    let moves: PhoneMoves
     @Environment(\.scenePalette) private var palette
+
+    /// Edit mode on the strips, with their drag handles (Reorder / Done in the section header).
+    @State private var isReordering = false
 
     private var day: ShootDay? { document.project.shootDays.first { $0.id == dayID } }
 
@@ -41,7 +48,7 @@ struct DayScreen: View {
         let strips     = day.scenes.filter { !$0.isCalendarEvent }
         let events     = day.scenes.filter { $0.isCalendarEvent }
         let timeline   = dayTimeline(for: day, scenes: strips)
-        let actions    = PhoneStripActions(day: day, edit: edit, openDay: nil)
+        let actions    = PhoneStripActions(day: day, edit: edit, moves: moves, openDay: nil)
 
         return List {
             headerSection(summary)
@@ -51,6 +58,7 @@ struct DayScreen: View {
             stripsSection(strips, timeline: timeline, actions: actions)
         }
         .insetGroupedListStyle()
+        .listReordering(isReordering)
         .navigationTitle(summary.productionDayNumber.map { "\(L("Day")) \($0)" } ?? formattedDate(day.date))
         .toolbarTitleDisplayMode(.inline)
     }
@@ -58,13 +66,17 @@ struct DayScreen: View {
     // MARK: - Header
 
     /// The day as the list's header reads it, at full size: the date, the day number or
-    /// the type, and the counts.
+    /// the type, the counts, and the day's menu (the moves that act on the whole day).
     private func headerSection(_ summary: DaySummary) -> some View {
         let typeColor = Color(hex: summary.dayType.colorHex)
         return Section {
             VStack(alignment: .leading, spacing: 8) {
-                Text(formattedFullDate(summary.date))
-                    .font(.title3.weight(.semibold))
+                HStack(alignment: .firstTextBaseline) {
+                    Text(formattedFullDate(summary.date))
+                        .font(.title3.weight(.semibold))
+                    Spacer(minLength: 8)
+                    dayMenu
+                }
                 HStack(spacing: 8) {
                     if let number = summary.productionDayNumber {
                         Text("\(L("Day")) \(number)")
@@ -98,6 +110,30 @@ struct DayScreen: View {
     private func stat(icon: String, text: String) -> some View {
         Label(text, systemImage: icon)
             .lineLimit(1)
+    }
+
+    /// The day's menu: the moves that act on the whole day (#25). #26 adds its edits here.
+    private var dayMenu: some View {
+        Menu {
+            Button {
+                moves.presentAddScenes(dayID: dayID)
+            } label: {
+                Label(L("Add Scenes…"), systemImage: "plus.rectangle.on.rectangle")
+            }
+            Button {
+                moves.presentSwapDay(dayID: dayID)
+            } label: {
+                Label(L("Swap with Day…"), systemImage: "arrow.left.arrow.right")
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.title3)
+                .frame(minWidth: 32, minHeight: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(L("Day actions"))
+        .accessibilityIdentifier("DayMenu")
     }
 
     // MARK: - Day type and note (#26 makes these editable)
@@ -198,10 +234,11 @@ struct DayScreen: View {
         }
     }
 
-    // MARK: - Strips (#25 adds moves, #26 the editor)
+    // MARK: - Strips (#25: reorder with handles, Add Scenes; #26 the editor)
 
     private func stripsSection(_ strips: [Scene], timeline: [UUID: DayTimelineEntry], actions: PhoneStripActions) -> some View {
-        Section {
+        let displayed = strips.map(\.id)
+        return Section {
             if strips.isEmpty {
                 Text(L("No scenes scheduled"))
                     .font(.subheadline)
@@ -212,8 +249,30 @@ struct DayScreen: View {
                     .stripListRow(color: PhoneStripRow.rowColor(for: scene, palette: palette))
                     .stripInteractions(actions, scene: scene)
             }
+            .onMove { source, destination in
+                moves.reorder(displayed, fromOffsets: source, toOffset: destination, in: dayID)
+            }
+            Button {
+                moves.presentAddScenes(dayID: dayID)
+            } label: {
+                Label(L("Add Scenes…"), systemImage: "plus.rectangle.on.rectangle")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .accessibilityIdentifier("AddScenesRow")
         } header: {
-            Label(L("Strips"), systemImage: "rectangle.stack")
+            HStack {
+                Label(L("Strips"), systemImage: "rectangle.stack")
+                Spacer()
+                if strips.count > 1 {
+                    Button(isReordering ? L("Done") : L("Reorder")) {
+                        withAnimation { isReordering.toggle() }
+                    }
+                    .font(.footnote.weight(.semibold))
+                    .textCase(nil)
+                    .buttonStyle(.borderless)
+                    .accessibilityIdentifier("ReorderStrips")
+                }
+            }
         }
     }
 }
