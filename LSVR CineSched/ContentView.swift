@@ -182,6 +182,9 @@ struct ContentView: View {
     }
     @State var activeSheet: ActiveSheet? = nil
     @State private var showingColorLegend = false
+    /// The export the preview sheet shows on the iPad and the Vision Pro (#23); the Mac's
+    /// exports go to its save panels and never set it (ContentView+PDFExports.swift).
+    @State var exportPreview: PDFExportRequest? = nil
 
     // MARK: - Inspector selection (three-column layout)
 
@@ -255,7 +258,8 @@ struct ContentView: View {
 
         let withAlerts = applyAlerts(base)
         let withSheets = applySheets(withAlerts)
-        return applyLifecycle(withSheets)
+        let withExport = applyExportPresentation(withSheets)
+        return applyLifecycle(withExport)
     }
 
     /// The iPad and Vision Pro window (#17): the same sidebar, the schedule as the content
@@ -291,7 +295,8 @@ struct ContentView: View {
 
         let withAlerts = applyAlerts(base)
         let withSheets = applySheets(withAlerts)
-        return applyLifecycle(withSheets)
+        let withExport = applyExportPresentation(withSheets)
+        return applyLifecycle(withExport)
     }
 
     /// The content column's toolbar in the three-column layout. The view switcher is the
@@ -350,6 +355,24 @@ struct ContentView: View {
                 Button(L("Schedule Lock Report…")) { projectCommands.showScheduleLockReport() }
             } label: {
                 Label(L("Production"), systemImage: "clapperboard")
+            }
+
+            // The Mac's File menu exports, plus the whole shooting schedule (the Stripboard
+            // day header exports one day) and the inspected day's call sheet. Each opens
+            // the preview sheet with Share (#23).
+            Menu {
+                Button(L("Schedule Calendar (PDF)…"))  { projectCommands.exportSchedulePDF() }
+                Button(L("Strip Schedule (PDF)…"))     { projectCommands.exportStripboardPDF() }
+                Button(L("Shooting Schedule (PDF)…"))  { showShootingSchedulePDFSavePanel() }
+                Divider()
+                Button(L("Days Out of Days (PDF)…"))   { projectCommands.exportDaysOutOfDays() }
+                Button(L("Scene Breakdowns (PDF)…"))   { projectCommands.exportBreakdowns() }
+                if let day = selectedDay {
+                    Divider()
+                    Button("\(L("Call Sheet for")) \(formattedDate(day.date)) (PDF)…") { showCallSheetPDFSavePanel(for: day) }
+                }
+            } label: {
+                Label(L("Export"), systemImage: "square.and.arrow.up")
             }
 
             Button {
@@ -797,6 +820,12 @@ struct ContentView: View {
     private var selectedDayID: UUID? {
         if case .day(let id) = selection { return id }
         return nil
+    }
+
+    /// That day itself, for the Export menu's call sheet item.
+    private var selectedDay: ShootDay? {
+        guard let id = selectedDayID, let index = document.project.dayIndex(forDayID: id) else { return nil }
+        return shootDays[index]
     }
 
     private func renameCastCharacter(from oldName: String, to newName: String) {

@@ -1,17 +1,43 @@
 // ContentView+PDFExports.swift
-// The "generate a PDF, then ask where to save it" actions behind the File menu, the
-// calendar's Export Month button, and the call-sheet / shooting-schedule buttons on the
-// two schedule views. Every exporter call site in the app lives here. These panels stay
-// on the Mac (#8): a PDF is an export, not the document.
+// The "generate a PDF, then hand it over" actions behind the File menu, the iPad
+// toolbar's Export menu, the calendar's Export Month button, and the call-sheet /
+// shooting-schedule buttons on the two schedule views and the day inspector. Every
+// exporter call site in the app lives here, and every one is the same two steps: build
+// the `PDFExportRequest` (PDFExportRequest.swift, the exporter's bytes under the file's
+// name) and deliver it. Where it goes is the `PlatformExportPresentation` seam (#23): the
+// Mac's save panel through `FilePanels` (#8: a PDF is an export, not the document), or
+// the preview sheet with Share on the iPad, the iPhone and the Vision Pro
+// (`pdfExportPresentation`, hung off the editor's root in `applyExportPresentation`).
 //
-// Every exporter draws through PDFCanvas, so this builds on every platform; the save
-// panel it hands the bytes to is the `FilePanels` seam, inert off the Mac until the
-// share sheet of milestone 3 (#23) replaces it there.
+// The `show…SavePanel` names predate the preview and are what the inspector and the
+// schedule views call; they now show whichever presentation the platform has.
 
 import SwiftUI
 import UniformTypeIdentifiers
 
 extension ContentView {
+
+    // MARK: - Where an export goes
+
+    /// The preview sheet (iPad, iPhone, Vision Pro) or the Mac's save panel.
+    private func deliver(_ request: PDFExportRequest, savePanel: (PDFExportRequest) -> Void) {
+        if PlatformExportPresentation.previewsExports {
+            exportPreview = request
+        } else {
+            savePanel(request)
+        }
+    }
+
+    private func report(_ error: PDFExportError) {
+        alertMessage = error.message
+        showingAlert = true
+    }
+
+    /// The preview sheet, attached to the editor's root on every platform (only the
+    /// platforms that preview ever set `exportPreview`).
+    func applyExportPresentation<Content: View>(_ content: Content) -> some View {
+        content.pdfExportPresentation($exportPreview)
+    }
 
     // MARK: - Panel helpers
 
@@ -20,160 +46,95 @@ extension ContentView {
         document.fileURL?.deletingLastPathComponent()
     }
 
-    func sanitizeFilename(_ name: String) -> String {
-        name.components(separatedBy: .init(charactersIn: "/\\:*?\"<>|"))
-            .joined(separator: "_")
-            .replacingOccurrences(of: " ", with: "_")
-    }
-
     // MARK: - PDF exports
 
     func showSchedulePDFSavePanel() {
-        guard let pdfData = PDFExporter.generatePDF(
-            shootDays: shootDays,
-            projectTitle: projectTitle,
-            allScenes: allScenes,
-            startDate: startDate,
-            endDate: endDate
-        ) else {
-            alertMessage = "Failed to generate schedule PDF."
-            showingAlert = true
-            return
+        do {
+            deliver(try PDFExport.scheduleCalendar(project: document.project, startDate: startDate, endDate: endDate), savePanel: showPDFSavePanel)
+        } catch {
+            report(error)
         }
-        showPDFSavePanel(
-            data: pdfData,
-            defaultName: sanitizeFilename("\(projectTitle.isEmpty ? "MovieSchedule" : projectTitle)_Calendar")
-        )
     }
 
     func showStripboardPDFSavePanel() {
-        guard let pdfData = StripboardPDFExporter.generatePDF(
-            shootDays: shootDays,
-            projectTitle: projectTitle,
-            productionInfo: productionInfo,
-            palette: palette
-        ) else {
-            alertMessage = "Couldn't generate a strip schedule PDF — schedule at least one scene first."
-            showingAlert = true
-            return
+        do {
+            deliver(try PDFExport.stripSchedule(project: document.project), savePanel: showPDFSavePanel)
+        } catch {
+            report(error)
         }
-        showPDFSavePanel(
-            data: pdfData,
-            defaultName: sanitizeFilename("\(projectTitle.isEmpty ? "MovieSchedule" : projectTitle)_StripSchedule")
-        )
     }
 
     func showDaysOutOfDaysPDFSavePanel() {
-        guard let pdfData = DaysOutOfDaysExporter.generatePDF(
-            shootDays: shootDays,
-            projectTitle: projectTitle,
-            productionInfo: productionInfo,
-            includeHold: includeHoldInDOOD
-        ) else {
-            alertMessage = "Couldn't generate a Days Out of Days report — add cast to your scenes and Production Setup first."
-            showingAlert = true
-            return
+        do {
+            deliver(try PDFExport.daysOutOfDays(project: document.project, includeHold: includeHoldInDOOD), savePanel: showPDFSavePanel)
+        } catch {
+            report(error)
         }
-        showPDFSavePanel(
-            data: pdfData,
-            defaultName: sanitizeFilename("\(projectTitle.isEmpty ? "MovieSchedule" : projectTitle)_DOoD")
-        )
     }
 
     func showBreakdownPDFSavePanel() {
-        guard let pdfData = BreakdownExporter.generatePDF(
-            shootDays: shootDays,
-            allScenes: allScenes,
-            projectTitle: projectTitle
-        ) else {
-            alertMessage = "Couldn't generate scene breakdowns — add some scenes first."
-            showingAlert = true
-            return
+        do {
+            deliver(try PDFExport.breakdowns(project: document.project), savePanel: showPDFSavePanel)
+        } catch {
+            report(error)
         }
-        showPDFSavePanel(
-            data: pdfData,
-            defaultName: sanitizeFilename("\(projectTitle.isEmpty ? "MovieSchedule" : projectTitle)_Breakdowns")
-        )
     }
 
     func showCallSheetPDFSavePanel(for day: ShootDay) {
-        let dayNumbers = productionDayNumbers(for: shootDays)
-        guard let pdfData = CallSheetExporter.generatePDF(
-            shootDay: day,
-            productionInfo: productionInfo,
-            projectTitle: projectTitle,
-            dayNumber: dayNumbers[day.id],
-            totalProductionDays: dayNumbers.values.max() ?? 0
-        ) else {
-            alertMessage = "Failed to generate call sheet PDF."
-            showingAlert = true
-            return
+        do {
+            deliver(try PDFExport.callSheet(project: document.project, day: day), savePanel: showPDFSavePanel)
+        } catch {
+            report(error)
         }
-        showPDFSavePanel(
-            data: pdfData,
-            defaultName: sanitizeFilename("CallSheet_\(formattedDate(day.date))")
-        )
     }
 
-    /// The Stripboard's per-day export passes just that day; the toolbar passes nothing
-    /// and gets the whole schedule.
+    /// The Stripboard's per-day export passes just that day; the Export menu passes
+    /// nothing and gets the whole schedule.
     func showShootingSchedulePDFSavePanel(for targetDays: [ShootDay]? = nil) {
-        let daysToExport = targetDays ?? shootDays
-        let pdfData = ShootingSchedulePDFExporter.generatePDF(
-            shootDays: daysToExport,
-            projectTitle: projectTitle,
-            productionInfo: productionInfo,
-            palette: palette
-        )
-        let baseName = projectTitle.isEmpty ? "Shooting_Schedule" : projectTitle.replacingOccurrences(of: " ", with: "_")
-        FilePanels.chooseSaveLocation(
-            title: L("Export Plan de Rodaje (PDF)"),
-            defaultName: "\(baseName)_Shooting_Schedule.pdf",
-            allowedTypes: [.pdf],
-            directory: nil
-        ) { url in
-            do {
-                try pdfData.write(to: url)
-            } catch {
-                alertMessage = "Error saving Shooting Schedule PDF: \(error.localizedDescription)"
-                showingAlert = true
+        let request = PDFExport.shootingSchedule(project: document.project, days: targetDays)
+        deliver(request) { request in
+            FilePanels.chooseSaveLocation(
+                title: L("Export Plan de Rodaje (PDF)"),
+                defaultName: request.fileName,
+                allowedTypes: [.pdf],
+                directory: nil
+            ) { url in
+                do {
+                    try request.data.write(to: url)
+                } catch {
+                    alertMessage = "Error saving Shooting Schedule PDF: \(error.localizedDescription)"
+                    showingAlert = true
+                }
             }
         }
     }
 
     /// The calendar's Export Month button, after the options sheet has been confirmed.
     func exportMonthPDF(month: Date, options: MonthPDFOptions) {
-        guard let pdfData = PDFExporter.generateMonthPDF(
-            month: month,
-            shootDays: shootDays,
-            projectTitle: projectTitle,
-            productionInfo: productionInfo,
-            palette: palette,
-            options: options
-        ) else { return }
-
-        let df = DateFormatter()
-        df.dateFormat = "yyyy_MM"
-        FilePanels.chooseSaveLocation(
-            title: L("Export Month (PDF)"),
-            defaultName: "Calendar_\(df.string(from: month)).pdf",
-            allowedTypes: [.pdf],
-            directory: nil
-        ) { url in
-            try? pdfData.write(to: url)
+        guard let request = try? PDFExport.monthCalendar(project: document.project, month: month, options: options) else { return }
+        deliver(request) { request in
+            FilePanels.chooseSaveLocation(
+                title: L("Export Month (PDF)"),
+                defaultName: request.fileName,
+                allowedTypes: [.pdf],
+                directory: nil
+            ) { url in
+                try? request.data.write(to: url)
+            }
         }
     }
 
-    private func showPDFSavePanel(data: Data, defaultName: String) {
+    /// The File menu exports' panel: beside the project, with a confirmation.
+    private func showPDFSavePanel(_ request: PDFExportRequest) {
         FilePanels.chooseSaveLocation(
             title: "Export PDF",
             prompt: "Export",
-            defaultName: defaultName,
+            defaultName: request.fileName,
             allowedTypes: [.pdf],
             directory: defaultPanelDirectory
         ) { url in
             do {
-                try data.write(to: url)
+                try request.data.write(to: url)
                 alertMessage = "PDF exported to: \(url.lastPathComponent)"
                 showingAlert = true
             } catch {
