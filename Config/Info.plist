@@ -13,7 +13,9 @@
   which collides with the generated plist in the flat iOS bundle (see CLAUDE.md).
 
   Only the native type is a document type (ADR 0005): it is what Finder and the Files app
-  associate with the app. Legacy .json opens on the Mac through the project document's
+  associate with the app. The second exported type, com.lsvr.cinesched.drag-payload, is
+  what a drag on the schedule carries (ScheduleDrag.swift, #18): an in-app blob conforming
+  to public.data, with no extension, so nothing on disk is ever of that type. Legacy .json opens on the Mac through the project document's
   readable types (a viewer role: the first Save asks for a .cinesched destination); it is
   deliberately not declared here, so that no platform claims every JSON file.
 
@@ -56,6 +58,16 @@
 	</dict>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.lsvr.cinesched.drag-payload</string>
+			<key>UTTypeDescription</key>
+			<string>CineSched Drag Payload</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
 			<string>com.lsvr.cinesched.project</string>
