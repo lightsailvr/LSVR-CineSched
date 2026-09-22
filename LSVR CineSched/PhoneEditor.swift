@@ -252,6 +252,10 @@ struct PhoneEditor: View {
             else      { activeProject?.retire(editorID) }
         }
         .onDisappear { activeProject?.retire(editorID) }
+        // The document's undo manager on the responder chain, for shake to undo and the
+        // three-finger gestures (PlatformPasteboardResponder.swift): SwiftUI hands it to
+        // `edit` through the environment, but UIKit's gestures ask the first responder.
+        .undoGestures(undoManager)
     }
 
     // MARK: - Menu commands

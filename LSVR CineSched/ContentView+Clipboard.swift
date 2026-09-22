@@ -25,12 +25,20 @@ extension ContentView {
 
     // MARK: - The modifier
 
-    /// The responder behind the board, with the three actions.
+    /// The responder behind the board, with the three actions and, in the three-column
+    /// layout, the document's undo manager for the iPad's shake and three-finger undo
+    /// gestures (they ask the first responder, not SwiftUI's environment). The Mac's
+    /// window wires Undo itself, so the two-column layout hands over nothing and its
+    /// tree is as it was (the `dimsWhenInactive` pattern, #22).
     func applyClipboard<Content: View>(_ content: Content) -> some View {
         content
             .background {
-                PasteboardResponder(actions: pasteboardActions, focusRequest: pasteboardFocusRequest)
-                    .frame(width: 0, height: 0)
+                PasteboardResponder(
+                    actions:      pasteboardActions,
+                    focusRequest: pasteboardFocusRequest,
+                    undoManager:  layout == .threeColumn ? undoManager : nil
+                )
+                .frame(width: 0, height: 0)
             }
     }
 

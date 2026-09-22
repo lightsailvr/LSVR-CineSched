@@ -64,7 +64,9 @@ struct ContentView: View {
     let layout: EditorLayout
     /// The window's undo manager, supplied by the document infrastructure. Every `perform`
     /// registers with it, which is also what marks the document edited and autosaves it.
-    @Environment(\.undoManager) private var undoManager
+    /// Read by the clipboard extension too, which puts it on the responder chain for the
+    /// iPad's undo gestures (ContentView+Clipboard.swift).
+    @Environment(\.undoManager) var undoManager
     /// The menu bar's fallback channel to the active window (#22, iPad; nil on the Mac,
     /// whose menus read the focused value): this editor publishes its commands there
     /// while its window appears active. `editorID` is its key in the holder.
