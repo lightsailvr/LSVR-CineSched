@@ -9,6 +9,65 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-21 — Shake to undo on the iPhone: UIKit asks the first responder, a SwiftUI editor has none, the undo alert leaves none behind, and Simulator.app's shake is a Darwin notification (the shake fix)
+
+Matt's device report after M4: a shake did nothing in the iPhone editor. Every M4 agent had
+verified "one undo step" through a throwaway `undoManager?.undo()` button, because XCUITest
+has no shake (#25). Diagnosed and verified on iPhone 17 and iPad Pro 11-inch clones with the
+#24 probe recipe (a throwaway unit test writes the fixture on the simulator, `simctl install`,
+`openurl`, one throwaway XCUITest per step with `activate()`), plus a throwaway in-app hook
+that logged the first responder and the chain's `undoManager`s to a host file every 2 s:
+
+- **The shake is a Darwin notification in the simulator.** `xcrun simctl spawn <sim>
+  notifyutil -p com.apple.UIKit.SimulatorShake` is exactly what Simulator.app's Device ▸
+  Shake posts; UIKit in the app receives it and synthesizes the motion event. The #25 note
+  that it "did nothing" was the bug itself, not the mechanism. `XCUIDevice` has no `shake`
+  selector on Xcode 27 (`perform(NSSelectorFromString("shake"))` raises "unrecognized
+  selector"), so a probe is a sequence of one-step XCUITests with the host posting the shake
+  between them; the alert is `app.alerts.firstMatch` (title "Undo Move to Next Day", buttons
+  Cancel / Undo, then "Redo …" on the next shake) and its Undo is
+  `app.alerts.firstMatch.buttons["Undo"]` — `app.buttons` matching "Undo" hits the document's
+  title button first when the file is called UndoProbe.
+- **The cause: UIKit's undo gestures ask the first responder for `undoManager` and walk
+  `next`; SwiftUI's environment manager is not on that path unless something under the
+  hosting view is first responder.** The hook showed `applicationSupportsShakeToEdit` true,
+  first responder nil with no field focused, and the window's own `undoManager` a different
+  object from the environment's (UIKit gives every window an empty one). It also showed
+  that every responder from SwiftUI's `_UIHostingView` up to `DocumentHostingController`
+  answers `undoManager` with the environment's manager, so what was missing was *any* first
+  responder inside the hosting view; the pasteboard responder (#22) now carries the manager
+  explicitly and keeps that status.
+- **The undo alert is the first responder while it is up and leaves none behind when it
+  closes**, so a responder that only took the status on appear and on text-end-editing
+  notifications answered the first shake and not the second (in one run the SwiftUI update
+  after the undo happened to give it back; in the next it stayed nil). Menus and dismissed
+  sheets behave the same and post nothing. A `CFRunLoopObserver` on `.beforeWaiting` that
+  takes the status when the view is in the key window and `UIResponder.current` (the
+  `sendAction(to: nil)` trick; the responder's own `canPerformAction` must return true for
+  the capture selector or the query walks past it to the hosting view) is nil covers every
+  case at one `isFirstResponder` read per run-loop turn. Undo → shake → Redo, the day-type
+  pick, a note typed then committed by popping the Day screen, a call sheet Save (the
+  GENERAL CALL strip's time and the card revert together), a scene editor Save after the
+  sheet closed, and the iPad's inspector Save all offered the right alert.
+- **A focused field keeps the gesture**: with the Day screen's note (`VerticalTextView`) or
+  the scene editor's duration field first responder, a shake offered "Undo Typing" from the
+  field's own manager, or nothing when it had none, never the document's step. On the iPad
+  the inspector keeps its editor and its field focused after Save Changes, so the shake
+  reaches the document once the board is tapped (the #22 selection path takes first
+  responder from the field).
+- **The Stripboard's appear-time auto-meal sync registers unnamed undo steps** on the
+  iPad: the first shake in the three-column layout offers a bare "Undo" (the toolbar's
+  Undo button was already enabled by it). Pre-existing Mac behaviour, left alone.
+- Probe notes: the Boneyard rows sit below an iPad's landscape fold (`press` on them fails
+  "not hittable"), and a synthesized drag from the Boneyard to a day did not drop on the
+  11-inch clone in either orientation (four variants; #18's did on the 13-inch); the Remove
+  from Day long press lifted a drag instead of the menu. The inspector's Save was the
+  named iPad edit instead. `simctl clone` of a booted device fails, `simctl create` with
+  `iPad-Pro-11-inch-M5-12GB` and `iOS-27-0` is the equivalent; a test run without
+  `-parallel-testing-enabled NO` clones the device and shuts the original down.
+
+---
+
 ## 2026-09-21 — The M4 review round: two branches built the same editor twice, a private rule copied is a rule diverged, and an untouched pages field saved one eighth (the fix-up pass)
 
 What the standards and spec reviews of the five M4 branches caught after each had passed

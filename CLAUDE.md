@@ -135,7 +135,9 @@ the build inputs outside it, see Working agreements):
   focused scene value and into `ActiveProjectCommands` by `appearsActive`, every closure a
   switch to the Production tab plus a `ProductionCommand` in the `productionCommand`
   binding the tab consumes (the View menu's bindings are constants: no calendar, no cast
-  row, no all-days toggle on the phone). Platform-free.
+  row, no all-days toggle on the phone), and `undoGestures(undoManager)` at the root,
+  which puts the same manager `edit` registers with on UIKit's responder chain for shake
+  to undo and the three-finger gestures (`PlatformPasteboardResponder`). Platform-free.
 - `ProductionTab.swift`: the Production tab (#28): a grouped `List` (no stack of its own,
   nothing pushes) of rows in five sections, each presenting what already exists through
   one `ActiveSheet` enum and `.sheet(item:)`: Production (`ProductionSetupSheet` with the
@@ -455,9 +457,11 @@ the build inputs outside it, see Working agreements):
   `paste(_:at:into:)` (new ids, everything else as copied, notice strips kept out of the
   Boneyard, returns the new ids) and `remove(_:from:)` (`ScheduleClipboardTests`).
   `ContentView+Clipboard.swift` wires them: `applyClipboard` puts the `PasteboardResponder`
-  (a seam) behind the board, every selection calls `focusEditor()` so it takes first
-  responder, and `copyPayload` / `cutPayload` / `paste` act on the multi-selection or the
-  inspector's scene through `edit` ("Cut", "Paste"); a paste selects what it inserted.
+  (a seam) behind the board (with the window's undo manager in the three-column layout,
+  for the iPad's undo gestures; nil in the Mac's), every selection calls `focusEditor()`
+  so it takes first responder, and `copyPayload` / `cutPayload` / `paste` act on the
+  multi-selection or the inspector's scene through `edit` ("Cut", "Paste"); a paste
+  selects what it inserted.
 - `InactiveDimming.swift`: `dimsWhenInactive(_:)`, the modifier the board and the Boneyard
   carry (#22): `@Environment(\.appearsActive)` (every platform) fades them in a window that
   is not the active one. Enabled in the three-column layout only; the Mac's board is left
@@ -616,9 +620,14 @@ the build inputs outside it, see Working agreements):
   (how that press is recorded: a `UIGestureRecognizer` on the window that reads each
   touch's type and the event's modifier flags in `touchesBegan` and fails at once, so it
   never claims a touch; nothing on the Mac), `PlatformPasteboardResponder` (the first
-  responder that answers Edit ▸ Cut, Copy and Paste for scenes with `NSPasteboard` or
-  `UIPasteboard`; SwiftUI's `copyable` family needs the focus system, which the iPad engages
-  only for a hardware keyboard, #22),
+  responder behind the editor: it answers Edit ▸ Cut, Copy and Paste for scenes with
+  `NSPasteboard` or `UIPasteboard` — SwiftUI's `copyable` family needs the focus system,
+  which the iPad engages only for a hardware keyboard, #22 — and on iOS carries the
+  document's undo manager for shake to undo and the three-finger gestures, which ask
+  the first responder, taking the status whenever nothing else holds it through a
+  run-loop observer; `undoGestures(_:)` installs it with inert actions at the iPhone
+  editor's root, `applyClipboard` hands it the manager in the three-column layout only,
+  and the Mac side has no undo duty),
   `PlatformControlStyles` (the Mac-only control styles, and `insetGroupedListStyle()`,
   the phone lists' card style that macOS lacks, #24), `PlatformListEditing`
   (`listReordering(_:)`, the Day screen's edit mode for its strips' drag handles, and
@@ -828,7 +837,9 @@ or another project, what Cut removes, the pasteboard bytes against the drag's) i
 `ScheduleClipboardTests`, `InputPress` and the recorder in `InputPressTests`; the pasteboard
 responder, the menu bar and the dimming have no unit seam (learnings.md 2026-09-20 #22 has
 the iPad probe recipe: `typeKey` after a warm-up key, windows tiled through SpringBoard's
-Zoom menu),
+Zoom menu), and neither do the undo gestures (learnings.md 2026-09-21, the shake entry:
+`simctl spawn <sim> notifyutil -p com.apple.UIKit.SimulatorShake` is Simulator.app's own
+Device ▸ Shake, and the alert's buttons are `app.alerts.firstMatch.buttons`),
 `ScriptImport.parse`, `LaunchImport` and `LaunchImportFlow` driven through its callbacks
 (`LaunchImportTests`: one parse per format, the script → new project step, the legacy `.json`
 read against `ProjectCodec` with the source bytes pinned, and every cancellation path),
