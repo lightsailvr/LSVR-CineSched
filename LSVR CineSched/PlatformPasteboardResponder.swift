@@ -28,7 +28,11 @@
 // `CFRunLoopObserver` checks once per turn of the main run loop, before it waits (nothing
 // while idle, one `isFirstResponder` read per turn otherwise), and takes the status when
 // the view is in the key window and UIKit reports no first responder. It never takes it
-// from a field being edited, an alert or a menu; only the editor's own `focusRequest` (a
+// from a field being edited, an alert or a menu; and while a long-press menu is up it
+// gives the status away (#36's review): a context menu presented over this responder
+// raised the software keyboard behind itself on the iPhone (every Days-list menu, found
+// in #43), and resigning while the menu's container is in the window keeps it down; the
+// reclaim takes the status back once the menu is gone. Only the editor's own `focusRequest` (a
 // selection on the iPad's board) takes it outright, as before, which is also how the
 // iPad's inspector editor hands a shake back to the document after a Save. One responder
 // rather than two: a second zero-sized first responder for the undo duty would compete
@@ -255,9 +259,22 @@ extension PasteboardResponder: UIViewRepresentable {
         /// Takes first-responder status unless something else holds it: a field being
         /// edited, an alert or a menu keep it, and the view stands down.
         private func reclaimFirstResponderIfFree() {
-            guard let window, window.isKeyWindow, !isFirstResponder else { return }
+            guard let window else { return }
+            if Self.showsContextMenu(window) {
+                if isFirstResponder { resignFirstResponder() }
+                return
+            }
+            guard window.isKeyWindow, !isFirstResponder else { return }
             guard UIResponder.current == nil else { return }
             becomeFirstResponder()
+        }
+
+        /// Whether a long-press (context) menu is up in `window`. UIKit adds its container
+        /// as a direct subview of the window while the menu shows and removes it after;
+        /// there is no public "a menu is presented" query, so the check is by the
+        /// container's class name, a handful of top-level subviews read once per turn.
+        private static func showsContextMenu(_ window: UIWindow) -> Bool {
+            window.subviews.contains { String(describing: type(of: $0)).contains("ContextMenu") }
         }
 
         // MARK: The pasteboard duty
