@@ -328,7 +328,8 @@ struct PhoneSceneEditor: View {
                 onNext:         steps ? { if let p = position, p < siblings.count - 1 { sceneID = siblings[p + 1] } } : nil,
                 positionLabel:  steps ? position.map { String(format: L("Scene %d of %d"), $0 + 1, siblings.count) } : nil,
                 knownLocations: project.knownLocations,
-                onDuplicate:    { dayEdits.duplicateScene(id: sceneID) }
+                onDuplicate:    { dayEdits.duplicateScene(id: sceneID) },
+                breakdownSuggestions: project.breakdownSuggestions
             )
             .id(sceneID)
         } else {

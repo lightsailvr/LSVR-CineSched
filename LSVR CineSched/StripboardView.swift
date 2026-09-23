@@ -645,7 +645,8 @@ struct StripboardView: View {
                 onPrevious: { editingSceneIndex = sceneIndex - 1 },
                 onNext: { editingSceneIndex = sceneIndex + 1 },
                 positionLabel: "Scene \(sceneIndex + 1) of \(shootDays[dayIndex].scenes.count)",
-                knownLocations: allProjectLocations
+                knownLocations: allProjectLocations,
+                breakdownSuggestions: ProjectData.breakdownSuggestions(shootDays: shootDays, allScenes: allScenes)
             )
         } else {
             VStack(spacing: 20) {

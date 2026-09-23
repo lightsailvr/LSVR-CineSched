@@ -805,4 +805,24 @@ struct EditorDraftsTests {
         invalid.duration = "soon"
         #expect(invalid.applied(to: original).durationMinutes == 15, "a duration that does not parse keeps the shot's")
     }
+
+    // MARK: - Autocomplete matching (#39)
+
+    @Test func autocompleteMatchesTheWholeTextForALocation() {
+        let places = ["Stage 4", "Stage 12", "Airport Hangar"]
+        #expect(LocationAutocompleteField.filtered(places, for: "stage", asList: false) == ["Stage 4", "Stage 12"])
+        #expect(LocationAutocompleteField.filtered(places, for: "Stage 4", asList: false) == [], "an exact match is not suggested")
+        #expect(LocationAutocompleteField.filtered(places, for: "  ", asList: false) == [])
+        #expect(LocationAutocompleteField.completing("sta", with: "Stage 4", asList: false) == "Stage 4")
+    }
+
+    @Test func autocompleteMatchesAndCompletesTheLastItemOfAList() {
+        let gear = ["Dolly", "Ronin", "20mm probe", "Russian arm"]
+        #expect(LocationAutocompleteField.filtered(gear, for: "Dolly, r", asList: true) == ["Ronin", "20mm probe", "Russian arm"])
+        #expect(LocationAutocompleteField.filtered(gear, for: "ronin, R", asList: true) == ["20mm probe", "Russian arm"],
+                "an item already listed is not suggested again")
+        #expect(LocationAutocompleteField.filtered(gear, for: "Dolly, ", asList: true) == [])
+        #expect(LocationAutocompleteField.completing("Dolly, ro", with: "Ronin", asList: true) == "Dolly, Ronin")
+        #expect(LocationAutocompleteField.completing("do", with: "Dolly", asList: true) == "Dolly")
+    }
 }

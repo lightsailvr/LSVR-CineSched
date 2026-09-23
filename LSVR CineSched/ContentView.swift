@@ -692,7 +692,8 @@ struct ContentView: View {
                     onNext: goToNextBreakdownScene,
                     positionLabel: "Scene \(breakdownBrowserIndex + 1) of \(breakdownBrowserScenes.count) — script order",
                     breakdownExpandedByDefault: true,
-                    closeAfterDelete: false
+                    closeAfterDelete: false,
+                    breakdownSuggestions: document.project.breakdownSuggestions
                 )
             } else {
                 VStack(spacing: 20) {
@@ -1398,7 +1399,8 @@ struct ContentView: View {
                 canGoNext: currentBoneyardPosition.map { $0 < derived.sortedBoneyard.count - 1 } ?? false,
                 onPrevious: goToPreviousUnscheduledScene,
                 onNext: goToNextUnscheduledScene,
-                positionLabel: currentBoneyardPosition.map { "Scene \($0 + 1) of \(derived.sortedBoneyard.count)" }
+                positionLabel: currentBoneyardPosition.map { "Scene \($0 + 1) of \(derived.sortedBoneyard.count)" },
+                breakdownSuggestions: document.project.breakdownSuggestions
             )
         } else {
             VStack(spacing: 20) {

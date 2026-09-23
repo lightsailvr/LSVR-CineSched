@@ -70,7 +70,8 @@ extension ContentView {
                 isPresented: inspectorEditorPresented,
                 onSave:      { inspectorKeepsSelection = true },
                 onDelete:    { deleteInspectedScene(id: id) },
-                knownLocations: document.project.knownLocations
+                knownLocations: document.project.knownLocations,
+                breakdownSuggestions: document.project.breakdownSuggestions
             )
         }
     }

@@ -7,7 +7,8 @@
 // iOS, iPadOS and visionOS and are marked unavailable on macOS, where no window is ever
 // compact and neither view ever shows, so the Mac side does nothing. `DayScreen` calls
 // `listReordering(_:)`, `BoneyardTab` `listSelecting(_:)`, and both stay free of the
-// conditional.
+// conditional. The scene editor's Shots section (#39) reorders with `listReordering` too,
+// and asks `PlatformListEditing.reorderingNeedsEditMode` whether to offer the toggle.
 
 import SwiftUI
 
@@ -31,6 +32,20 @@ extension View {
         self
         #else
         environment(\.editMode, .constant(isActive ? .active : .inactive))
+        #endif
+    }
+}
+
+enum PlatformListEditing {
+    /// Whether `onMove` rows need `listReordering` for their drag handles (#39): true
+    /// where edit mode exists, false on the Mac, where a list's rows drag without it. The
+    /// scene editor's Shots section shows its Reorder / Done button only where it does
+    /// something.
+    static var reorderingNeedsEditMode: Bool {
+        #if os(macOS)
+        false
+        #else
+        true
         #endif
     }
 }

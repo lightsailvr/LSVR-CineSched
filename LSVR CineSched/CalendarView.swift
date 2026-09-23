@@ -1375,7 +1375,8 @@ struct CompactMonthCalendarView: View {
                         editScene(dayIndex: editingDayIndex, sceneIndex: editingSceneIndex + 1, scene: shootDays[editingDayIndex].scenes[editingSceneIndex + 1], dayId: shootDays[editingDayIndex].id)
                     }
                 },
-                positionLabel: "Day \(editingDayIndex + 1), Scene \(editingSceneIndex + 1)"
+                positionLabel: "Day \(editingDayIndex + 1), Scene \(editingSceneIndex + 1)",
+                breakdownSuggestions: ProjectData.breakdownSuggestions(shootDays: shootDays, allScenes: allScenes)
             )
         }
     }
