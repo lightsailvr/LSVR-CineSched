@@ -706,8 +706,7 @@ struct ContentView: View {
                     positionLabel: "Scene \(breakdownBrowserIndex + 1) of \(breakdownBrowserScenes.count) — script order",
                     breakdownExpandedByDefault: true,
                     closeAfterDelete: false,
-                    storyboardFrameBytes: document.project.storyboardFrameBytes,
-                    breakdownSuggestions: document.project.breakdownSuggestions
+                    context: derived.sceneEditor
                 )
             } else {
                 VStack(spacing: 20) {
@@ -1254,7 +1253,8 @@ struct ContentView: View {
                     selectedDayID: selectedDayID,
                     // Seven columns beside a sidebar and an inspector: the iPad's floor is
                     // what fits a 13-inch landscape window with both open.
-                    minimumCellWidth: layout == .twoColumn ? 100 : 72
+                    minimumCellWidth: layout == .twoColumn ? 100 : 72,
+                    sceneEditorContext: state.sceneEditor
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -1283,7 +1283,8 @@ struct ContentView: View {
                     selectedDayID: selectedDayID,
                     shotExpansion: shotExpansionBinding,
                     onMoveShot: moveShot,
-                    onSelectShot: onSelectShot
+                    onSelectShot: onSelectShot,
+                    sceneEditorContext: state.sceneEditor
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -1468,8 +1469,7 @@ struct ContentView: View {
                 onPrevious: goToPreviousUnscheduledScene,
                 onNext: goToNextUnscheduledScene,
                 positionLabel: currentBoneyardPosition.map { "Scene \($0 + 1) of \(derived.sortedBoneyard.count)" },
-                storyboardFrameBytes: document.project.storyboardFrameBytes,
-                breakdownSuggestions: document.project.breakdownSuggestions
+                context: derived.sceneEditor
             )
         } else {
             VStack(spacing: 20) {

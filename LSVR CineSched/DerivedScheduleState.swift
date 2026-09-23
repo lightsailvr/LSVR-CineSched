@@ -1,8 +1,11 @@
 // DerivedScheduleState.swift
 // What the Mac editor shows that is computed from the whole project rather than stored in
 // it: the Boneyard in its chosen sort, the conflict sets, the duplicate scene numbers and
-// the schedule-lock drift. Pure functions of a `ProjectData`, so a test can check them
-// without a view.
+// the schedule-lock drift, and what the scene editor is handed when it opens (the location
+// suggestions, the breakdown suggestions and the project's storyboard frame bytes, #36's
+// review: they were computed as arguments inside view bodies, one whole-project walk and a
+// sort per body pass while an editor was up). Pure functions of a `ProjectData`, so a test
+// can check them without a view.
 //
 // `DerivedScheduleStateCache` is how `ContentView` reads them: at most one computation per
 // change to the document, keyed on `ProjectDocument.changeCount` and the sort. Before #34
@@ -36,6 +39,10 @@ struct DerivedScheduleState {
     var duplicateSceneNumberIDs:  Set<UUID>
     var scheduleLockChanges:      [ScheduleLockChange]
     var scheduleLockChangedDates: Set<Date>
+    /// The scene editor's location suggestions (`ProjectData.knownLocations`).
+    var knownLocations:           [String]
+    /// What every scene editor is handed besides the locations (see `SceneEditorContext`).
+    var sceneEditor:              SceneEditorContext
 
     init(project: ProjectData, boneyardSort: BoneyardSort) {
         let info      = project.productionInfo ?? ProductionInfo()
@@ -46,6 +53,8 @@ struct DerivedScheduleState {
         duplicateSceneNumberIDs  = ConflictScanner.duplicateSceneNumberIDs(allScenes: project.allScenes, shootDays: project.shootDays)
         scheduleLockChanges      = ScheduleLockScanner.changes(shootDays: project.shootDays, productionInfo: info)
         scheduleLockChangedDates = ScheduleLockScanner.changedDates(scheduleLockChanges)
+        knownLocations           = project.knownLocations
+        sceneEditor              = SceneEditorContext(project: project)
     }
 
     static func sortedBoneyard(of allScenes: [Scene], by sort: BoneyardSort) -> [(index: Int, scene: Scene)] {
@@ -111,6 +120,31 @@ struct DerivedScheduleState {
         if withoutNumber.uppercased().hasPrefix("INT.") { return "INT." }
         if withoutNumber.uppercased().hasPrefix("EXT.") { return "EXT." }
         return "ZZZ"
+    }
+}
+
+// MARK: - The scene editor's context
+
+/// The two whole-project values every `SceneEditSheet` call site hands the editor (#39,
+/// #41): what the shot page's Equipment, Props and SFX fields suggest, and the project's
+/// storyboard frame bytes for the 20 MB caption. One value, so a view that only holds the
+/// days and the Boneyard (the Stripboard, the calendar) is passed it rather than walking
+/// the project again. `knownLocations` stays a parameter of its own: three of the Mac's
+/// editors have never been given it.
+nonisolated struct SceneEditorContext: Equatable {
+    var breakdownSuggestions: BreakdownSuggestions = .none
+    var storyboardFrameBytes: Int                  = 0
+
+    static let none = SceneEditorContext()
+
+    init(breakdownSuggestions: BreakdownSuggestions = .none, storyboardFrameBytes: Int = 0) {
+        self.breakdownSuggestions = breakdownSuggestions
+        self.storyboardFrameBytes = storyboardFrameBytes
+    }
+
+    init(project: ProjectData) {
+        breakdownSuggestions = project.breakdownSuggestions
+        storyboardFrameBytes = project.storyboardFrameBytes
     }
 }
 

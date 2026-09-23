@@ -186,9 +186,10 @@ extension View {
     /// Presents the editor a list asked for (`PhoneEditor.editSheet`) and applies its
     /// Save through `dayEdits` (or `moves`, for a scheduled scene's Delete).
     func phoneEditSheets(_ sheet: Binding<PhoneEditSheet?>, document: ProjectDocument,
-                         dayEdits: PhoneDayEdits, moves: PhoneMoves) -> some View {
+                         dayEdits: PhoneDayEdits, moves: PhoneMoves, derived: DerivedScheduleState) -> some View {
         self.sheet(item: sheet) { request in
-            PhoneEditSheetContent(request: request, document: document, dayEdits: dayEdits, moves: moves) {
+            PhoneEditSheetContent(request: request, document: document, dayEdits: dayEdits, moves: moves,
+                                  knownLocations: derived.knownLocations, context: derived.sceneEditor) {
                 sheet.wrappedValue = nil
             }
         }
@@ -201,6 +202,9 @@ private struct PhoneEditSheetContent: View {
     let document: ProjectDocument
     let dayEdits: PhoneDayEdits
     let moves:    PhoneMoves
+    /// What the scene editor is handed, from `PhoneEditor`'s derived state.
+    let knownLocations: [String]
+    let context:        SceneEditorContext
     let dismiss:  () -> Void
 
     private var project: ProjectData { document.project }
@@ -214,6 +218,7 @@ private struct PhoneEditSheetContent: View {
         switch request.kind {
         case .scene(let sceneID, let dayID, let siblingIDs, let route):
             PhoneSceneEditor(document: document, dayID: dayID, siblingIDs: siblingIDs, dayEdits: dayEdits, moves: moves,
+                             knownLocations: knownLocations, context: context,
                              sceneID: sceneID, route: route, dismiss: dismiss)
 
         case .banner(let dayID, let bannerID):
@@ -314,6 +319,8 @@ struct PhoneSceneEditor: View {
     let siblingIDs: [UUID]
     let dayEdits:   PhoneDayEdits
     let moves:      PhoneMoves
+    let knownLocations: [String]
+    let context:    SceneEditorContext
     @State var sceneID: UUID
     @State var route:   SceneEditorRoute?
     let dismiss:    () -> Void
@@ -335,10 +342,9 @@ struct PhoneSceneEditor: View {
                 onPrevious:     steps ? { if let p = position, p > 0 { step(to: siblings[p - 1]) } } : nil,
                 onNext:         steps ? { if let p = position, p < siblings.count - 1 { step(to: siblings[p + 1]) } } : nil,
                 positionLabel:  steps ? position.map { String(format: L("Scene %d of %d"), $0 + 1, siblings.count) } : nil,
-                knownLocations: project.knownLocations,
+                knownLocations: knownLocations,
                 onDuplicate:    { dayEdits.duplicateScene(id: sceneID) },
-                storyboardFrameBytes: project.storyboardFrameBytes,
-                breakdownSuggestions: project.breakdownSuggestions,
+                context:        context,
                 initialRoute:   route
             )
             // A new scene is a new editor, which is also what applies a route once.

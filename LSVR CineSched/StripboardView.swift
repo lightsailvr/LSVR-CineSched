@@ -67,6 +67,9 @@ struct StripboardView: View {
     /// the inspector with that shot's page pushed. The Mac passes nil: a click there
     /// selects the strip, and a double-click opens the editor on the page.
     var onSelectShot: ((_ sceneID: UUID, _ shotID: UUID) -> Void)? = nil
+    /// What the scene editor is handed (`DerivedScheduleState.sceneEditor`), from
+    /// ContentView's derived state, so opening an editor never walks the project again.
+    var sceneEditorContext: SceneEditorContext = .none
 
     // Editing state — mirrors CompactMonthCalendarView's
     @State private var editingDayId:      UUID?
@@ -816,8 +819,7 @@ struct StripboardView: View {
                 onNext: { editingSceneIndex = sceneIndex + 1 },
                 positionLabel: "Scene \(sceneIndex + 1) of \(shootDays[dayIndex].scenes.count)",
                 knownLocations: allProjectLocations,
-                storyboardFrameBytes: ProjectData.storyboardFrameBytes(shootDays: shootDays, allScenes: allScenes),
-                breakdownSuggestions: ProjectData.breakdownSuggestions(shootDays: shootDays, allScenes: allScenes),
+                context: sceneEditorContext,
                 initialRoute: editingRoute
             )
         } else {

@@ -334,9 +334,8 @@ struct ProductionTab: View {
                 positionLabel: String(format: L("Scene %d of %d — script order"), position + 1, browser.count),
                 breakdownExpandedByDefault: true,
                 closeAfterDelete: false,
-                knownLocations: project.knownLocations,
-                storyboardFrameBytes: project.storyboardFrameBytes,
-                breakdownSuggestions: project.breakdownSuggestions
+                knownLocations: derived.knownLocations,
+                context:       derived.sceneEditor
             )
             .id(id)
         } else {

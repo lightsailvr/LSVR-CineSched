@@ -82,6 +82,40 @@ struct DerivedScheduleStateTests {
         #expect(derived.scheduleLockChangedDates == [Calendar.current.startOfDay(for: monday)])
     }
 
+    // MARK: - The scene editor's context (#36 review)
+
+    /// What every scene editor is handed comes from the derived state, over the Boneyard
+    /// and the days: the locations, the breakdown suggestions (shot lists included) and
+    /// the frame bytes (the scenes' own frames and their shots').
+    @Test func derivesTheSceneEditorsContextFromTheWholeProject() {
+        var boneyard = scene("3", "INT. BARN - NIGHT")
+        boneyard.realLocation = "Hill Farm"
+        boneyard.frame        = Data(repeating: 1, count: 5)
+        var scheduled = scene("12", "EXT. PORCH - DUSK")
+        scheduled.props = ["Lantern"]
+        scheduled.shots = [
+            Shot(details: "Wide", equipment: ["Dolly"], props: ["lantern", "Keys"], frame: Data(repeating: 2, count: 7)),
+            Shot(details: "Close", sfx: ["Rain"]),
+        ]
+        var info = ProductionInfo()
+        info.locationRoster = [Location(name: "Studio B")]
+        let project = ProjectData(
+            allScenes: [boneyard],
+            shootDays: [ShootDay(date: Date(timeIntervalSince1970: 0), scenes: [scheduled])],
+            productionInfo: info
+        )
+
+        let derived = DerivedScheduleState(project: project, boneyardSort: .showOrder)
+        #expect(derived.knownLocations == project.knownLocations)
+        #expect(derived.knownLocations.contains("Hill Farm"))
+        #expect(derived.sceneEditor == SceneEditorContext(project: project))
+        #expect(derived.sceneEditor.breakdownSuggestions.equipment == ["Dolly"])
+        #expect(derived.sceneEditor.breakdownSuggestions.props     == ["Keys", "Lantern"])
+        #expect(derived.sceneEditor.breakdownSuggestions.sfx       == ["Rain"])
+        #expect(derived.sceneEditor.storyboardFrameBytes == 12)
+        #expect(SceneEditorContext.none == SceneEditorContext(breakdownSuggestions: .none, storyboardFrameBytes: 0))
+    }
+
     // MARK: - Cache
 
     /// The cache is keyed on the document's change count and the sort, never on the
@@ -104,5 +138,14 @@ struct DerivedScheduleStateTests {
 
         let d = cache.state(for: first, changeCount: 1, boneyardSort: .defaultOrder)
         #expect(d.sortedBoneyard.map(\.scene.sceneNumber) == ["2", "1"])
+
+        // The editor's context rides the same key: a frame added to the project is seen
+        // only once the change count moves.
+        var framed = second
+        framed.allScenes[0].frame = Data(repeating: 9, count: 4)
+        let e = cache.state(for: framed, changeCount: 1, boneyardSort: .defaultOrder)
+        #expect(e.sceneEditor.storyboardFrameBytes == 0)
+        let f = cache.state(for: framed, changeCount: 2, boneyardSort: .defaultOrder)
+        #expect(f.sceneEditor.storyboardFrameBytes == 4)
     }
 }

@@ -515,6 +515,9 @@ struct CompactMonthCalendarView: View {
     /// always been; the iPad's three columns leave the calendar less than seven of those
     /// in landscape, so its editor passes a smaller floor rather than clipping the grid.
     var minimumCellWidth: CGFloat = 100
+    /// What the scene editor is handed (`DerivedScheduleState.sceneEditor`), from
+    /// ContentView's derived state, so opening an editor never walks the project again.
+    var sceneEditorContext: SceneEditorContext = .none
 
     // View Mode Switcher: this window's, seeded from the last (see WindowPreference.swift)
     @WindowPreference("CineSchedCalendarViewMode") private var calendarViewMode: CalendarViewMode = .monthGrid
@@ -1377,8 +1380,7 @@ struct CompactMonthCalendarView: View {
                     }
                 },
                 positionLabel: "Day \(editingDayIndex + 1), Scene \(editingSceneIndex + 1)",
-                storyboardFrameBytes: ProjectData.storyboardFrameBytes(shootDays: shootDays, allScenes: allScenes),
-                breakdownSuggestions: ProjectData.breakdownSuggestions(shootDays: shootDays, allScenes: allScenes)
+                context: sceneEditorContext
             )
         }
     }

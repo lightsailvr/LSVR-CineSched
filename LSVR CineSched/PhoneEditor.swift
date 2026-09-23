@@ -254,7 +254,7 @@ struct PhoneEditor: View {
         .onChange(of: document.restoreCount) { _, _ in seedRangePickers() }
         .pdfExportPresentation($exportPreview)
         .phoneMoveSheets($moveSheet, document: document, boneyard: derived.sortedBoneyard.map(\.scene), moves: moves)
-        .phoneEditSheets($editSheet, document: document, dayEdits: dayEdits, moves: moves)
+        .phoneEditSheets($editSheet, document: document, dayEdits: dayEdits, moves: moves, derived: derived)
         .alert(L("Export Failed"), isPresented: Binding(get: { alertMessage != nil }, set: { if !$0 { alertMessage = nil } })) {
             Button(L("OK")) { alertMessage = nil }
         } message: {

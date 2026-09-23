@@ -49,13 +49,13 @@ struct SceneEditSheet: View {
     /// right-click menu has no home): saves the draft, calls this, closes. Nil at the
     /// Mac's call sites, which offer it on the strip's menu, so the footer is unchanged.
     var onDuplicate: (() -> Void)? = nil
-    /// The project's storyboard frame bytes when the editor was presented (#41):
-    /// `ProjectData.storyboardFrameBytes`, computed at the call site per presentation. The
-    /// shot page's caption shows it, with this scene's frames as the draft holds them.
-    var storyboardFrameBytes: Int = 0
-    /// What the shot page's Equipment, Props and SFX fields suggest (#39):
-    /// `ProjectData.breakdownSuggestions`, computed at the call site per presentation.
-    var breakdownSuggestions: BreakdownSuggestions = .none
+    /// The project's storyboard frame bytes (#41) and what the shot page's Equipment,
+    /// Props and SFX fields suggest (#39), from the editor's `DerivedScheduleState`
+    /// (`sceneEditor`), computed once per change to the project, never in a body. The shot
+    /// page's caption shows the bytes, with this scene's frames as the draft holds them.
+    let context: SceneEditorContext
+    private var storyboardFrameBytes: Int                  { context.storyboardFrameBytes }
+    private var breakdownSuggestions: BreakdownSuggestions { context.breakdownSuggestions }
     /// The page the editor opens on (#39): a shot's, or a new shot's. Applied once, to the
     /// scene the editor first shows.
     var initialRoute: SceneEditorRoute? = nil
@@ -91,8 +91,7 @@ struct SceneEditSheet: View {
         closeAfterDelete: Bool = true,
         knownLocations: [String] = [],
         onDuplicate: (() -> Void)? = nil,
-        storyboardFrameBytes: Int = 0,
-        breakdownSuggestions: BreakdownSuggestions = .none,
+        context: SceneEditorContext = .none,
         initialRoute: SceneEditorRoute? = nil
     ) {
         _scene                     = scene
@@ -108,8 +107,7 @@ struct SceneEditSheet: View {
         self.closeAfterDelete      = closeAfterDelete
         self.knownLocations        = knownLocations
         self.onDuplicate           = onDuplicate
-        self.storyboardFrameBytes  = storyboardFrameBytes
-        self.breakdownSuggestions  = breakdownSuggestions
+        self.context               = context
         self.initialRoute          = initialRoute
         // Populated here rather than on appear so the first frame shows the scene.
         _draft                     = State(initialValue: SceneDraft(scene: scene.wrappedValue))
