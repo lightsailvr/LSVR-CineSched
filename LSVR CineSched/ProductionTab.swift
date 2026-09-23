@@ -2,7 +2,8 @@
 // The iPhone's Production tab (#28): every Mac menu command that is not about one strip
 // or one day, as rows of a grouped list. Production (Setup, Scan for Conflicts, Lock or
 // Unlock, the Schedule Lock Report, the Breakdown Browser), Appearance (the Color Legend,
-// Customize Scene Colors, the Stripboard fields), Project (the title, the production
+// Customize Scene Colors, the Stripboard fields, and Show Shots, #43: the View menu's
+// toggle, the editor's state, expanding every strip in the Days list), Project (the title, the production
 // range with Shift Schedule and Update Calendar: `ProductionTab+Range.swift`), Export (the
 // six documents, each into the preview sheet with Share through `PhoneExports`:
 // `ProductionTab+Exports.swift`) and Import (a script into this project's Boneyard, with
@@ -90,6 +91,9 @@ struct ProductionTab: View {
     @Binding var endDate:   Date
     /// The bounds the pickers were last seeded from.
     @Binding var seededRange: ClosedRange<Date>?
+    /// Show Shots (#43): every strip in the Days list and on the Day screen expanded; the
+    /// editor's, never in the file.
+    @Binding var showShots: Bool
     @State var pendingRangePreview: ProductionRangePreview?
     @State var showingRangeConfirmation = false
 
@@ -199,10 +203,14 @@ struct ProductionTab: View {
             actionRow(L("Stripboard Fields"), systemImage: "line.3.horizontal.decrease.circle", detail: "\(stripboardFields.wrappedValue.count)") {
                 activeSheet = .stripboardFields
             }
+            Toggle(isOn: $showShots) {
+                rowLabel(L("Show Shots"), systemImage: "film.stack")
+            }
+            .accessibilityIdentifier("ProductionRow.Show Shots")
         } header: {
             Text(L("Appearance"))
         } footer: {
-            Text(L("Scene colors belong to the project and follow it to every device; the fields are this device's preference for the Stripboard."))
+            Text(L("Scene colors belong to the project and follow it to every device; the fields and Show Shots are this device's preference for the Stripboard."))
         }
     }
 

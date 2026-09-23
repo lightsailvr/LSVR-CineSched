@@ -1,8 +1,10 @@
 // SearchTab.swift
 // The iPhone's Search tab (#27), the tab in the search role: one field over the whole
-// project, its results from `SceneSearch.results` (number, slugline, cast, summary and
-// real location; never a banner, an auto-meal or an event), grouped into the scheduled
-// scenes (each with its day) and the Boneyard. A result's tap opens the scene editor
+// project, its results from `SceneSearch.results` (number, slugline, cast, summary, real
+// location and every shot's description, equipment, props and SFX; never a banner, an
+// auto-meal or an event), grouped into the scheduled scenes (each with its day) and the
+// Boneyard; a scene found by its shot list says which shot ("in shot 12B", #43,
+// `SceneSearchResult.matchedShotNumber`). A result's tap opens the scene editor
 // (the phone's one, through `PhoneDayEdits.presentSceneEditor`, bound by id, with the
 // results shown as the siblings Previous and Next step through; its Delete follows where
 // the scene is: a scheduled one returns to the Boneyard, a Boneyard one is deleted); its
@@ -64,7 +66,7 @@ struct SearchTab: View {
                 ContentUnavailableView(
                     L("Search Scenes"),
                     systemImage: "magnifyingglass",
-                    description: Text(L("Find a scene by number, slugline, cast or summary, on any day or in the Boneyard."))
+                    description: Text(L("Find a scene by number, slugline, cast, summary or what its shots say, on any day or in the Boneyard."))
                 )
                 .listRowBackground(Color.clear)
             } else if results.isEmpty {
@@ -122,6 +124,15 @@ struct SearchTab: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(day == nil ? Color.orange : Color.blue)
                         .lineLimit(1)
+                    if let shotNumber = result.matchedShotNumber {
+                        // The match came from the shot list (#43): name the shot.
+                        // An inline image: a `Label` in a list row pads its icon to the
+                        // row's icon column, which set the words far from it.
+                        Text("\(Image(systemName: "film.stack")) \(String(format: L("in shot %@"), shotNumber))")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.secondary)
+                            .lineLimit(1)
+                    }
                     if let detail = detailText(scene) {
                         Text(detail)
                             .font(.caption)

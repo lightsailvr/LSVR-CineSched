@@ -30,6 +30,14 @@
 // (`PhoneDayEdits`). The strips print the fields the app-wide Stripboard Fields setting
 // turns on, decoded once per body here and handed to every row.
 //
+// Shots (#43): a script scene's strip has the chevron, and an expanded one is followed by
+// its shots (`PhoneDayStrips`, PhoneStripRow.swift, which both lists draw), a tap on one
+// opening the scene editor on its page. Which strips are expanded is the editor's
+// `ShotExpansion` (Show Shots from the Production tab, the chevrons' exceptions), handed
+// down as a binding to this list and the Day screen alike and never saved in the file. A
+// long-press drag still reorders strips only: the sub-rows stay put and the offsets are
+// mapped onto the strips.
+//
 // Scrolling to a date (the week strip, the month popover, the Today control through the
 // `scrollToDate` binding the editor owns) goes through `dayScrollTarget`: a date folded
 // into a collapsed gap opens the gap first and scrolls on the next run-loop turn, when
@@ -54,7 +62,9 @@ struct DaysTab: View {
     let moves: PhoneMoves
     /// The day and strip edits and their editors (#26), wired by the editor.
     let dayEdits: PhoneDayEdits
-    @Environment(\.scenePalette) private var palette
+    /// Which strips show their shots (#43): the editor's Show Shots and the chevrons'
+    /// exceptions, shared with the Day screen.
+    @Binding var shotExpansion: ShotExpansion
     /// The Stripboard Fields setting (app-wide, the Production tab's picker writes it).
     @AppStorage(StripboardFieldSettings.defaultsKey) private var stripboardFieldsRaw: String = StripboardFieldSettings.defaultRaw
     /// Compact vertically (an iPhone in landscape): the week strip is one row.
@@ -108,7 +118,8 @@ struct DaysTab: View {
                     editCoalescing:   editCoalescing,
                     moves:            moves,
                     dayEdits:         dayEdits,
-                    visibleFields:    visibleFields
+                    visibleFields:    visibleFields,
+                    shotExpansion:    $shotExpansion
                 )
             }
         }
@@ -154,22 +165,15 @@ struct DaysTab: View {
         let events   = day.scenes.filter { $0.isCalendarEvent }
         let timeline = dayTimeline(for: day, scenes: strips)
         let actions  = PhoneStripActions(day: day, moves: moves, dayEdits: dayEdits, openDay: { path.append(day.id) },
-                                         hasPreviousDay: index > 0, hasNextDay: index < dayCount - 1)
-        let displayed = strips.map(\.id)
+                                         hasPreviousDay: index > 0, hasNextDay: index < dayCount - 1,
+                                         shotExpansion: $shotExpansion)
 
         return Section {
             dayHeader(day, summary: summary)
             if !events.isEmpty {
                 eventChips(events, dayID: day.id)
             }
-            ForEach(strips) { scene in
-                PhoneStripRow(scene: scene, timeText: timeline[scene.id]?.timeDisplay ?? "", hasConflict: conflictSceneIDs.contains(scene.id), visibleFields: fields)
-                    .stripListRow(color: PhoneStripRow.rowColor(for: scene, palette: palette))
-                    .stripInteractions(actions, scene: scene)
-            }
-            .onMove { source, destination in
-                moves.reorder(displayed, fromOffsets: source, toOffset: destination, in: day.id)
-            }
+            PhoneDayStrips(strips: strips, timeline: timeline, conflictSceneIDs: conflictSceneIDs, visibleFields: fields, actions: actions)
             if stripboardDayIsEmpty(day) {
                 // This day is only on screen because its gap was opened; offer the way back.
                 Button {

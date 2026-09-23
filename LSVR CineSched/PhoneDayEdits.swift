@@ -23,6 +23,9 @@
 // then deletes, as the Mac's Boneyard editor does), and Duplicate Scene is in its footer
 // from every tab. A subject that left the project under an open sheet (an undo, a sync)
 // shows `PhoneEditorUnavailable`, sized by the editor container like every other sheet.
+// A shot sub-row and Add Shot… (#43) open the same editor with an initial route (#39's
+// `SceneEditorRoute`: a shot's page, or a new shot's), applied to the scene it was asked
+// for only: Previous and Next still step scenes, and a stepped-to scene opens at its list.
 //
 // Platform-free SwiftUI; the Mac compiles it and never shows it.
 
@@ -36,8 +39,8 @@ struct PhoneEditSheet: Identifiable {
         /// The scene editor for a scene. `dayID` is the day whose script scenes Previous
         /// and Next step over (read live); nil for a Boneyard scene, when `siblingIDs` is
         /// the list the tab showed (the filtered Boneyard, a search's results), stepped
-        /// as it was at the tap.
-        case scene(sceneID: UUID, dayID: UUID?, siblingIDs: [UUID])
+        /// as it was at the tap. `route` opens it on a shot's page or a new shot's (#43).
+        case scene(sceneID: UUID, dayID: UUID?, siblingIDs: [UUID], route: SceneEditorRoute?)
         /// The banner input: edit the banner with `bannerID`, or add one to the day.
         case banner(dayID: UUID, bannerID: UUID?)
         /// The calendar event input: edit the event with `eventID`, or add one to the day.
@@ -70,9 +73,10 @@ struct PhoneDayEdits {
     // MARK: Presenting the editors
 
     /// The scene editor over `sceneID`: on a day (Previous and Next over its script
-    /// scenes), or off one with the tab's `siblingIDs` to step through.
-    func presentSceneEditor(sceneID: UUID, dayID: UUID?, siblingIDs: [UUID] = []) {
-        present(PhoneEditSheet(kind: .scene(sceneID: sceneID, dayID: dayID, siblingIDs: siblingIDs)))
+    /// scenes), or off one with the tab's `siblingIDs` to step through; opened on
+    /// `initialRoute`'s page when given (a shot sub-row's tap, Add Shot…, #43).
+    func presentSceneEditor(sceneID: UUID, dayID: UUID?, siblingIDs: [UUID] = [], initialRoute: SceneEditorRoute? = nil) {
+        present(PhoneEditSheet(kind: .scene(sceneID: sceneID, dayID: dayID, siblingIDs: siblingIDs, route: initialRoute)))
     }
 
     func presentBannerEditor(dayID: UUID, bannerID: UUID? = nil) {
@@ -208,8 +212,9 @@ private struct PhoneEditSheetContent: View {
 
     var body: some View {
         switch request.kind {
-        case .scene(let sceneID, let dayID, let siblingIDs):
-            PhoneSceneEditor(document: document, dayID: dayID, siblingIDs: siblingIDs, dayEdits: dayEdits, moves: moves, sceneID: sceneID, dismiss: dismiss)
+        case .scene(let sceneID, let dayID, let siblingIDs, let route):
+            PhoneSceneEditor(document: document, dayID: dayID, siblingIDs: siblingIDs, dayEdits: dayEdits, moves: moves,
+                             sceneID: sceneID, route: route, dismiss: dismiss)
 
         case .banner(let dayID, let bannerID):
             let existing = bannerID.flatMap { project.scene(withID: $0) }
@@ -301,6 +306,8 @@ struct PhoneEditorUnavailable: View {
 /// writes the scene back by id; Delete returns a scheduled scene to the Boneyard (the
 /// Mac's Stripboard sheet) and deletes a Boneyard one (the Mac's Boneyard editor);
 /// Duplicate puts a copy in the Boneyard, in the gesture the Save before it opened.
+/// `route` (#43) opens the first scene on a shot's page or a new shot's; stepping clears
+/// it, so the next scene opens at its list (and `.newShot` never adds a shot to it).
 struct PhoneSceneEditor: View {
     let document:   ProjectDocument
     let dayID:      UUID?
@@ -308,6 +315,7 @@ struct PhoneSceneEditor: View {
     let dayEdits:   PhoneDayEdits
     let moves:      PhoneMoves
     @State var sceneID: UUID
+    @State var route:   SceneEditorRoute?
     let dismiss:    () -> Void
 
     private var project: ProjectData { document.project }
@@ -324,18 +332,26 @@ struct PhoneSceneEditor: View {
                 onDelete:       { delete(scene) },
                 canGoPrevious:  position.map { $0 > 0 } ?? false,
                 canGoNext:      position.map { $0 < siblings.count - 1 } ?? false,
-                onPrevious:     steps ? { if let p = position, p > 0 { sceneID = siblings[p - 1] } } : nil,
-                onNext:         steps ? { if let p = position, p < siblings.count - 1 { sceneID = siblings[p + 1] } } : nil,
+                onPrevious:     steps ? { if let p = position, p > 0 { step(to: siblings[p - 1]) } } : nil,
+                onNext:         steps ? { if let p = position, p < siblings.count - 1 { step(to: siblings[p + 1]) } } : nil,
                 positionLabel:  steps ? position.map { String(format: L("Scene %d of %d"), $0 + 1, siblings.count) } : nil,
                 knownLocations: project.knownLocations,
                 onDuplicate:    { dayEdits.duplicateScene(id: sceneID) },
                 storyboardFrameBytes: project.storyboardFrameBytes,
-                breakdownSuggestions: project.breakdownSuggestions
+                breakdownSuggestions: project.breakdownSuggestions,
+                initialRoute:   route
             )
+            // A new scene is a new editor, which is also what applies a route once.
             .id(sceneID)
         } else {
             PhoneEditorUnavailable(title: L("Edit Scene"), message: L("Scene Removed"), dismiss: dismiss)
         }
+    }
+
+    /// Previous or Next: the next scene opens at its list, never on the first one's route.
+    private func step(to id: UUID) {
+        route   = nil
+        sceneID = id
     }
 
     /// What Previous and Next step over: the day's script scenes in order, read live, when

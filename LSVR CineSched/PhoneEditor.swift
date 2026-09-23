@@ -26,7 +26,10 @@
 // (`scrollToDate` into Days, `revealBoneyardSceneID` into the Boneyard), and the
 // `ProjectCommands` the iPad's menu bar acts through in a narrow window (#22): published
 // as the focused scene value and into `ActiveProjectCommands` while the window appears
-// active, each command handing the Production tab a `ProductionCommand`. Replaced
+// active, each command handing the Production tab a `ProductionCommand`, and which strips
+// show their shots (#43): Show Shots (the Production tab's row, and the menu bar's View ▸
+// Show Shots on Stripboard in a narrow iPad window) and the chevrons' exceptions, one
+// `ShotExpansion` handed to the Days list and the Day screen. Replaced
 // `MinimalProjectEditor` (#12–#17), which proved the document lifecycle here.
 //
 // Platform-free SwiftUI: the Mac compiles it and never shows it (its window is never
@@ -122,6 +125,17 @@ struct PhoneEditor: View {
     /// What an export could not do (`PDFExportError`), shown as an alert.
     @State private var alertMessage: String? = nil
 
+    // MARK: - Shots (#43)
+
+    /// Show Shots: every strip in the Days list and on the Day screen expanded. The Mac
+    /// window's preference under the same key (`ContentView`), so the phone opens the way
+    /// the last window was left and an iPad window that turns compact keeps the choice;
+    /// never in the file.
+    @WindowPreference("CineSchedShowShots") private var showShots: Bool = false
+    /// The strips whose chevron flipped against Show Shots: scene ids of this project, so
+    /// plain state, as on the Mac. It survives switching tabs, since the editor holds it.
+    @State private var shotExpansionExceptions: Set<UUID> = []
+
     // MARK: - Production range
 
     /// The range pickers' pending dates (the Production tab's Start Date and End Date),
@@ -169,7 +183,8 @@ struct PhoneEditor: View {
                     scrollToDate:     $scrollToDate,
                     editCoalescing:   coalescedProjectEdit,
                     moves:            moves,
-                    dayEdits:         dayEdits
+                    dayEdits:         dayEdits,
+                    shotExpansion:    shotExpansionBinding
                 )
             }
             Tab(L("Boneyard"), systemImage: "tray.full", value: .boneyard) {
@@ -198,7 +213,8 @@ struct PhoneEditor: View {
                     },
                     startDate:                $rangeStart,
                     endDate:                  $rangeEnd,
-                    seededRange:              $seededRange
+                    seededRange:              $seededRange,
+                    showShots:                showShotsBinding
                 )
             }
             Tab(value: .search, role: .search) {
@@ -262,7 +278,8 @@ struct PhoneEditor: View {
 
     /// The menu commands this window answers (ProjectCommands.swift), each one a switch to
     /// the Production tab with the command for it to run. The View menu's bindings are
-    /// constants: the phone has no calendar, no cast row and no all-days toggle.
+    /// constants (the phone has no calendar, no cast row and no all-days toggle), except
+    /// Show Shots, which is the phone's own (#43).
     private var projectCommands: ProjectCommands {
         func production(_ command: ProductionCommand) -> () -> Void {
             {
@@ -290,8 +307,35 @@ struct PhoneEditor: View {
             showCastOnCards:        .constant(false),
             showEstTimeOnCards:     .constant(false),
             stripboardShowAllDays:  .constant(false),
-            // The phone's own Show Shots is a Production tab row (#43).
-            showShotsOnStripboard:  .constant(false)
+            // The phone's own Show Shots, the Production tab's row (#43).
+            showShotsOnStripboard:  showShotsBinding
+        )
+    }
+
+    // MARK: - Shots (#43)
+
+    /// Which strips show their shots: Show Shots and the chevrons' exceptions
+    /// (`ContentView`'s binding, the same `ShotExpansion` rule).
+    private var shotExpansionBinding: Binding<ShotExpansion> {
+        Binding(
+            get: { ShotExpansion(showAll: showShots, exceptions: shotExpansionExceptions) },
+            set: { new in
+                if new.showAll != showShots { showShots = new.showAll }
+                shotExpansionExceptions = new.exceptions
+            }
+        )
+    }
+
+    /// Show Shots, for the Production tab's row and the menu bar: every strip at once, the
+    /// chevrons' exceptions dropped.
+    private var showShotsBinding: Binding<Bool> {
+        Binding(
+            get: { showShots },
+            set: { on in
+                var expansion = shotExpansionBinding.wrappedValue
+                expansion.setShowAll(on)
+                withAnimation(.easeInOut(duration: 0.15)) { shotExpansionBinding.wrappedValue = expansion }
+            }
         )
     }
 

@@ -22,6 +22,16 @@
 // leading swipe is Edit and Set Time, the trailing swipe gains Duplicate for a script
 // scene and Delete for a banner (never a full swipe: a mis-swipe on a small screen must
 // be harmless).
+//
+// Shots (#43): a script scene's strip carries the Stripboard's chevron (#42) at its
+// leading edge (`PhoneShotChevron`, built by `PhoneStripActions.shotChevron(for:)` from
+// the editor's `ShotExpansion`; none in the Boneyard, which never expands), and
+// `PhoneDayStrips` is a day's strips as both lists draw them: each strip, then, when
+// expanded, a `PhoneShotRow` per shot (#42's `ShotSubRow`, no time, no thumbnail) or the
+// "No shots" line (`PhoneStripListRows`). A sub-row's tap opens the scene editor on its
+// shot's page, its long press offers Edit Shot and Add Shot…, and the strip's own menu
+// gains Add Shot…; the sub-rows never move, and the list's `onMove` offsets are mapped
+// onto the strips before `PhoneMoves.reorder` (shots reorder only in the scene editor).
 
 import SwiftUI
 
@@ -35,6 +45,9 @@ struct PhoneStripRow: View {
     /// The fields the strip prints as chips (the Stripboard Fields setting, decoded once
     /// per list body by the caller); a fresh install shows the cast, as the Mac does.
     var visibleFields: Set<StripboardField> = StripboardField.defaultSelection
+    /// The shots chevron (#43): a script scene's in the Days list and on the Day screen;
+    /// nil in the Boneyard and for a banner.
+    var shotChevron: PhoneShotChevron? = nil
     @Environment(\.scenePalette) private var palette
 
     var body: some View {
@@ -66,6 +79,47 @@ struct PhoneStripRow: View {
     }
 
     private var sceneRow: some View {
+        HStack(spacing: 0) {
+            if let shotChevron {
+                chevronButton(shotChevron)
+            }
+            sceneContent
+                // The chevron stays its own element, so the strip reads (and activates) as
+                // before and the chevron is a button of its own.
+                .accessibilityElement(children: .combine)
+                // Read before the chevron: the row's reorder handle takes its label from
+                // the first element ("Reorder 12, EXT. PORCH…", not "Reorder Show Shots").
+                .accessibilitySortPriority(1)
+        }
+        .padding(.leading, shotChevron == nil ? 14 : 0)
+        .padding(.trailing, 14)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(scene.stripColor(in: palette))
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(textColor.opacity(0.15)).frame(height: 0.5)
+        }
+    }
+
+    /// The Stripboard's chevron (#42), sized for a finger: dimmed while the scene has no
+    /// shots (expanded, it shows the "No shots" line with Add Shot…), turned down while
+    /// expanded. A borderless button, so it takes its own tap and the row's tap (the
+    /// editor) keeps the rest of the strip.
+    private func chevronButton(_ chevron: PhoneShotChevron) -> some View {
+        Button(action: chevron.toggle) {
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(textColor.opacity(chevron.hasShots ? 0.8 : 0.35))
+                .rotationEffect(.degrees(chevron.isExpanded ? 90 : 0))
+                .frame(width: 34, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel(chevron.isExpanded ? L("Hide Shots") : L("Show Shots"))
+        .accessibilityIdentifier("ShotChevron")
+    }
+
+    private var sceneContent: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 if !scene.sceneNumber.isEmpty {
@@ -125,14 +179,6 @@ struct PhoneStripRow: View {
                 }
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(scene.stripColor(in: palette))
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(textColor.opacity(0.15)).frame(height: 0.5)
-        }
-        .accessibilityElement(children: .combine)
     }
 
     // MARK: Banner and auto-meal
@@ -185,6 +231,105 @@ struct PhoneStripRow: View {
 
     static func bannerLabel(for scene: Scene) -> String {
         scene.bannerDisplayLabel
+    }
+}
+
+// MARK: - Shots (#43)
+
+/// A strip's shots chevron: whether the strip is expanded, whether the scene has any
+/// shots (the chevron dims without), and the flip.
+struct PhoneShotChevron {
+    let isExpanded: Bool
+    let hasShots:   Bool
+    let toggle:     () -> Void
+}
+
+/// One shot under its strip in the phone's lists: #42's `ShotSubRow` (the number, the
+/// description, the equipment dimmed, the duration; no time, no thumbnail), indented
+/// under the strip's number on a tint of the strip's color, so it reads as the strip's.
+struct PhoneShotRow: View {
+    let number: String
+    let shot:   Shot
+
+    var body: some View {
+        ShotSubRow(number: number, shot: shot)
+            .padding(.leading, 34)
+            .padding(.trailing, 14)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The row's fill: the strip's color, lightened, the Stripboard's sub-row tint.
+    static func rowColor(for scene: Scene, palette: ScenePalette) -> Color {
+        scene.stripColor(in: palette).opacity(0.28)
+    }
+}
+
+/// A day's strips as the Days list and the Day screen draw them: each strip with its
+/// chevron, tap, menu and swipes (`stripInteractions`), and under an expanded script scene
+/// its shots (`PhoneShotRow`, a tap opening the editor on the shot's page) or the "No
+/// shots" line with Add Shot…. One `ForEach` with one `onMove`: the sub-rows are
+/// `moveDisabled`, and the offsets, which count them, are mapped onto the strips
+/// (`PhoneStripListRows.stripMove`) before the reorder, so a drag moves strips and never a
+/// shot. The rows are built once per body (`PhoneStripListRows.rows`), never per row.
+struct PhoneDayStrips: View {
+    let strips:           [Scene]
+    let timeline:         [UUID: DayTimelineEntry]
+    let conflictSceneIDs: Set<UUID>
+    let visibleFields:    Set<StripboardField>
+    let actions:          PhoneStripActions
+    @Environment(\.scenePalette) private var palette
+
+    var body: some View {
+        let rows      = PhoneStripListRows.rows(for: strips, expansion: actions.shotExpansion?.wrappedValue ?? ShotExpansion())
+        let displayed = strips.map(\.id)
+        ForEach(rows) { row in
+            switch row.kind {
+            case .strip:
+                let scene = row.scene
+                PhoneStripRow(scene: scene, timeText: timeline[scene.id]?.timeDisplay ?? "", hasConflict: conflictSceneIDs.contains(scene.id),
+                              visibleFields: visibleFields, shotChevron: actions.shotChevron(for: scene))
+                    .stripListRow(color: PhoneStripRow.rowColor(for: scene, palette: palette))
+                    .stripInteractions(actions, scene: scene)
+            case .shot(let shot, let number):
+                PhoneShotRow(number: number, shot: shot)
+                    .stripListRow(color: PhoneShotRow.rowColor(for: row.scene, palette: palette))
+                    .shotInteractions(actions, scene: row.scene, shot: shot)
+                    .moveDisabled(true)
+            case .noShots:
+                noShotsRow(row.scene)
+                    .stripListRow(color: PhoneShotRow.rowColor(for: row.scene, palette: palette))
+                    .moveDisabled(true)
+            }
+        }
+        .onMove { source, destination in
+            guard let move = PhoneStripListRows.stripMove(fromOffsets: source, toOffset: destination, in: rows) else { return }
+            actions.moves.reorder(displayed, fromOffsets: move.source, toOffset: move.destination, in: actions.day.id)
+        }
+    }
+
+    /// An expanded scene with no shots yet: the Stripboard's "No shots" line, the whole
+    /// row one tap into the editor on a new shot's page.
+    private func noShotsRow(_ scene: Scene) -> some View {
+        Button {
+            actions.addShot(to: scene)
+        } label: {
+            HStack(spacing: 8) {
+                Text(L("No shots"))
+                    .font(.footnote)
+                    .foregroundStyle(Color.secondary)
+                Spacer(minLength: 8)
+                Label(L("Add Shot…"), systemImage: "plus")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+            }
+            .padding(.leading, 34)
+            .padding(.trailing, 14)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("NoShotsAddShot")
     }
 }
 
@@ -305,6 +450,8 @@ struct PhoneStripActions {
     /// Move to Next Day are absent otherwise).
     var hasPreviousDay: Bool = false
     var hasNextDay:     Bool = false
+    /// Which strips show their shots (#43), the editor's; nil where nothing expands.
+    var shotExpansion:  Binding<ShotExpansion>? = nil
 
     /// Send to Day applies to what a drag would carry: a script scene or a banner.
     private func canSendToDay(_ scene: Scene) -> Bool { !scene.isCalendarEvent && !scene.isAutoMeal }
@@ -325,6 +472,45 @@ struct PhoneStripActions {
         dayEdits.presentEditor(for: scene, dayID: day.id)
     }
 
+    // MARK: Shots (#43)
+
+    /// The strip's chevron: a script scene's, where the list expands at all.
+    func shotChevron(for scene: Scene) -> PhoneShotChevron? {
+        guard let shotExpansion, PhoneStripListRows.showsShots(scene) else { return nil }
+        return PhoneShotChevron(
+            isExpanded: shotExpansion.wrappedValue.isExpanded(scene.id),
+            hasShots:   !scene.shots.isEmpty,
+            toggle:     { withAnimation(.easeInOut(duration: 0.15)) { shotExpansion.wrappedValue.toggle(scene.id) } }
+        )
+    }
+
+    /// A sub-row's tap: the scene editor on that shot's page, with the siblings a tap on
+    /// the strip gives (the day's script scenes), so Previous and Next still step scenes.
+    func openShot(_ shotID: UUID, in scene: Scene) {
+        dayEdits.presentSceneEditor(sceneID: scene.id, dayID: day.id, initialRoute: .shot(shotID))
+    }
+
+    /// Add Shot…: the scene editor on a new shot's page (added through its draft, so
+    /// Cancel leaves the scene as it was).
+    func addShot(to scene: Scene) {
+        dayEdits.presentSceneEditor(sceneID: scene.id, dayID: day.id, initialRoute: .newShot)
+    }
+
+    /// A sub-row's long press: Edit Shot and Add Shot….
+    @ViewBuilder
+    func shotContextMenu(for scene: Scene, shot: Shot) -> some View {
+        Button {
+            openShot(shot.id, in: scene)
+        } label: {
+            Label(L("Edit Shot"), systemImage: "pencil")
+        }
+        Button {
+            addShot(to: scene)
+        } label: {
+            Label(L("Add Shot…"), systemImage: "plus.rectangle.on.rectangle")
+        }
+    }
+
     private func editLabel(_ scene: Scene) -> String {
         scene.isAutoMeal ? L("Set Time…") : (scene.isBanner ? L("Edit Banner") : L("Edit Scene"))
     }
@@ -343,6 +529,13 @@ struct PhoneStripActions {
             open(scene)
         } label: {
             Label(editLabel(scene), systemImage: scene.isAutoMeal ? "clock" : "pencil")
+        }
+        if PhoneStripListRows.showsShots(scene) {
+            Button {
+                addShot(to: scene)
+            } label: {
+                Label(L("Add Shot…"), systemImage: "plus.rectangle.on.rectangle")
+            }
         }
         if !scene.isAutoMeal {
             Button {
@@ -499,6 +692,15 @@ extension View {
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                 actions.stripSwipeActions(for: scene)
             }
+    }
+
+    /// A shot sub-row's tap (the editor on the shot's page) and long press (Edit Shot,
+    /// Add Shot…), #43. No swipe: a shot is moved, duplicated and removed in the editor.
+    func shotInteractions(_ actions: PhoneStripActions, scene: Scene, shot: Shot) -> some View {
+        self
+            .contentShape(Rectangle())
+            .onTapGesture { actions.openShot(shot.id, in: scene) }
+            .contextMenu { actions.shotContextMenu(for: scene, shot: shot) }
     }
 }
 

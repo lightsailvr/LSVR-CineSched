@@ -20,6 +20,13 @@
 // Add Banner… sits beside Add Scenes…. The day's menu carries the same adds and the call
 // sheet, so nothing here needs scrolling to find.
 //
+// Shots (#43): the strips are `PhoneDayStrips`, the Days list's, so a script scene's
+// chevron expands its shots here too (the same `ShotExpansion`, the editor's), a shot's
+// tap opens the scene editor on its page, and Add Shot… is in the strip's menu. Reorder
+// leaves the sub-rows where they are: they have no handle (`moveDisabled`) and the drop
+// offsets are mapped onto the strips, so Reorder moves strips and never a shot; shots
+// reorder in the scene editor only.
+//
 // Platform-free SwiftUI; the Mac compiles it and never shows it.
 
 import SwiftUI
@@ -35,7 +42,8 @@ struct DayScreen: View {
     let dayEdits: PhoneDayEdits
     /// The Stripboard Fields setting, decoded once by the Days tab.
     let visibleFields: Set<StripboardField>
-    @Environment(\.scenePalette) private var palette
+    /// Which strips show their shots (#43), the editor's, shared with the Days list.
+    @Binding var shotExpansion: ShotExpansion
 
     /// Edit mode on the strips, with their drag handles (Reorder / Done in the section header).
     @State private var isReordering = false
@@ -66,7 +74,8 @@ struct DayScreen: View {
         let timeline   = dayTimeline(for: day, scenes: strips)
         let index      = shootDays.firstIndex { $0.id == dayID } ?? 0
         let actions    = PhoneStripActions(day: day, moves: moves, dayEdits: dayEdits, openDay: nil,
-                                           hasPreviousDay: index > 0, hasNextDay: index < shootDays.count - 1)
+                                           hasPreviousDay: index > 0, hasNextDay: index < shootDays.count - 1,
+                                           shotExpansion: $shotExpansion)
 
         return List {
             headerSection(summary)
@@ -334,21 +343,13 @@ struct DayScreen: View {
     // MARK: - Strips (#25: reorder with handles, Add Scenes; #26: the editors, Add Banner)
 
     private func stripsSection(_ strips: [Scene], timeline: [UUID: DayTimelineEntry], actions: PhoneStripActions) -> some View {
-        let displayed = strips.map(\.id)
-        return Section {
+        Section {
             if strips.isEmpty {
                 Text(L("No scenes scheduled"))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
-            ForEach(strips) { scene in
-                PhoneStripRow(scene: scene, timeText: timeline[scene.id]?.timeDisplay ?? "", hasConflict: conflictSceneIDs.contains(scene.id), visibleFields: visibleFields)
-                    .stripListRow(color: PhoneStripRow.rowColor(for: scene, palette: palette))
-                    .stripInteractions(actions, scene: scene)
-            }
-            .onMove { source, destination in
-                moves.reorder(displayed, fromOffsets: source, toOffset: destination, in: dayID)
-            }
+            PhoneDayStrips(strips: strips, timeline: timeline, conflictSceneIDs: conflictSceneIDs, visibleFields: visibleFields, actions: actions)
             Button {
                 moves.presentAddScenes(dayID: dayID)
             } label: {

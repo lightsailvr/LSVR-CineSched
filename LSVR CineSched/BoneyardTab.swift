@@ -17,7 +17,9 @@
 //
 // The rows come from the editor's derived state (`DerivedScheduleState.sortedBoneyard`,
 // computed once per change for the sort the editor holds), so this body sorts nothing;
-// the filter runs over that list per redraw, which is a string scan per row. Send to
+// the filter runs over that list per redraw, which is a string scan per row. The strips
+// print the Stripboard Fields setting's chips, decoded once per body (#43: the Shots
+// count among them), and never expand: no chevron, no sub-rows. Send to
 // Day is `PhoneMoves.presentSendToDay` (#25), the same picker and the same move the
 // Days list uses. No stack of its own and no toolbar: the document infrastructure's bar
 // is the phone's one bar (PhoneEditor's note), so the filter, the sort, Select and "+"
@@ -41,6 +43,8 @@ struct BoneyardTab: View {
     /// The scene editor, Duplicate Scene and Delete Scene (#26's funnel, the same on every tab).
     let dayEdits: PhoneDayEdits
     @Environment(\.scenePalette) private var palette
+    /// The Stripboard Fields setting (app-wide, the Production tab's picker writes it).
+    @AppStorage(StripboardFieldSettings.defaultsKey) private var stripboardFieldsRaw: String = StripboardFieldSettings.defaultRaw
 
     @State private var filter        = ""
     @State private var isSelecting   = false
@@ -175,7 +179,9 @@ struct BoneyardTab: View {
     // MARK: - The list
 
     private func list(_ displayed: [Scene]) -> some View {
-        List(selection: $selectedIDs) {
+        // Once per body, never per row.
+        let fields = StripboardFieldSettings.decode(stripboardFieldsRaw)
+        return List(selection: $selectedIDs) {
             if boneyard.isEmpty {
                 ContentUnavailableView {
                     Label(L("Boneyard Is Empty"), systemImage: "tray")
@@ -189,7 +195,7 @@ struct BoneyardTab: View {
             } else {
                 Section {
                     ForEach(displayed) { scene in
-                        row(scene, in: displayed)
+                        row(scene, in: displayed, fields: fields)
                     }
                 }
             }
@@ -203,9 +209,9 @@ struct BoneyardTab: View {
     /// swipe Delete, Send to Day and Duplicate. A duplicate number wears the Mac's dashed
     /// red edge.
     @ViewBuilder
-    private func row(_ scene: Scene, in displayed: [Scene]) -> some View {
+    private func row(_ scene: Scene, in displayed: [Scene], fields: Set<StripboardField>) -> some View {
         let isDuplicate = derived.duplicateSceneNumberIDs.contains(scene.id)
-        let strip = PhoneStripRow(scene: scene, timeText: "")
+        let strip = PhoneStripRow(scene: scene, timeText: "", visibleFields: fields)
             .overlay {
                 if isDuplicate {
                     Rectangle()
