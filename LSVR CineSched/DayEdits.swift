@@ -28,7 +28,7 @@ extension Scene {
     /// unscheduled script scene. The shot list (under fresh shot ids) and the scene's own
     /// storyboard frame are carried (#37): a copied scene is a whole scene.
     func duplicated() -> Scene {
-        Scene(
+        var copy = Scene(
             title:            title + " (Copy)",
             sceneNumber:      sceneNumber,
             duration:         duration,
@@ -47,9 +47,12 @@ extension Scene {
             sfx:              sfx,
             vfx:              vfx,
             breakdownNotes:   breakdownNotes,
-            shots:            shots.map { shot in var copy = shot; copy.id = UUID(); return copy },
+            shots:            shots,
             frame:            frame
         )
+        // Fresh shot ids, through the one rule the calendar's duplicate and the paste use.
+        copy.refreshShotIDs()
+        return copy
     }
 }
 
