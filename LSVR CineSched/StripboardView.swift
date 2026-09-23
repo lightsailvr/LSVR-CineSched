@@ -97,7 +97,7 @@ struct StripboardView: View {
     // Shot drag/drop state (#42): the shot being lifted (set as its drag begins, cleared
     // when it ends) and the sub-row zone it hovers, which is lit only where
     // `ShotDrop.position` says the drop would land, so another scene's sub-rows stay dark.
-    @State private var draggingShot:   ScheduleDragPayload? = nil
+    @State private var draggingShot:   ShotDragPayload? = nil
     @State private var shotDropTarget: ShotDropTarget? = nil
 
     // Quick Time Edit state
@@ -499,7 +499,7 @@ struct StripboardView: View {
     /// Remembered for the drag's length so the zones can tell their own scene's shot.
     private func shotDragPayload(_ shot: Shot, in scene: Scene) -> ShotDragPayload {
         let item = ShotDragPayload(shotID: shot.id, sceneID: scene.id)
-        draggingShot = item.payload
+        draggingShot = item
         return item
     }
 
@@ -519,10 +519,8 @@ struct StripboardView: View {
         draggingShot   = nil
         var moved = false
         for item in items {
-            guard case .shot(let shotID, let sceneID) = item.payload.kind,
-                  let position = ShotDrop.position(for: item.payload, onto: target)
-            else { continue }
-            onMoveShot(shotID, sceneID, position)
+            guard let position = ShotDrop.position(for: item, onto: target) else { continue }
+            onMoveShot(item.shotID, item.sceneID, position)
             moved = true
         }
         return moved
@@ -917,9 +915,8 @@ struct StripboardView: View {
                 handleDayRearrange(sourceDayId: sourceDayID, targetDayId: dayID)
             case .dayType(let sourceDayID):
                 moveDayType(from: sourceDayID, toDayId: dayID)
-            case .sceneCopies, .shot:
+            case .sceneCopies:
                 // The pasteboard's kind (#22); nothing drags one. A paste is the editor's.
-                // A shot travels on its own type and never reaches a day or a strip (#42).
                 break
             }
         }

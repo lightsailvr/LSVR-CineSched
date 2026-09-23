@@ -26,15 +26,17 @@
 // `adjacentDayID` names the day a strip's Move to Next Day / Move to Previous Day lands
 // on, and the move itself is a `moveScenes` to its end.
 //
-// A shot sub-row on the Stripboard (#42) drags the same payload with its own kind, but
-// wrapped in `ShotDragPayload`, which travels on a content type of its own
+// A shot sub-row on the Stripboard (#42) drags a `ShotDragPayload` (the shot's id and its
+// scene's), which travels on a content type of its own
 // (`UTType.cineschedShotDragPayload`): every destination that takes `ScheduleDragPayload`
 // (a strip's zone, a day section, the day handle, the Boneyard, a calendar cell) imports
 // only the scene type, so a shot is never offered to them, never lights their indicator
 // and never lands there, in this window or another. Only a sub-row zone reads it, and
 // `ShotDrop.position(for:onto:)` says where in its own scene it lands. (A per-value
 // `exportingCondition` on one type was the first try: `exported(as:)` ignored it, so the
-// split is by type, which nothing can bypass.)
+// split is by type, which nothing can bypass. The shot was also a kind of this payload
+// until #36's review, which only forced no-op arms into every scene drop; it is its own
+// `Codable` value now.)
 //
 // The payload is never persisted: it lives for the length of one drag, so its shape is
 // free to change (no `CodingKeys` promise, unlike the project file).
@@ -52,7 +54,7 @@ extension UTType {
     nonisolated static let cineschedDragPayload = UTType(exportedAs: "com.lsvr.cinesched.drag-payload", conformingTo: .data)
 
     /// `com.lsvr.cinesched.shot-drag-payload`, what a shot sub-row's drag carries (#42):
-    /// the same payload's JSON on a type of its own, so the destinations for scenes, days
+    /// `ShotDragPayload`'s JSON on a type of its own, so the destinations for scenes, days
     /// and bands never see a shot. Declared beside the scene type in Config/Info.plist.
     nonisolated static let cineschedShotDragPayload = UTType(exportedAs: "com.lsvr.cinesched.shot-drag-payload", conformingTo: .data)
 }
@@ -80,9 +82,6 @@ nonisolated struct ScheduleDragPayload: Codable, Hashable, Identifiable, Sendabl
         /// Scenes by value, from Copy or Cut (#22): what a paste inserts, as new scenes
         /// with new ids, wherever it lands. Nothing on the board is addressed by it.
         case sceneCopies([Scene])
-        /// A shot sub-row on the Stripboard (#42): the shot and the scene it belongs to. It
-        /// travels inside `ShotDragPayload`, on its own type, and lands only in its scene.
-        case shot(id: UUID, sceneID: UUID)
     }
 
     var kind: Kind
@@ -103,26 +102,18 @@ nonisolated struct ScheduleDragPayload: Codable, Hashable, Identifiable, Sendabl
         case .dayType(let dayID):       return dayID
         case .calendarEvent(let id, _): return id
         case .sceneCopies(let scenes):  return scenes.first?.id ?? UUID()
-        case .shot(let id, _):          return id
         }
     }
 
     /// The scene ids a drop moves, whatever the kind called them: the scenes of a scenes
     /// payload, the event of an event payload, nothing for a day, a band or copies (a
-    /// copy's scenes are not on this board; they are inserted, not moved), nor for a shot
-    /// (it moves within its scene, never the scene).
+    /// copy's scenes are not on this board; they are inserted, not moved).
     var sceneIDs: [UUID] {
         switch kind {
         case .scenes(let ids, _):       return ids
         case .calendarEvent(let id, _): return [id]
-        case .day, .dayType, .sceneCopies, .shot: return []
+        case .day, .dayType, .sceneCopies: return []
         }
-    }
-
-    /// Whether this is a shot sub-row's drag, which travels on its own content type.
-    var isShot: Bool {
-        if case .shot = kind { return true }
-        return false
     }
 
     /// The scenes a paste inserts: the copies of a copies payload, nothing otherwise.
@@ -142,61 +133,48 @@ nonisolated extension ScheduleDragPayload: Transferable {
 
 // MARK: - A shot's drop
 
-/// What a shot sub-row drags and what a sub-row's drop zone reads (#42): the shot payload
-/// (`ScheduleDragPayload.Kind.shot`) on its own content type, as the payload's JSON. A
-/// type of its own because a destination is chosen by type while a drag hovers, before
-/// anything is decoded: `ScheduleDragPayload` imports only the scene type, which is what
-/// keeps a shot out of every other destination.
-nonisolated struct ShotDragPayload: Transferable, Hashable, Sendable {
-    var payload: ScheduleDragPayload
+/// What a shot sub-row drags and what a sub-row's drop zone reads (#42): the shot and the
+/// scene it belongs to, on a content type of its own. A type of its own because a
+/// destination is chosen by type while a drag hovers, before anything is decoded:
+/// `ScheduleDragPayload` imports only the scene type, which is what keeps a shot out of
+/// every other destination. Like that payload it lives for one drag and is never saved.
+nonisolated struct ShotDragPayload: Codable, Hashable, Sendable {
+    var shotID:  UUID
+    var sceneID: UUID
 
     init(shotID: UUID, sceneID: UUID) {
-        payload = ScheduleDragPayload(.shot(id: shotID, sceneID: sceneID))
-    }
-
-    private init(payload: ScheduleDragPayload) {
-        self.payload = payload
-    }
-
-    static var transferRepresentation: some TransferRepresentation {
-        DataRepresentation(contentType: .cineschedShotDragPayload) { item in
-            try JSONEncoder().encode(item.payload)
-        } importing: { data in
-            ShotDragPayload(payload: try JSONDecoder().decode(ScheduleDragPayload.self, from: data))
-        }
+        self.shotID  = shotID
+        self.sceneID = sceneID
     }
 }
 
-/// Where a drag hovers or drops on the Stripboard, as far as a shot is concerned.
+nonisolated extension ShotDragPayload: Transferable {
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .cineschedShotDragPayload)
+    }
+}
+
+/// Where a shot's drag hovers or drops on the Stripboard: the only zones that take one.
 nonisolated enum ShotDropTarget: Hashable, Sendable {
     /// A shot sub-row: before that shot.
     case shot(id: UUID, sceneID: UUID)
     /// Below a scene's last sub-row: the end of its shot list.
     case sceneEnd(sceneID: UUID)
-    /// A strip's own drop zone.
-    case strip(sceneID: UUID)
-    /// A day section (its header, its chips, its end-of-day strip).
-    case day(id: UUID)
-    /// The Boneyard.
-    case boneyard
 }
 
 enum ShotDrop {
-    /// Where a shot dragged as `payload` lands on `target`: before a shot or at the end of
-    /// the list, of the scene it belongs to only. Nil for any other payload, for another
-    /// scene's sub-rows and for every strip, day and Boneyard target: a shot never leaves
-    /// its scene. The Stripboard asks the same question to light a sub-row's indicator
-    /// while the drag hovers (with the payload it lifted) and to apply the drop, so the
-    /// indicator never promises a move the drop will not make.
-    static func position(for payload: ScheduleDragPayload, onto target: ShotDropTarget) -> ShotDropPosition? {
-        guard case .shot(_, let sceneID) = payload.kind else { return nil }
+    /// Where the shot dragged as `payload` lands on `target`: before a shot or at the end
+    /// of the list, of the scene it belongs to only; nil for another scene's sub-rows (a
+    /// shot never leaves its scene, and no other destination takes its type). The
+    /// Stripboard asks the same question to light a sub-row's indicator while the drag
+    /// hovers (with the payload it lifted) and to apply the drop, so the indicator never
+    /// promises a move the drop will not make.
+    static func position(for payload: ShotDragPayload, onto target: ShotDropTarget) -> ShotDropPosition? {
         switch target {
         case .shot(let anchorID, let targetSceneID):
-            return targetSceneID == sceneID ? .before(anchorID) : nil
+            return targetSceneID == payload.sceneID ? .before(anchorID) : nil
         case .sceneEnd(let targetSceneID):
-            return targetSceneID == sceneID ? .end : nil
-        case .strip, .day, .boneyard:
-            return nil
+            return targetSceneID == payload.sceneID ? .end : nil
         }
     }
 }

@@ -120,12 +120,8 @@ struct ScheduleDragTests {
         let data   = try await item.exported(as: .cineschedShotDragPayload)
         let back   = try await ShotDragPayload(importing: data, contentType: .cineschedShotDragPayload)
         #expect(back == item)
-        #expect(back.payload.kind == .shot(id: shotID, sceneID: a.id))
-        #expect(item.payload.id == shotID)
-        #expect(item.payload.isShot)
-        #expect(item.payload.sceneIDs.isEmpty)
-        // The same JSON as the payload itself, so a shot reads like every other kind.
-        #expect(try JSONDecoder().decode(ScheduleDragPayload.self, from: data) == item.payload)
+        #expect(back.shotID  == shotID)
+        #expect(back.sceneID == a.id)
     }
 
     /// What keeps a shot out of every strip, day and Boneyard destination: a destination
@@ -135,45 +131,36 @@ struct ScheduleDragTests {
         #expect(ShotDragPayload.importedContentTypes() == [.cineschedShotDragPayload])
         #expect(!ScheduleDragPayload.importedContentTypes().contains(.cineschedShotDragPayload))
         #expect(!ScheduleDragPayload.exportedContentTypes().contains(.cineschedShotDragPayload))
-        #expect(!ScheduleDragPayload.scenes([a.id], from: nil).isShot)
+    }
+
+    /// A shot's bytes are not a scene payload, and a scene payload's are not a shot: a drop
+    /// that somehow got the other's data would read nothing.
+    @Test func aShotAndASceneDoNotReadEachOthersBytes() async throws {
+        let shot  = try await ShotDragPayload(shotID: UUID(), sceneID: a.id).exported(as: .cineschedShotDragPayload)
+        let scene = try await ScheduleDragPayload.scenes([a.id], from: nil).exported(as: .cineschedDragPayload)
+        #expect((try? JSONDecoder().decode(ScheduleDragPayload.self, from: shot)) == nil)
+        #expect((try? JSONDecoder().decode(ShotDragPayload.self, from: scene)) == nil)
     }
 
     // MARK: - Where a shot lands (#42)
 
     @Test func aShotDroppedOnASubRowOfItsSceneLandsBeforeThatShot() {
         let shotID = UUID(), anchorID = UUID()
-        let payload = ScheduleDragPayload(.shot(id: shotID, sceneID: a.id))
+        let payload = ShotDragPayload(shotID: shotID, sceneID: a.id)
         #expect(ShotDrop.position(for: payload, onto: .shot(id: anchorID, sceneID: a.id)) == .before(anchorID))
     }
 
     @Test func aShotDroppedBelowItsScenesLastSubRowLandsAtTheEnd() {
-        let payload = ScheduleDragPayload(.shot(id: UUID(), sceneID: a.id))
+        let payload = ShotDragPayload(shotID: UUID(), sceneID: a.id)
         #expect(ShotDrop.position(for: payload, onto: .sceneEnd(sceneID: a.id)) == .end)
     }
 
-    @Test func aShotDroppedAnywhereElseLandsNowhere() {
-        let payload = ScheduleDragPayload(.shot(id: UUID(), sceneID: a.id))
+    /// Another scene's sub-rows take nothing; strips, days and the Boneyard never see the
+    /// shot's type at all (above).
+    @Test func aShotDroppedOnAnotherScenesSubRowsLandsNowhere() {
+        let payload = ShotDragPayload(shotID: UUID(), sceneID: a.id)
         #expect(ShotDrop.position(for: payload, onto: .shot(id: UUID(), sceneID: b.id)) == nil)
         #expect(ShotDrop.position(for: payload, onto: .sceneEnd(sceneID: b.id)) == nil)
-        #expect(ShotDrop.position(for: payload, onto: .strip(sceneID: a.id)) == nil)
-        #expect(ShotDrop.position(for: payload, onto: .strip(sceneID: b.id)) == nil)
-        #expect(ShotDrop.position(for: payload, onto: .day(id: UUID())) == nil)
-        #expect(ShotDrop.position(for: payload, onto: .boneyard) == nil)
-    }
-
-    @Test func noOtherKindLandsOnASubRow() {
-        let anchor = ShotDropTarget.shot(id: UUID(), sceneID: a.id)
-        let others: [ScheduleDragPayload] = [
-            .scenes([a.id], from: nil),
-            ScheduleDragPayload(.day(id: UUID())),
-            ScheduleDragPayload(.dayType(dayID: UUID())),
-            ScheduleDragPayload(.calendarEvent(id: event.id, dayID: UUID())),
-            ScheduleDragPayload(.sceneCopies([a])),
-        ]
-        for payload in others {
-            #expect(ShotDrop.position(for: payload, onto: anchor) == nil)
-            #expect(ShotDrop.position(for: payload, onto: .sceneEnd(sceneID: a.id)) == nil)
-        }
     }
 
     /// The resolution feeds #37's move: C dropped on A's sub-row reads C, A, B, and the
@@ -191,7 +178,7 @@ struct ScheduleDragTests {
         var project = ProjectData.newProject()
         project.shootDays = [day]
 
-        let payload  = ScheduleDragPayload(.shot(id: shotC.id, sceneID: scene.id))
+        let payload  = ShotDragPayload(shotID: shotC.id, sceneID: scene.id)
         let position = try #require(ShotDrop.position(for: payload, onto: .shot(id: shotA.id, sceneID: scene.id)))
         let moved    = project.moveShot(withID: shotC.id, inSceneID: scene.id, to: position)
         #expect(moved)
