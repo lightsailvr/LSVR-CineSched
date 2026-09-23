@@ -16,8 +16,12 @@ import SwiftUI
 struct ShotSubRow: View {
     let number: String
     let shot:   Shot
-    /// The strip's text color, so a sub-row reads on its scene's color.
-    var textColor: Color = .primary
+    /// The adaptive primary color, not the strip's black: the sub-row sits on a
+    /// translucent tint of the strip's color (`tint(for:palette:colorScheme:)`) over the
+    /// board, which is dark in dark appearance, so the strip's own text color would be
+    /// black on near-black there (#36's review). `Color.primary`, the color, because a
+    /// tinted `List` row resolves the hierarchical `.primary` to the tint.
+    private var textColor: Color { Color.primary }
 
     var body: some View {
         HStack(spacing: 8) {
