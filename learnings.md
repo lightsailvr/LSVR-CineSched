@@ -9,6 +9,54 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-23 — Shots on the iPhone: a `List`'s reorder handle is labelled by the row's first element, sub-rows share the strips' `onMove` offsets, and the Boneyard tab never read Stripboard Fields (#43)
+
+- **A row's reorder handle takes its accessibility label from the row's first element.**
+  With the shots chevron (a `Button`) leading the strip, the Day screen's handles read
+  "Reorder Show Shots" / "Reorder Hide Shots" for every strip, which VoiceOver would
+  speak and a probe could not tell apart. `.accessibilitySortPriority(1)` on the strip's
+  combined content puts it first again ("Reorder 12, EXT. PORCH – DUSK, …") and leaves
+  the chevron its own button (`ShotChevron`, "Show Shots"). A borderless `Button` inside a
+  row that carries `.onTapGesture` takes its own tap; the rest of the strip still opens the
+  editor, and the long-press menu and swipes are untouched.
+- **Extra rows in the strips' `ForEach` count in its `onMove` offsets.** A `List` cannot
+  nest rows under a row, so a scene's shots are rows of the same `ForEach`; the offsets
+  are then row indices, not strip indices. `PhoneStripListRows.stripMove` maps them (the
+  source by its place among the strips, the destination as the strips before it) before
+  `PhoneMoves.reorder`, and the sub-rows are `moveDisabled` (no handle in edit mode, never
+  lifted). The probe dragged 14's handle above 12 with 12 expanded: 14 moved, 12's shots
+  stayed under 12. A `ForEach` with its `onMove` inside a small `View` struct
+  (`PhoneDayStrips`) placed in a `Section` behaves exactly as an inline one.
+- **The Boneyard tab drew `PhoneStripRow` without `visibleFields`**, so it always showed
+  the default chips (cast) whatever Stripboard Fields said; it now decodes the setting once
+  per body like the Days list, which is how the Shots chip reaches it.
+- **`simctl spawn <sim> defaults write com.lsvr.LSVR-CineSched CineSchedStripboardFields
+  "cast,shots"` reached a running app's `@AppStorage`**: the next redraw showed the chip,
+  no relaunch.
+- **A `Label` inside a `VStack` in a `List` row button pads its icon to the list's icon
+  column**, leaving a wide gap before a caption's words; the search row's "in shot 12B" is
+  a `Text` with an inline `Image` instead.
+- **A keyboard came up behind every long-press menu in the Days list** on the iPhone 17
+  simulator (the day header's menu, untouched by #43, as much as a strip's), covering the
+  lower items, so XCUITest found "Add Shot…" in a strip's menu but "not hittable". Not
+  chased: it may be the simulator or the first-responder reclaim of the shake fix
+  (`PlatformPasteboardResponder`); on the device checklist. A sub-row's menu, which is
+  shorter, sat above it and was driven.
+- **A 200-strip, 600-shot Days list with every strip expanded** scrolled on the iPhone
+  simulator without the backboardd crash the iPad's Stripboard hit (#42): a `List` is
+  lazy, so no layer grows with the board. `XCTOSSignpostMetric.scrollingAndDecelerationMetric`
+  reports only the duration on the simulator (2.58 s ± 0.3 % for a fast swipe up and
+  down), no hitch ratio; hitches need a device and Instruments.
+- **Probe timing**: `descendants(matching: .any).allElementsBoundByIndex` over the open
+  scene editor took two to three minutes per dump on the iPhone 17 simulator; dump the
+  labels only where a query is needed.
+- **The worktree guard refuses shell lines it cannot parse** (a `$(mktemp -d)` in an
+  `xcodebuild` argument, a heredoc into `python3`, a loop over `bash` calls): write the
+  script to the scratch folder and run it by path, and give `-derivedDataPath` a literal
+  fresh directory.
+
+---
+
 ## 2026-09-23 — Frame sources: the iOS 27 simulator has a camera, visionOS has no paste API, a form row hides a menu's words, and a locked screen ends a Mac probe (#41)
 
 - **The iOS 27 simulator reports a camera.** `UIImagePickerController.isSourceTypeAvailable(.camera)`

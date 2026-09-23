@@ -137,7 +137,11 @@ the build inputs outside it, see Working agreements):
   binding the tab consumes (the View menu's bindings are constants: no calendar, no cast
   row, no all-days toggle on the phone), and `undoGestures(undoManager)` at the root,
   which puts the same manager `edit` registers with on UIKit's responder chain for shake
-  to undo and the three-finger gestures (`PlatformPasteboardResponder`). Platform-free.
+  to undo and the three-finger gestures (`PlatformPasteboardResponder`). And the shots'
+  expansion (#43): Show Shots as the Mac's `CineSchedShowShots` `@WindowPreference` and the
+  chevrons' exceptions as `@State`, one `ShotExpansion` binding handed to the Days list and
+  the Day screen, Show Shots to the Production tab and the menu bar's
+  `showShotsOnStripboard`. Platform-free.
 - `ProductionTab.swift`: the Production tab (#28): a grouped `List` (no stack of its own,
   nothing pushes) of rows in five sections, each presenting what already exists through
   one `ActiveSheet` enum and `.sheet(item:)`: Production (`ProductionSetupSheet` with the
@@ -148,7 +152,8 @@ the build inputs outside it, see Working agreements):
   `BreakdownBrowser`, Previous / Next step, Save closes, Delete removes outright and
   steps, a `ContentUnavailableView` sheet for a project without scenes) and Appearance
   (`ColorLegendView`, `SceneColorSettingsSheet` through `editCoalescing` with one token
-  per slot, `StripboardFieldsSheet` on the app-wide `@AppStorage` key) in the main file;
+  per slot, `StripboardFieldsSheet` on the app-wide `@AppStorage` key, and the Show Shots
+  `Toggle`, #43, bound to `PhoneEditor`'s) in the main file;
   the other three sections are extensions, the `ContentView+*` pattern:
   `ProductionTab+Range.swift` (Project: the title field on a per-focus-session token, the
   two `DatePicker`s bound to `PhoneEditor`'s range state, Shift Schedule, Update Calendar,
@@ -210,7 +215,10 @@ the build inputs outside it, see Working agreements):
   first in schedule order then the Boneyard in script order; a blank query finds
   nothing), `matchingShots(in:query:)` (the shots holding any word of the query, for a
   result's caption, #37) and `BoneyardSelection.ordered(_:inDisplayOrder:)`, the
-  multi-selection in the list's order for Send to Day.
+  multi-selection in the list's order for Send to Day. With #43 a result carries the
+  shot that found it (`matchedShotID`, `matchedShotNumber`: the first shot holding a word
+  the scene's own fields do not; nil when they hold every word), the Search tab row's
+  "in shot 12B" caption.
 - `NewSceneSheet.swift`: the New Scene form (#27), an adaptive editor over `NewSceneDraft`
   (EditorDrafts.swift): number, slugline (focused on appear), real location with the
   autocomplete field, pages and estimate with the scene editor's hints, and the type
@@ -241,7 +249,9 @@ the build inputs outside it, see Working agreements):
   through the same `PhoneStripActions` as the Day screen (a strip's tap opens its
   editor) and `PhoneDayEdits` (an event chip's tap opens the event, its long press is
   `phoneEventMenuItems`); the Stripboard Fields setting is read here (`@AppStorage`),
-  decoded once per body and handed to every row and to the Day screen. A day row's
+  decoded once per body and handed to every row and to the Day screen. A day's strips
+  are `PhoneDayStrips` (#43: chevrons and shot sub-rows, the editor's `shotExpansion`
+  binding, shared with the Day screen). A day row's
   `index` (from `stripboardRows`) says whether the strips have a previous or next day.
 - `DayScreen.swift`: the Day screen (#24), a navigation destination for one day id, read
   from the document on every body (so it follows edits and shows an empty state if the
@@ -284,6 +294,14 @@ the build inputs outside it, see Working agreements):
   Banner in the menu, Edit and Set Time on the leading swipe, Duplicate (a script scene)
   or Delete (a custom banner) on the trailing one. An auto-meal offers Set Time only: a
   deleted one would return at the next sync while its call sheet time stands.
+  Shots (#43): `PhoneShotChevron` on a script scene's strip (`PhoneStripActions.shotChevron(for:)`
+  from its `shotExpansion` binding; nil in the Boneyard), `PhoneShotRow` (#42's `ShotSubRow`
+  on the strip's tint), `PhoneDayStrips` (a day's strips and sub-rows as both lists draw
+  them: one `ForEach` over `PhoneStripListRows.rows`, the sub-rows `moveDisabled`, one
+  `onMove` mapped through `stripMove`), `openShot(_:in:)` / `addShot(to:)` (the scene
+  editor with `initialRoute` `.shot(id)` / `.newShot` and the strip's siblings), Add Shot…
+  in the strip's menu and `shotInteractions` (a sub-row's tap and its Edit Shot / Add
+  Shot… menu).
 - `BannerAppearance.swift`: how a banner strip looks, pure (`BannerAppearanceTests`, pinned
   to the Mac row's output): `Scene.bannerFillHex` (an auto-meal by its kind; a meal
   banner — by type or by a meal word in its title, English or the fork's Spanish — and
@@ -311,7 +329,8 @@ the build inputs outside it, see Working agreements):
   (live) or over the `siblingIDs` a tab supplied (the Boneyard's displayed rows, a
   search's results), Delete as the Mac's sheets do it (a scheduled scene back to the
   Boneyard through `PhoneMoves.returnToBoneyard`, a Boneyard scene deleted) and
-  `onDuplicate`; `PhoneEditorUnavailable` is what any of the sheets shows when its
+  `onDuplicate`, and with #43 an `initialRoute` (`presentSceneEditor(…, initialRoute:)`)
+  applied to the first scene only, Previous / Next clearing it; `PhoneEditorUnavailable` is what any of the sheets shows when its
   subject left the project, through `EditorChrome` and `editorContainer`.
 - `DayEdits.swift`: the pure part of those edits (#26, `DayEditsTests`): `Scene.duplicated()`
   (the Mac Stripboard's copy: new id, "(Copy)", the same number, lengths, cast, summary
@@ -444,7 +463,15 @@ the build inputs outside it, see Working agreements):
 - `ShotSubRow.swift`: one shot under its strip on the Stripboard (#42), platform-free
   content only (the shot number, the description, the equipment dimmed, the duration
   through `TimeParser.formatMinutes`; never a time, never a thumbnail); the Mac board puts
-  its indent, tint, gestures and drag around it, and #43's phone lists will too.
+  its indent, tint, gestures and drag around it, and the phone's lists (#43,
+  `PhoneShotRow`) theirs.
+- `PhoneStripListRows.swift`: a day's strips as the iPhone's two lists show them once shots
+  expand (#43, `PhoneStripListRowsTests`), pure: `PhoneStripListRow` (a strip, a shot with
+  its number — the prefix computed once per strip — or an expanded shotless scene's "no
+  shots" line; ids stable by scene or shot), `PhoneStripListRows.rows(for:expansion:)`,
+  `showsShots(_:)` (a script scene: the chevron's rule) and `stripMove(fromOffsets:toOffset:in:)`,
+  the list's `onMove` offsets (which count the sub-rows) mapped onto the strips alone, so a
+  reorder moves strips and never a shot. `PhoneDayStrips` (PhoneStripRow.swift) draws them.
 - `ShotExpansion.swift`: which strips show their shots (#42, `ShotExpansionTests`), pure:
   Show Shots plus the strips whose chevron flipped against it (`isExpanded`, `toggle`,
   `setShowAll`, which clears the exceptions). `ContentView` holds the switch as the
@@ -623,7 +650,7 @@ the build inputs outside it, see Working agreements):
   iCloud entitlement (ADR 0006); `MacAppDelegate` seeds the Open/Save panels' last directory
   with that path once the folder exists.
 - `ProjectCommands.swift`: the closure slots (and View-menu bindings) a `ContentView` publishes
-  for those menus (with #42 `showShotsOnStripboard`, the phone's a constant until #43). `WindowPreference.swift`: `@WindowPreference`, per-window view state (Calendar
+  for those menus (with #42 `showShotsOnStripboard`, bound on the phone to its own Show Shots, #43). `WindowPreference.swift`: `@WindowPreference`, per-window view state (Calendar
   vs Stripboard, cast row, times vs pages, all days, grid vs list) seeded from and written back to
   the last-used value; app-wide preferences (Dark Mode, Theme, Stripboard fields) stay `@AppStorage`.
 - `ContentView.swift`: the editor for one document (`ContentView(document:layout:)`): the Mac
@@ -1000,6 +1027,11 @@ scene's, nothing up to 20 MB and the total past it), `StoryboardFrameImport`
 (`StoryboardFrameImportTests`: a PNG file, TIFF, JPEG and PNG bytes each import their bytes
 and encode to a 1200 px JPEG, a scene drag never imports; the slot and the pickers have no
 unit seam: learnings.md 2026-09-23 #41 has the probe),
+`PhoneStripListRows` (`PhoneStripListRowsTests`: collapsed rows, a scene's shots numbered
+after it, Show Shots and never a banner, the "no shots" line, offsets mapped past expanded
+shots, a move carrying no strip, the mapped move through `ScheduleMoves.reorderStrips`; the
+phone's chevrons, sub-rows and Show Shots row have no unit seam: learnings.md 2026-09-23
+#43 has the probe),
 `SceneSearch` and `BoneyardSelection` (`SceneSearchTests`: the blank query, every field
 and every shot field,
 the number's exact-or-prefix rule, cast trimmed and case-insensitive, notice strips never,
