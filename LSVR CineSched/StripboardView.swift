@@ -676,20 +676,10 @@ struct StripboardView: View {
         editingSceneIndex = nil
     }
 
+    /// The editor's location suggestions: `ProjectData.knownLocations` (EditorSelection.swift)
+    /// over the board's days, the Boneyard and the roster.
     private var allProjectLocations: [String] {
-        var set = Set<String>()
-        for d in shootDays {
-            for s in d.scenes where !s.realLocation.isEmpty {
-                set.insert(s.realLocation)
-            }
-        }
-        for s in allScenes where !s.realLocation.isEmpty {
-            set.insert(s.realLocation)
-        }
-        for loc in productionInfo.locationRoster where !loc.name.isEmpty {
-            set.insert(loc.name)
-        }
-        return Array(set).sorted()
+        ProjectData.knownLocations(shootDays: shootDays, allScenes: allScenes, productionInfo: productionInfo)
     }
 
     // MARK: - Scene drag & drop handling (mirrors CompactMonthCalendarView)
@@ -805,33 +795,18 @@ struct StripboardView: View {
 
     // MARK: - Day rearrange (mirrors CompactMonthCalendarView.handleDayRearrange)
 
-    /// Swaps scenes and call sheet between two days, preserving both dates —
-    /// the calendar dates themselves never change, only the content moves.
+    /// Swaps everything that makes the day *that* day (scenes, call sheet, type and note)
+    /// between two days, preserving both dates — the calendar dates themselves never
+    /// change, only the content moves. The swap is `ScheduleMoves.swapDays`, the calendar's
+    /// and the phone's too.
     private func handleDayRearrange(sourceDayId: UUID, targetDayId: UUID) {
         guard sourceDayId != targetDayId,
-              let sourceIdx = shootDays.firstIndex(where: { $0.id == sourceDayId }),
-              let targetIdx = shootDays.firstIndex(where: { $0.id == targetDayId })
+              shootDays.contains(where: { $0.id == sourceDayId }),
+              shootDays.contains(where: { $0.id == targetDayId })
         else { return }
 
-        // Swap everything that makes the day *that* day (mirrors CompactMonthCalendarView).
         editSchedule { days, _ in
-            let sourceScenes    = days[sourceIdx].scenes
-            let sourceCallSheet = days[sourceIdx].callSheet
-            let sourceType      = days[sourceIdx].dayType
-            let sourceNote      = days[sourceIdx].dayNote
-            let targetScenes    = days[targetIdx].scenes
-            let targetCallSheet = days[targetIdx].callSheet
-            let targetType      = days[targetIdx].dayType
-            let targetNote      = days[targetIdx].dayNote
-
-            days[sourceIdx].scenes    = targetScenes
-            days[sourceIdx].callSheet = targetCallSheet
-            days[sourceIdx].dayType   = targetType
-            days[sourceIdx].dayNote   = targetNote
-            days[targetIdx].scenes    = sourceScenes
-            days[targetIdx].callSheet = sourceCallSheet
-            days[targetIdx].dayType   = sourceType
-            days[targetIdx].dayNote   = sourceNote
+            ScheduleMoves.swapDays(sourceDayId, targetDayId, in: &days)
         }
 
         draggingDayId   = nil

@@ -816,22 +816,17 @@ struct ContentView: View {
 
     // MARK: - Schedule Lock
 
+    /// The snapshot and its storage are `ProjectData.lockSchedule(now:)` (ProductionEdits.swift),
+    /// the phone's too.
     private func lockSchedule() {
-        let working = ScheduleLockScanner.currentWorkingDays(shootDays: shootDays)
-        var stored: [String: [Date]] = [:]
-        for (character, dates) in working { stored[character] = dates.sorted() }
-        edit(L("Lock Schedule")) { data in
-            var info = data.productionInfo ?? ProductionInfo()
-            info.scheduleLock = ScheduleLock(lockedAt: Date(), workingDays: stored)
-            data.productionInfo = info
-        }
+        edit(L("Lock Schedule")) { $0.lockSchedule() }
         alertMessage = "Schedule locked. You'll be notified in the Schedule Lock Report if any actor's working days change from here."
         showingAlert = true
     }
 
     private func unlockSchedule() {
         guard productionInfo.scheduleLock != nil else { return }
-        edit(L("Unlock Schedule")) { $0.productionInfo?.scheduleLock = nil }
+        edit(L("Unlock Schedule")) { $0.unlockSchedule() }
     }
 
     // MARK: - Selection and cast helpers
@@ -894,32 +889,14 @@ struct ContentView: View {
         return shootDays[index]
     }
 
+    /// The rename's rule (every cast and call sheet override, without case; blanks and a
+    /// case-only change refused) is `ProjectData.renameCharacter(from:to:)`, the phone's too.
     private func renameCastCharacter(from oldName: String, to newName: String) {
-        let old = oldName.trimmingCharacters(in: .whitespaces)
-        let new = newName.trimmingCharacters(in: .whitespaces)
-        guard !old.isEmpty, !new.isEmpty, old.caseInsensitiveCompare(new) != .orderedSame else { return }
-
-        func renamed(_ cast: [String]) -> [String] {
-            cast.map { $0.caseInsensitiveCompare(old) == .orderedSame ? new : $0 }
-        }
-
         // Only Production Setup's Save renames (possibly several characters), and its own
         // write of the roster follows in the same turn; one gesture folds all of it into
         // one step.
         if activeGesture == nil { beginEditGesture() }
-        edit(L("Edit Production Setup")) { data in
-            for i in data.allScenes.indices {
-                data.allScenes[i].cast = renamed(data.allScenes[i].cast)
-            }
-            for d in data.shootDays.indices {
-                for s in data.shootDays[d].scenes.indices {
-                    data.shootDays[d].scenes[s].cast = renamed(data.shootDays[d].scenes[s].cast)
-                }
-                if let override = data.shootDays[d].callSheet.castOverride {
-                    data.shootDays[d].callSheet.castOverride = renamed(override)
-                }
-            }
-        }
+        edit(L("Edit Production Setup")) { $0.renameCharacter(from: oldName, to: newName) }
     }
 
     // MARK: - Boneyard scene navigation
@@ -971,29 +948,11 @@ struct ContentView: View {
         .dimsWhenInactive(layout == .threeColumn)
     }
 
-    /// Duplicate Scene in the Boneyard: a copy with a new id, " (Copy)" on the title, and
-    /// the breakdown carried over; scheduling state (completion, times) starts fresh.
+    /// Duplicate Scene in the Boneyard: `ProjectData.duplicateScene(withID:)`, the copy the
+    /// Stripboard and the phone make (`Scene.duplicated()`: a new id, " (Copy)" on the
+    /// title, the breakdown carried over; the set, the times and completion start fresh).
     private func duplicateBoneyardScene(_ scene: Scene) {
-        edit(L("Duplicate Scene")) { $0.allScenes.append(Scene(
-            title:            scene.title + " (Copy)",
-            sceneNumber:      scene.sceneNumber,
-            duration:         scene.duration,
-            estimatedTime:    scene.estimatedTime,
-            dayNightType:     scene.dayNightType,
-            cast:             scene.cast,
-            summary:          scene.summary,
-            extras:           scene.extras,
-            props:            scene.props,
-            setDressing:      scene.setDressing,
-            wardrobe:         scene.wardrobe,
-            makeupHair:       scene.makeupHair,
-            vehicles:         scene.vehicles,
-            specialEquipment: scene.specialEquipment,
-            stunts:           scene.stunts,
-            sfx:              scene.sfx,
-            vfx:              scene.vfx,
-            breakdownNotes:   scene.breakdownNotes
-        )) }
+        edit(L("Duplicate Scene")) { $0.duplicateScene(withID: scene.id) }
     }
 
     /// Strips dropped on the Boneyard from a day, on either schedule view: back to the
@@ -1375,18 +1334,9 @@ struct ContentView: View {
 
     @discardableResult
     private func populateBreakdownBrowserScenes() -> Bool {
-        var seen = Set<UUID>()
-        var combined: [Scene] = []
-        for s in allScenes where !seen.contains(s.id) { seen.insert(s.id); combined.append(s) }
-        for day in shootDays {
-            for s in day.scenes where !seen.contains(s.id) { seen.insert(s.id); combined.append(s) }
-        }
-        breakdownBrowserScenes = combined.sorted {
-            let a = $0.scriptOrderKey
-            let b = $1.scriptOrderKey
-            if a.0 != b.0 { return a.0 < b.0 }
-            return a.1 < b.1
-        }
+        // The order (every scene once, in script order) is `BreakdownBrowser`'s, the
+        // phone's too; the Mac pages through a snapshot of the scenes and writes back by id.
+        breakdownBrowserScenes = BreakdownBrowser(project: document.project).scenes(in: document.project)
         if breakdownBrowserIndex >= breakdownBrowserScenes.count {
             breakdownBrowserIndex = 0
         }

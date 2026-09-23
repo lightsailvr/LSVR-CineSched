@@ -250,9 +250,8 @@ enum ScheduleMoves {
     /// Swap with day: exchanges everything the two days hold — scenes (the calendar events
     /// among them), the call sheet, the day type and the day note — while each day keeps
     /// its date and its id, the "nothing is anchored to a date" invariant the Mac's day
-    /// handle applies (`StripboardView.handleDayRearrange`, `CalendarView.swapDayContents`,
-    /// which remain their own copies). Returns false, changing nothing, for the same day
-    /// twice or an unknown id.
+    /// handle applies (the Stripboard's and the calendar's day drops call this, #35).
+    /// Returns false, changing nothing, for the same day twice or an unknown id.
     @discardableResult
     static func swapDays(_ first: UUID, _ second: UUID, in days: inout [ShootDay]) -> Bool {
         guard first != second,

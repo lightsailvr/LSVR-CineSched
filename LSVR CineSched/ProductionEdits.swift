@@ -5,10 +5,9 @@
 // every call sheet's cast override (the character name join, CONTEXT.md: the same name,
 // compared without case, everywhere), and Lock Schedule / Unlock Schedule, which store
 // and clear the snapshot of each character's working days that the Schedule Lock Report
-// compares the board against. The rules are the ones `ContentView` applies on the Mac
-// (`renameCastCharacter`, `lockSchedule`, `unlockSchedule`, which keep their own copies:
-// switching the Mac over is a follow-up with pinning tests, see learnings 2026-09-21).
-// Tested in `ProductionEditsTests`.
+// compares the board against. `ContentView` applies the same functions on the Mac (its
+// copies went with #35, after `ProductionEditsTests` pinned them). Tested in
+// `ProductionEditsTests`.
 
 import Foundation
 

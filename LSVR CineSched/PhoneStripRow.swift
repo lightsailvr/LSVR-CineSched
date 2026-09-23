@@ -15,7 +15,8 @@
 // slugline, cast, summary), Open Day; the moves (#25): Send to Day…, Move to Next Day
 // and Move to Previous Day (the M4 review: the one-gesture slip to the adjacent day, the
 // next entry of the schedule whatever is on it, absent at the first and last day) and
-// Return to Boneyard in the menu and as the trailing swipe; and the edits (#26): a tap
+// Return to Boneyard in the menu and as the trailing swipe (Previous Day in the menu
+// only, #35); and the edits (#26): a tap
 // opens the strip's editor (the scene editor, the banner input, Set Time for an
 // auto-meal), the menu adds Edit, Set Time…, Duplicate Scene and Delete Banner, the
 // leading swipe is Edit and Set Time, the trailing swipe gains Duplicate for a script
@@ -397,10 +398,12 @@ struct PhoneStripActions {
         }
     }
 
-    /// The trailing swipe: Boneyard, Next Day, Previous Day and Send to Day for a script
-    /// scene (#25), then Duplicate; Delete and the moves for a custom banner; nothing for
-    /// an auto-meal. The first button is the one a short swipe reveals, so the adjacent
-    /// days come before the picker.
+    /// The trailing swipe: Boneyard, Next Day and Send to Day for a script scene (#25),
+    /// then Duplicate; Delete and the moves for a custom banner; nothing for an auto-meal.
+    /// The first button is the one a short swipe reveals, so the adjacent day comes before
+    /// the picker. Move to Previous Day is in the long-press menu only (#35): five
+    /// buttons left each one too narrow to read on a phone row, and the slip back a day is
+    /// the rarer one.
     @ViewBuilder
     func stripSwipeActions(for scene: Scene) -> some View {
         if canDeleteBanner(scene) {
@@ -425,14 +428,6 @@ struct PhoneStripActions {
                 Label(L("Next Day"), systemImage: "arrow.down.to.line")
             }
             .tint(.green)
-        }
-        if canMoveToAdjacentDay(scene, .previous) {
-            Button {
-                moves.moveToAdjacentDay([scene.id], from: day.id, .previous)
-            } label: {
-                Label(L("Previous Day"), systemImage: "arrow.up.to.line")
-            }
-            .tint(.mint)
         }
         if canSendToDay(scene) {
             Button {

@@ -174,8 +174,8 @@ private struct PhoneMoveSheetContent: View {
         switch request.kind {
         case .sendToDay(let sceneIDs):
             SendToDaySheet(
-                shootDays:  shootDays,
-                sceneCount: sceneIDs.count,
+                shootDays: shootDays,
+                mode:      .send(sceneCount: sceneIDs.count),
                 onSelect: { dayID in
                     moves.sendToDay(sceneIDs, to: dayID)
                     dismiss()

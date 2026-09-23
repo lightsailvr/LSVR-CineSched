@@ -854,7 +854,7 @@ struct CompactMonthCalendarView: View {
         .sheet(isPresented: $showingSendToDaySheet) {
             SendToDaySheet(
                 shootDays:  shootDays,
-                sceneCount: sendToDaySceneIDs.count,
+                mode:       .send(sceneCount: sendToDaySceneIDs.count),
                 onSelect: { targetDayId in
                     sendScenes(sendToDaySceneIDs, toDay: targetDayId)
                     showingSendToDaySheet = false
@@ -1313,8 +1313,8 @@ struct CompactMonthCalendarView: View {
               srcIdx != dstIdx else { return }
         onBeforeSceneChange()
         editDays { days in
-            swapDayContents(&days, srcIdx, dstIdx)
-            pruneIfEmptyOutsideRange(&days, dayId: sourceDayId)
+            ScheduleMoves.swapDays(sourceDayId, targetDayId, in: &days)
+            days.removeIfEmptyOutsideRange(dayID: sourceDayId, productionRange: productionRange)
         }
         onSceneChanged()
     }
@@ -1328,11 +1328,8 @@ struct CompactMonthCalendarView: View {
             let newDay = ShootDay(date: date)
             days.append(newDay)
             days.sort { $0.date < $1.date }
-            if let s = days.firstIndex(where: { $0.id == sourceDayId }),
-               let d = days.firstIndex(where: { $0.id == newDay.id }) {
-                swapDayContents(&days, s, d)
-            }
-            pruneIfEmptyOutsideRange(&days, dayId: sourceDayId)
+            ScheduleMoves.swapDays(sourceDayId, newDay.id, in: &days)
+            days.removeIfEmptyOutsideRange(dayID: sourceDayId, productionRange: productionRange)
         }
         onSceneChanged()
     }
@@ -1345,7 +1342,7 @@ struct CompactMonthCalendarView: View {
         onBeforeSceneChange()
         editDays { days in
             swapDayTypeAndNote(&days, s, d)
-            pruneIfEmptyOutsideRange(&days, dayId: sourceDayId)
+            days.removeIfEmptyOutsideRange(dayID: sourceDayId, productionRange: productionRange)
         }
         onSceneChanged()
     }
@@ -1362,7 +1359,7 @@ struct CompactMonthCalendarView: View {
                let d = days.firstIndex(where: { $0.id == newDay.id }) {
                 swapDayTypeAndNote(&days, s, d)
             }
-            pruneIfEmptyOutsideRange(&days, dayId: sourceDayId)
+            days.removeIfEmptyOutsideRange(dayID: sourceDayId, productionRange: productionRange)
         }
         onSceneChanged()
     }
@@ -1376,46 +1373,22 @@ struct CompactMonthCalendarView: View {
         days[b].dayNote = note
     }
 
-    /// Swaps everything that makes a day *that* day: scenes (including calendar events), call
-    /// sheet, day type, and note. Dragging a travel day onto a Tuesday makes Tuesday the
-    /// travel day. No undo snapshot or dirty flag here; callers bracket it.
-    private func swapDayContents(_ days: inout [ShootDay], _ a: Int, _ b: Int) {
-        let scenes    = days[a].scenes
-        let callSheet = days[a].callSheet
-        let type      = days[a].dayType
-        let note      = days[a].dayNote
-        days[a].scenes    = days[b].scenes
-        days[a].callSheet = days[b].callSheet
-        days[a].dayType   = days[b].dayType
-        days[a].dayNote   = days[b].dayNote
-        days[b].scenes    = scenes
-        days[b].callSheet = callSheet
-        days[b].dayType   = type
-        days[b].dayNote   = note
-    }
-
-    /// Days outside the production range only exist to hold something (an event, a type, a
-    /// note, a call sheet). Once that is gone the entry goes too, so the date becomes an
-    /// empty tile again instead of a stray blank day cell.
-    private func pruneIfEmptyOutsideRange(_ days: inout [ShootDay], dayId: UUID) {
-        guard let idx = days.firstIndex(where: { $0.id == dayId }) else { return }
-        let day = days[idx]
-        let cal = Calendar.current
-        let inRange = day.date >= cal.startOfDay(for: startDate) && day.date <= cal.startOfDay(for: endDate)
-        if !inRange, day.scenes.isEmpty, day.dayType.isShootable, day.dayNote.isEmpty, !day.hasCallSheetData {
-            days.remove(at: idx)
-        }
+    /// The range pickers' range as whole days, for `removeIfEmptyOutsideRange` and Clear
+    /// Day Type (DayEdits.swift): a day outside it only exists to hold something, and goes
+    /// once that is gone. Nil while the end precedes the start (a half-edited range drops
+    /// nothing, the phone's rule).
+    private var productionRange: ClosedRange<Date>? {
+        pickerRange(start: startDate, end: endDate)
     }
 
     /// Resets a day to a plain shoot day and drops its note. A day that only existed to hold
     /// the type (outside the production range with nothing else on it) is removed entirely.
     private func clearDayType(_ day: ShootDay) {
-        guard let idx = shootDays.firstIndex(where: { $0.id == day.id }) else { return }
+        guard shootDays.contains(where: { $0.id == day.id }) else { return }
         onBeforeSceneChange()
+        let range = productionRange
         editDays { days in
-            days[idx].dayType = .shoot
-            days[idx].dayNote = ""
-            pruneIfEmptyOutsideRange(&days, dayId: day.id)
+            days.clearDayType(forDayID: day.id, productionRange: range)
         }
         onSceneChanged()
     }

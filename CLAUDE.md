@@ -174,8 +174,8 @@ the build inputs outside it, see Working agreements):
   (`ProductionEditsTests`): `renameCharacter(from:to:)` (every scene's cast and every
   call sheet's cast override, case-insensitive; blanks and a case-only change refused),
   `lockSchedule(now:)` (the working-days snapshot into the production info) and
-  `unlockSchedule()`. The phone calls them; `ContentView`'s copies of the same rules
-  stay as they are (a follow-up with pinning tests).
+  `unlockSchedule()`. The phone and `ContentView` both call them (the Mac's copies
+  went with #35, after tests pinned them).
 - `BoneyardTab.swift`: the Boneyard tab (#27): a control row (the filter field, Select /
   Done, "+", the sort `Menu` over the six `BoneyardSort`s, the count of scenes and pages
   listed) over a `List(selection:)` of `PhoneStripRow`s from `derived.sortedBoneyard`
@@ -216,8 +216,8 @@ the build inputs outside it, see Working agreements):
   `BreakdownBrowserTests`): `BreakdownBrowser(project:)` (every scene once, Boneyard then
   days, sorted by `scriptOrderKey`: the Mac browser's list, banners included), `first`,
   `position(of:)`, `id(before:)`, `id(after:)`, `successor(of:)` (next, else previous,
-  for after a delete). A second copy of the order, not an extraction: the Mac's
-  `ContentView` keeps its own snapshot (`populateBreakdownBrowserScenes`).
+  for after a delete), `scenes(in:)` (the scenes in that order: the Mac's `ContentView`
+  pages through a snapshot of them, `populateBreakdownBrowserScenes`, #35).
 - `DaysTab.swift`: the Days list (#24): a `NavigationStack` (its own bar hidden at the root,
   because the document infrastructure's outer bar is the phone's one bar and it mirrors
   its Back and title into any inner bar) holding the week strip (`WeekStrip`; the month
@@ -274,8 +274,9 @@ the build inputs outside it, see Working agreements):
   `stripInteractions(_:scene:)` (`onTapGesture`, `.contextMenu` with the preview, both
   swipe edges with `allowsFullSwipe: false`). #25 put the moves there (Open Day, Move to
   Next Day / Move to Previous Day when the day has that neighbour, Send to Day…, Return to
-  Boneyard in the menu; Boneyard, Next Day, Previous Day and Send to Day on the trailing
-  swipe); #26 the edits: Edit Scene / Edit Banner, Set Time…, Duplicate Scene and Delete
+  Boneyard in the menu; Boneyard, Next Day and Send to Day on the trailing swipe —
+  Previous Day left the swipe with #35, four buttons being what a row shows legibly);
+  #26 the edits: Edit Scene / Edit Banner, Set Time…, Duplicate Scene and Delete
   Banner in the menu, Edit and Set Time on the leading swipe, Duplicate (a script scene)
   or Delete (a custom banner) on the trailing one. An auto-meal offers Set Time only: a
   deleted one would return at the next sync while its call sheet time stands.
@@ -310,11 +311,16 @@ the build inputs outside it, see Working agreements):
   subject left the project, through `EditorChrome` and `editorContainer`.
 - `DayEdits.swift`: the pure part of those edits (#26, `DayEditsTests`): `Scene.duplicated()`
   (the Mac Stripboard's copy: new id, "(Copy)", the same number, lengths, cast, summary
-  and breakdown tags, none of the scheduling state; the Mac's `duplicateScene` now calls
-  it) and, on `ProjectData`, `setDayType`, `setDayNote` (trimmed),
+  and breakdown tags, none of the scheduling state; the Stripboard's `duplicateScene` and
+  the Boneyard's `duplicateBoneyardScene` call it) and, on `ProjectData`, `setDayType`,
+  `setDayNote` (trimmed),
   `clearDayType(forDayID:productionRange:)` (a plain shoot day with no note; an emptied
   day outside the range — one `updateProductionRange` kept for its type, note, event or
-  call sheet — is dropped, the inspector's and the calendar's rule; nil drops nothing),
+  call sheet — is dropped; nil drops nothing; the same on `[ShootDay]` for the
+  calendar, with `removeIfEmptyOutsideRange(dayID:productionRange:)`, the prune the
+  calendar runs on a day swap's or a band move's source day; the inspector and the
+  calendar call both since #35; `pickerRange(start:end:)`, the range pickers' dates as
+  whole days, nil while the end precedes the start, the one way every editor builds it),
   `addNoticeStrip` (a banner or event appended; a script scene refused),
   `deleteNoticeStrip` (removed outright, never through the Boneyard — the Mac's Delete
   Banner leaves an invisible banner in `allScenes`), `applyStripTime` (the strip
@@ -363,8 +369,9 @@ the build inputs outside it, see Working agreements):
   day/scene indices), `scene(withID:)`, `dayIndex(forDayID:)`, `pruned(in:)`, which
   drops a selection whose target left the project, the by-id write-back every editor
   bound by id makes (`replaceScene(_:)`, `removeScene(withID:)`, #28) and
-  `knownLocations` (the roster plus every real location in use, sorted: the scene
-  editors' suggestions) (`EditorSelectionTests`).
+  `knownLocations` (the roster plus every real location in use, sorted: every scene
+  editor's suggestions; `knownLocations(shootDays:allScenes:productionInfo:)` for the
+  Stripboard, which holds the pieces) (`EditorSelectionTests`).
 - `EditorPresentation.swift`: the `editorPresentation` environment value (`.sheet` default,
   `.inspector`, set once by the inspector on its content) and `EditorSheetSize`, what an
   editor asks of its sheet, platform-free (the Mac frame's width and height, the iPhone's
@@ -405,7 +412,7 @@ the build inputs outside it, see Working agreements):
   untouched), `DayDetailSheet` (the day detail: day type and note, the actions as rows,
   call schedule, events, scenes; Done), `BannerInputSheet` (add, or edit with
   `initialBanner`, #26), `CalendarEventInputSheet`, `SendToDaySheet` (a `Mode`:
-  `.send(sceneCount:)`, the Mac's initializer, or the phone's `.swap(excluding:)`).
+  `.send(sceneCount:)`, the calendar's and the phone's, or the phone's `.swap(excluding:)`).
   Each is `EditorChrome { header } content: { Form(...).formStyle(.grouped) } footer: {
   buttons }` with `.editorContainer(Self.sheetSize)`; the call sites in `CalendarView`,
   `StripboardView`, `ContentView` and the inspector need nothing per platform.
@@ -442,8 +449,8 @@ the build inputs outside it, see Working agreements):
   shows → one `moveScenes`, no-op judged by the shown order), `addScenes` (the checked
   Boneyard scenes in display order to a day's end, through `BoneyardSelection.ordered`),
   `swapDays` (exchange two days' scenes, call sheet, type and note; the day handle's swap
-  as a pure function — the Mac's private `handleDayRearrange`/`swapDayContents` are left
-  as they are) and `adjacentDayID(of:_:in:)` with `DayDirection` (the next or previous
+  as a pure function, which the Stripboard's and the calendar's day drops call too, #35)
+  and `adjacentDayID(of:_:in:)` with `DayDirection` (the next or previous
   entry of `shootDays`, what Move to Next / Previous Day lands on). All pure over
   `[ShootDay]` and the Boneyard (`ScheduleDragTests`). The
   calendar, the Stripboard and the Boneyard drag with `.draggable`/`.dropDestination` on this

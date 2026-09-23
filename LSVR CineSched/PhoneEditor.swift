@@ -146,7 +146,7 @@ struct PhoneEditor: View {
     /// The pickers' range as whole days, nil while the end precedes the start (a half-edited
     /// range drops nothing).
     private var productionRange: ClosedRange<Date>? {
-        rangeStart <= rangeEnd ? rangeStart...rangeEnd : nil
+        pickerRange(start: rangeStart, end: rangeEnd)
     }
 
     private func seedRangePickers() {

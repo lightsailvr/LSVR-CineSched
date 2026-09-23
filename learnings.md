@@ -9,6 +9,30 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-23 — Retiring a view's private copy of a rule: pin it with an oracle, and mind fixtures that mint ids (#35)
+
+The Mac's copies (`ContentView`, `CalendarView`, `StripboardView`, the inspector) were private
+view methods with no seam, so each pinning test transcribes the Mac's method verbatim as a
+private `mac…` oracle in the test and compares the pure function against it over fixtures
+(`ProductionEditsTests`, `DayEditsTests`, `ScheduleDragTests`, `BreakdownBrowserTests`,
+`EditorSelectionTests`, "The Mac's copies, pinned"). The oracle stays after the switch: it is
+the record of what the Mac did. Two things cost a run: a fixture built by calling
+`pinningDays()` / `board()` twice is two different projects (`ShootDay(date:)` and
+`Scene(...)` mint a fresh `UUID`), so build the fixture once and copy it; and a mutating call
+inside `#expect` does not compile ("'$0' is immutable" from the macro expansion), so bind the
+result to a `let` first, the pattern the rest of the suite already uses.
+
+One rule changed shape on the way: the calendar's `pruneIfEmptyOutsideRange` also asked for a
+plain type and an empty note (it runs after a day swap, where the source may hold either),
+the inspector's Clear Day Type did not need to (it had just reset both). One function,
+`[ShootDay].removeIfEmptyOutsideRange`, now asks for both, and `clearDayType` calls it after
+its reset, so the three Clear Day Types and the swap's prune are one rule. The only behaviour
+that moved: with the Mac's range pickers inverted (the end a day before the start), the
+range is nil and an emptied outside day is kept, where the Mac's copies treated every day
+as outside and dropped it (the phone's rule since #26).
+
+---
+
 ## 2026-09-21 — Shake to undo on the iPhone: UIKit asks the first responder, a SwiftUI editor has none, the undo alert leaves none behind, and Simulator.app's shake is a Darwin notification (the shake fix)
 
 Matt's device report after M4: a shake did nothing in the iPhone editor. Every M4 agent had

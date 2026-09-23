@@ -5,8 +5,8 @@
 // month-calendar control as the native date pickers elsewhere in the app; Send is
 // enabled only while the picked date is one of the schedule's days. Only the size
 // around the form changes per container (`editorContainer`). The picker has two modes
-// (`Mode`): Send to Day for a number of scenes (the Mac's, and the default of the
-// initializer the Mac's call sites have always used) and the iPhone's Swap with Day (#25),
+// (`Mode`): Send to Day for a number of scenes (the Mac calendar's and the iPhone's)
+// and the iPhone's Swap with Day (#25),
 // the same picker titled for the exchange, with the day being swapped named in the
 // subtitle and unavailable as a pick.
 
@@ -31,11 +31,6 @@ struct SendToDaySheet: View {
     @State private var selectedDate: Date
 
     static let sheetSize = EditorSheetSize(width: 400, height: 560, compactDetents: [.large])
-
-    /// The Mac's initializer: Send to Day for `sceneCount` scenes.
-    init(shootDays: [ShootDay], sceneCount: Int, onSelect: @escaping (UUID) -> Void, onCancel: @escaping () -> Void) {
-        self.init(shootDays: shootDays, mode: .send(sceneCount: sceneCount), onSelect: onSelect, onCancel: onCancel)
-    }
 
     init(shootDays: [ShootDay], mode: Mode, onSelect: @escaping (UUID) -> Void, onCancel: @escaping () -> Void) {
         self.shootDays = shootDays

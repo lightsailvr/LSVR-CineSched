@@ -70,7 +70,7 @@ extension ContentView {
                 isPresented: inspectorEditorPresented,
                 onSave:      { inspectorKeepsSelection = true },
                 onDelete:    { deleteInspectedScene(id: id) },
-                knownLocations: knownLocations
+                knownLocations: document.project.knownLocations
             )
         }
     }
@@ -131,18 +131,6 @@ extension ContentView {
         }
     }
 
-    /// The location roster plus every real location in use, for the editor's suggestions
-    /// (what the Stripboard's sheet passes).
-    private var knownLocations: [String] {
-        var set = Set<String>()
-        for day in shootDays {
-            for scene in day.scenes where !scene.realLocation.isEmpty { set.insert(scene.realLocation) }
-        }
-        for scene in allScenes where !scene.realLocation.isEmpty { set.insert(scene.realLocation) }
-        for location in productionInfo.locationRoster where !location.name.isEmpty { set.insert(location.name) }
-        return Array(set).sorted()
-    }
-
     // MARK: - Day
 
     @ViewBuilder
@@ -190,22 +178,12 @@ extension ContentView {
     }
 
     /// Back to a plain shoot day with no note. A day outside the production range that
-    /// held nothing but the type goes entirely, as the calendar's Clear Day Type does; the
-    /// range is the pickers', which is what the calendar reads too.
+    /// held nothing but the type goes entirely (`clearDayType(forDayID:productionRange:)`,
+    /// the calendar's and the phone's rule); the range is the pickers', which is what the
+    /// calendar reads too, nil while the end precedes the start.
     private func clearDayType(dayID: UUID) {
-        let calendar   = Calendar.current
-        let rangeStart = calendar.startOfDay(for: startDate)
-        let rangeEnd   = calendar.startOfDay(for: endDate)
-        edit(L("Clear Day Type")) { data in
-            guard let index = data.dayIndex(forDayID: dayID) else { return }
-            data.shootDays[index].dayType = .shoot
-            data.shootDays[index].dayNote = ""
-            let day     = data.shootDays[index]
-            let inRange = day.date >= rangeStart && day.date <= rangeEnd
-            if !inRange, day.scenes.isEmpty, !day.hasCallSheetData {
-                data.shootDays.remove(at: index)
-            }
-        }
+        let range = pickerRange(start: startDate, end: endDate)
+        edit(L("Clear Day Type")) { $0.clearDayType(forDayID: dayID, productionRange: range) }
     }
 
     /// The day detail's trash: a scene goes back to the Boneyard, a calendar event is
