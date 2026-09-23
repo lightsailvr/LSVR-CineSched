@@ -66,4 +66,37 @@ struct StripboardFieldSettingsTests {
         #expect(StripboardField.specialEquipment.displayValue(for: scene) == "Rain rig, Dolly, Ronin")
         #expect(StripboardField.sfx.displayValue(for: scene) == "Rain")
     }
+
+    // MARK: - The Shots field (#42)
+
+    @Test func theShotsFieldHasItsLabelIconAndEmoji() {
+        #expect(StripboardField.shots.label == "Shots")
+        #expect(StripboardField.shots.icon == "film.stack")
+        #expect(!StripboardField.shots.detail.isEmpty)
+        #expect(!StripboardField.shots.pdfEmoji.isEmpty)
+        #expect(StripboardField.allCases.last == .shots)
+    }
+
+    @Test func theShotsFieldEncodesUnderItsOwnRawValue() {
+        #expect(StripboardFieldSettings.encode([.shots]) == "shots")
+        #expect(StripboardFieldSettings.encode([.cast, .shots]) == "cast,shots")
+        #expect(StripboardFieldSettings.decode("cast,shots") == [.cast, .shots])
+    }
+
+    /// Off by default, and off for a user whose selection was saved before it existed:
+    /// the saved string simply does not name it.
+    @Test func theShotsFieldIsOffByDefaultAndForASavedSelection() {
+        #expect(!StripboardField.defaultSelection.contains(.shots))
+        let savedBeforeShots = StripboardFieldSettings.encode(Set(StripboardField.allCases).subtracting([.shots]))
+        #expect(!StripboardFieldSettings.decode(savedBeforeShots).contains(.shots))
+    }
+
+    @Test func theShotsFieldCountsTheShotsAndIsEmptyForNone() {
+        var scene = Scene(title: "EXT. PORCH - DUSK", sceneNumber: "12")
+        #expect(StripboardField.shots.displayValue(for: scene) == "")
+        scene.shots = [Shot(details: "Wide")]
+        #expect(StripboardField.shots.displayValue(for: scene) == "1 shot")
+        scene.shots = [Shot(details: "Wide"), Shot(details: "Close"), Shot(details: "Insert"), Shot(details: "Over")]
+        #expect(StripboardField.shots.displayValue(for: scene) == "4 shots")
+    }
 }

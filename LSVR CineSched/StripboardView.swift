@@ -727,8 +727,9 @@ struct StripboardView: View {
                 handleDayRearrange(sourceDayId: sourceDayID, targetDayId: dayID)
             case .dayType(let sourceDayID):
                 moveDayType(from: sourceDayID, toDayId: dayID)
-            case .sceneCopies:
+            case .sceneCopies, .shot:
                 // The pasteboard's kind (#22); nothing drags one. A paste is the editor's.
+                // A shot travels on its own type and never reaches a day or a strip (#42).
                 break
             }
         }

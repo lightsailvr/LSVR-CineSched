@@ -1209,8 +1209,9 @@ struct CompactMonthCalendarView: View {
                 handleDayRearrange(sourceDayId: sourceDayID, targetDayId: dayID)
             case .dayType(let sourceDayID):
                 moveDayType(from: sourceDayID, toDayId: dayID)
-            case .sceneCopies:
+            case .sceneCopies, .shot:
                 // The pasteboard's kind (#22); nothing drags one. A paste is the editor's.
+                // A shot travels on its own type and never reaches a cell (#42).
                 break
             }
         }
@@ -1237,7 +1238,7 @@ struct CompactMonthCalendarView: View {
                 handleDayRearrange(sourceDayId: sourceDayID, toDate: date)
             case .dayType(let sourceDayID):
                 moveDayType(from: sourceDayID, toDate: date)
-            case .sceneCopies:
+            case .sceneCopies, .shot:
                 break
             }
         }

@@ -104,6 +104,103 @@ struct ScheduleDragTests {
         #expect(payload.sceneIDs == [event.id])
     }
 
+    // MARK: - The shot kind (#42)
+
+    @Test func theShotDragTypeIsDeclaredByTheBundle() throws {
+        let declared = try #require(UTType("com.lsvr.cinesched.shot-drag-payload"))
+        #expect(declared == .cineschedShotDragPayload)
+        #expect(declared.conforms(to: .data))
+        #expect(declared != .cineschedDragPayload)
+        #expect(UTType.cineschedShotDragPayload.preferredFilenameExtension == nil)
+    }
+
+    @Test func aShotRoundTripsThroughItsOwnType() async throws {
+        let shotID = UUID()
+        let item   = ShotDragPayload(shotID: shotID, sceneID: a.id)
+        let data   = try await item.exported(as: .cineschedShotDragPayload)
+        let back   = try await ShotDragPayload(importing: data, contentType: .cineschedShotDragPayload)
+        #expect(back == item)
+        #expect(back.payload.kind == .shot(id: shotID, sceneID: a.id))
+        #expect(item.payload.id == shotID)
+        #expect(item.payload.isShot)
+        #expect(item.payload.sceneIDs.isEmpty)
+        // The same JSON as the payload itself, so a shot reads like every other kind.
+        #expect(try JSONDecoder().decode(ScheduleDragPayload.self, from: data) == item.payload)
+    }
+
+    /// What keeps a shot out of every strip, day and Boneyard destination: a destination
+    /// is chosen by type while the drag hovers, and the two payloads share none.
+    @Test func aShotAndTheSceneKindsTravelOnDifferentTypes() {
+        #expect(ShotDragPayload.exportedContentTypes() == [.cineschedShotDragPayload])
+        #expect(ShotDragPayload.importedContentTypes() == [.cineschedShotDragPayload])
+        #expect(!ScheduleDragPayload.importedContentTypes().contains(.cineschedShotDragPayload))
+        #expect(!ScheduleDragPayload.exportedContentTypes().contains(.cineschedShotDragPayload))
+        #expect(!ScheduleDragPayload.scenes([a.id], from: nil).isShot)
+    }
+
+    // MARK: - Where a shot lands (#42)
+
+    @Test func aShotDroppedOnASubRowOfItsSceneLandsBeforeThatShot() {
+        let shotID = UUID(), anchorID = UUID()
+        let payload = ScheduleDragPayload(.shot(id: shotID, sceneID: a.id))
+        #expect(ShotDrop.position(for: payload, onto: .shot(id: anchorID, sceneID: a.id)) == .before(anchorID))
+    }
+
+    @Test func aShotDroppedBelowItsScenesLastSubRowLandsAtTheEnd() {
+        let payload = ScheduleDragPayload(.shot(id: UUID(), sceneID: a.id))
+        #expect(ShotDrop.position(for: payload, onto: .sceneEnd(sceneID: a.id)) == .end)
+    }
+
+    @Test func aShotDroppedAnywhereElseLandsNowhere() {
+        let payload = ScheduleDragPayload(.shot(id: UUID(), sceneID: a.id))
+        #expect(ShotDrop.position(for: payload, onto: .shot(id: UUID(), sceneID: b.id)) == nil)
+        #expect(ShotDrop.position(for: payload, onto: .sceneEnd(sceneID: b.id)) == nil)
+        #expect(ShotDrop.position(for: payload, onto: .strip(sceneID: a.id)) == nil)
+        #expect(ShotDrop.position(for: payload, onto: .strip(sceneID: b.id)) == nil)
+        #expect(ShotDrop.position(for: payload, onto: .day(id: UUID())) == nil)
+        #expect(ShotDrop.position(for: payload, onto: .boneyard) == nil)
+    }
+
+    @Test func noOtherKindLandsOnASubRow() {
+        let anchor = ShotDropTarget.shot(id: UUID(), sceneID: a.id)
+        let others: [ScheduleDragPayload] = [
+            .scenes([a.id], from: nil),
+            ScheduleDragPayload(.day(id: UUID())),
+            ScheduleDragPayload(.dayType(dayID: UUID())),
+            ScheduleDragPayload(.calendarEvent(id: event.id, dayID: UUID())),
+            ScheduleDragPayload(.sceneCopies([a])),
+        ]
+        for payload in others {
+            #expect(ShotDrop.position(for: payload, onto: anchor) == nil)
+            #expect(ShotDrop.position(for: payload, onto: .sceneEnd(sceneID: a.id)) == nil)
+        }
+    }
+
+    /// The resolution feeds #37's move: C dropped on A's sub-row reads C, A, B, and the
+    /// scene's estimate (the strip's time) stays the sum.
+    @Test func aResolvedShotDropReordersTheSceneAndKeepsItsEstimate() throws {
+        var scene = Scene(title: "INT. KITCHEN - DAY", sceneNumber: "12")
+        let shotA = Shot(details: "Wide", durationMinutes: 20)
+        let shotB = Shot(details: "Two", durationMinutes: 10)
+        let shotC = Shot(details: "Insert", durationMinutes: 5)
+        scene.addShot(shotA)
+        scene.addShot(shotB)
+        scene.addShot(shotC)
+        var day = ShootDay(date: Date(timeIntervalSince1970: 1_800_000_000))
+        day.scenes = [scene]
+        var project = ProjectData.newProject()
+        project.shootDays = [day]
+
+        let payload  = ScheduleDragPayload(.shot(id: shotC.id, sceneID: scene.id))
+        let position = try #require(ShotDrop.position(for: payload, onto: .shot(id: shotA.id, sceneID: scene.id)))
+        let moved    = project.moveShot(withID: shotC.id, inSceneID: scene.id, to: position)
+        #expect(moved)
+        let after = try #require(project.scene(withID: scene.id))
+        #expect(after.shots.map(\.id) == [shotC.id, shotA.id, shotB.id])
+        #expect(after.shotNumber(forShotID: shotC.id) == "12A")
+        #expect(after.estimatedTime == 35)
+    }
+
     @Test func kindsAreDistinctAfterARoundTrip() async throws {
         let id = UUID()
         let day     = try await roundTrip(ScheduleDragPayload(.day(id: id)))

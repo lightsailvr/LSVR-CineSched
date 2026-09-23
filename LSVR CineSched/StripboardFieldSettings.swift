@@ -27,6 +27,10 @@ enum StripboardField: String, CaseIterable, Identifiable {
     case sfx
     case vfx
     case breakdownNotes
+    /// How many shots the scene's shot list holds (#42): "4 shots". Last, and off by
+    /// default: a new raw value is absent from every saved selection, so an existing
+    /// board shows it only once the user ticks it.
+    case shots
 
     var id: String { rawValue }
 
@@ -47,6 +51,7 @@ enum StripboardField: String, CaseIterable, Identifiable {
         case .sfx:              return L("SFX")
         case .vfx:              return L("VFX")
         case .breakdownNotes:   return L("Breakdown Notes")
+        case .shots:            return L("Shots")
         }
     }
 
@@ -67,6 +72,7 @@ enum StripboardField: String, CaseIterable, Identifiable {
         case .sfx:              return L("Practical effects")
         case .vfx:              return L("Visual effects")
         case .breakdownNotes:   return L("Free-text breakdown notes")
+        case .shots:            return L("How many shots the scene's shot list holds")
         }
     }
 
@@ -88,6 +94,7 @@ enum StripboardField: String, CaseIterable, Identifiable {
         case .sfx:              return "flame"
         case .vfx:              return "sparkles"
         case .breakdownNotes:   return "note.text"
+        case .shots:            return "film.stack"
         }
     }
 
@@ -110,6 +117,7 @@ enum StripboardField: String, CaseIterable, Identifiable {
         case .sfx:              return "🔥"
         case .vfx:              return "✨"
         case .breakdownNotes:   return "📝"
+        case .shots:            return "🎞️"
         }
     }
 
@@ -133,6 +141,16 @@ enum StripboardField: String, CaseIterable, Identifiable {
         case .sfx:              return scene.allSFX.joined(separator: ", ")
         case .vfx:              return scene.vfx.joined(separator: ", ")
         case .breakdownNotes:   return scene.breakdownNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        case .shots:            return Self.shotCount(scene.shots.count)
+        }
+    }
+
+    /// "1 shot", "4 shots"; empty for none, so a shotless scene has no chip.
+    static func shotCount(_ count: Int) -> String {
+        switch count {
+        case 0:  return ""
+        case 1:  return "1 \(L("shot"))"
+        default: return "\(count) \(L("shots"))"
         }
     }
 
