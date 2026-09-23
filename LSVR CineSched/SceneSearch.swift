@@ -74,24 +74,12 @@ enum SceneSearch {
         guard !shotTerms.isEmpty, !scene.shots.isEmpty,
               let index = scene.shots.firstIndex(where: { shot in
                   let text = shotText(shot)
-                  return shotTerms.contains { term in text.contains { $0.contains(term) } }
+                  return shotTerms.contains { shotTextHolds($0, text) }
               })
         else { return SceneSearchResult(scene: scene, location: location) }
         return SceneSearchResult(scene: scene, location: location,
                                  matchedShotID: scene.shots[index].id,
                                  matchedShotNumber: scene.shotNumber(at: index))
-    }
-
-    /// The shots of `scene` that hold at least one word of `query` in their description,
-    /// equipment, props or SFX, in shot order; none for a blank query. What a result's
-    /// caption can name when a scene was found by its shot list (#43).
-    static func matchingShots(in scene: Scene, query: String) -> [Shot] {
-        let terms = terms(of: query)
-        guard !terms.isEmpty else { return [] }
-        return scene.shots.filter { shot in
-            let text = shotText(shot)
-            return terms.contains { term in text.contains { $0.contains(term) } }
-        }
     }
 
     // MARK: The rules
@@ -109,7 +97,7 @@ enum SceneSearch {
         let own   = ownText(scene)
         let shots = scene.shots.map { shotText($0) }
         return terms.allSatisfy { term in
-            ownFieldsHold(term, own) || shots.contains { $0.contains { $0.contains(term) } }
+            ownFieldsHold(term, own) || shots.contains { shotTextHolds(term, $0) }
         }
     }
 
@@ -149,6 +137,12 @@ enum SceneSearch {
             + shot.equipment.map { $0.lowercased() }
             + shot.props.map { $0.lowercased() }
             + shot.sfx.map { $0.lowercased() }
+    }
+
+    /// Whether a shot's fields (`shotText`) hold `term`, by containment: the one rule the
+    /// match and a result's shot share.
+    private static func shotTextHolds(_ term: String, _ text: [String]) -> Bool {
+        text.contains { $0.contains(term) }
     }
 }
 

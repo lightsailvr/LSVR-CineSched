@@ -110,7 +110,7 @@ struct SceneSearchTests {
     }
 
     /// A shot's description, equipment, props and SFX are searched like the scene's own
-    /// fields (#37), and `matchingShots` names the shots a query found.
+    /// fields (#37); a result names the shot that found it (below).
     @Test func matchesAShotsDescriptionEquipmentPropsAndSFX() {
         var scene = garage
         scene.shots = [
@@ -122,9 +122,6 @@ struct SceneSearchTests {
         }
         #expect(!SceneSearch.matches(scene, query: "steadicam"))
         #expect(!SceneSearch.matches(garage, query: "dolly"))
-        #expect(SceneSearch.matchingShots(in: scene, query: "sparks").map(\.details) == ["Insert"])
-        #expect(SceneSearch.matchingShots(in: scene, query: "dolly sparks").map(\.details) == ["Dolly in towards Astrid", "Insert"])
-        #expect(SceneSearch.matchingShots(in: scene, query: "  ").isEmpty)
     }
 
     /// A result names the shot that found it (#43): the first shot, in shot order, holding
