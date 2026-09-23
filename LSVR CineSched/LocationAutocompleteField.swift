@@ -66,6 +66,9 @@ struct LocationAutocompleteField: View {
                         .textFieldStyle(RoundedBorderTextFieldStyle())
                 case .formRow:
                     TextField(title, text: $text, prompt: Text(placeholder))
+                        // An iOS form row shows the prompt, not the label, and leaves
+                        // the field unnamed to VoiceOver without this.
+                        .accessibilityLabel(title)
                 }
 
                 if isShowingSuggestions && !filteredSuggestions.isEmpty {

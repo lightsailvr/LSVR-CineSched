@@ -120,13 +120,26 @@ struct SceneEditSheet: View {
                 header
             }
         } content: {
-            NavigationStack(path: $path) {
-                form
-                    .editorStackPage()
-                    .navigationDestination(for: Route.self) { route in
-                        page(for: route)
-                            .editorStackPage()
-                    }
+            if presentation == .inspector {
+                // In the three-column layout's inspector a `NavigationStack`'s push is
+                // taken by the enclosing `NavigationSplitView`: the page covered the whole
+                // window, without the chrome, and outside the inspector's environment (so
+                // its field raised the keyboard). The inspector swaps the page in place
+                // on the same `path`; the header's Back and the footer work unchanged.
+                if case .shot(let id)? = path.last {
+                    page(for: .shot(id))
+                } else {
+                    form
+                }
+            } else {
+                NavigationStack(path: $path) {
+                    form
+                        .editorStackPage()
+                        .navigationDestination(for: Route.self) { route in
+                            page(for: route)
+                                .editorStackPage()
+                        }
+                }
             }
         } footer: {
             if case .shot(let id)? = path.last {
@@ -516,6 +529,15 @@ struct SceneEditSheet: View {
     /// list however many shots were typed in a row; neither is offered while the duration
     /// does not parse (the page's other fields are already in the draft either way).
     private func pageFooter(shotID: UUID) -> some View {
+        // The row with Add Another spelled out where it fits on one line; in the
+        // inspector's 300-odd points it wrapped, so there it is an icon.
+        ViewThatFits(in: .horizontal) {
+            pageFooterRow(shotID: shotID, compact: false)
+            pageFooterRow(shotID: shotID, compact: true)
+        }
+    }
+
+    private func pageFooterRow(shotID: UUID, compact: Bool) -> some View {
         let valid = shotDrafts[shotID]?.isValid ?? true
         return HStack(spacing: 12) {
             Button(role: .destructive) {
@@ -545,13 +567,24 @@ struct SceneEditSheet: View {
 
             Spacer()
 
-            Button(L("Add Another")) {
+            Button {
                 if let id = draft.addShot(after: shotID) { replaceTopPage(with: id) }
+            } label: {
+                if compact {
+                    Label(L("Add Another"), systemImage: "plus")
+                        .labelStyle(.iconOnly)
+                        .frame(width: 16, height: 16)
+                } else {
+                    Text(L("Add Another")).fixedSize()
+                }
             }
             .buttonStyle(.bordered)
             .disabled(!valid)
+            .help(L("Add Another"))
+            .accessibilityLabel(L("Add Another"))
 
             Button(L("Done")) { path.removeLast() }
+                .fixedSize()
                 .buttonStyle(.borderedProminent)
                 .disabled(!valid)
         }

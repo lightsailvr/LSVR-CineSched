@@ -29,6 +29,7 @@ struct ShotPage: View {
                           prompt: Text(L("e.g. Dolly in towards Astrid")), axis: .vertical)
                     .lineLimit(1...6)
                     .focused($detailsFocused)
+                    .accessibilityLabel(L("Description"))
             }
 
             Section {
@@ -42,15 +43,21 @@ struct ShotPage: View {
                 }
             }
 
-            Section {
+            // One section per list: an iOS form row shows a text field's prompt but not
+            // its label, so three unlabelled lists would read alike once filled in.
+            Section(L("Equipment")) {
                 listField(L("Equipment"), placeholder: L("e.g. Dolly, Ronin"), icon: "wrench.and.screwdriver",
                           text: $draft.equipment, suggestions: suggestions.equipment)
+            }
+            Section(L("Props")) {
                 listField(L("Props"), placeholder: L("e.g. Umbrella, Letter"), icon: "shippingbox",
                           text: $draft.props, suggestions: suggestions.props)
+            }
+            Section {
                 listField(L("SFX"), placeholder: L("e.g. Rain, Smoke"), icon: "sparkles",
                           text: $draft.sfx, suggestions: suggestions.sfx)
             } header: {
-                Text(L("Breakdown"))
+                Text(L("SFX"))
             } footer: {
                 Text(L("Separate items with commas"))
             }
@@ -109,6 +116,7 @@ struct ShotRow: View {
                 StoryboardFrameView(data: shot.frame, placeholderCaption: nil)
                     .frame(width: 56, height: 36)
                     .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .accessibilityHidden(true)
             }
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
