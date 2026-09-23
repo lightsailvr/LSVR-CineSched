@@ -18,8 +18,14 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
   `[sdk=iphoneos*]` and `[sdk=iphonesimulator*]`. Count `grep "^warning:"` too, on every
   platform. The built Mac app's Info.plist does carry `NSCameraUsageDescription => ""`
   (`plutil -p`): inert, since nothing asks for the camera there, but an empty purpose
-  string is what App Review rejects. Recorded beside the warning count in CLAUDE.md; the
-  fix is a project-file change (drop the empty key on the other SDKs), left for a ticket.
+  string is what App Review rejects. **Fixed in the review round (item 22):** there was no
+  unconditioned empty value in either configuration; Xcode writes a key that only per-SDK
+  settings define as `""` into every other SDK's plist (the #12 entry's display-name
+  lesson), so the key cannot be made absent this way. `INFOPLIST_KEY_NSCameraUsageDescription`
+  is now one unconditioned setting in Debug and Release with the real string: clean builds
+  on macOS, the iPhone 17 simulator and Vision Pro print 0 `^warning:` lines, and each
+  built Info.plist carries the real sentence (unused on the Mac and Vision Pro, which
+  offer no camera).
 - **Parallel agents each documented their own ticket in the shared bullets**, so the file
   map read in ticket order (the shot files scattered, a phone file among the Mac's), the
   glossary's Production tab still said "six documents", the drafts bullet had no

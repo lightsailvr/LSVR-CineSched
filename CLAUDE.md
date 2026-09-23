@@ -71,12 +71,11 @@ with Xcode 27.0 (27A266a) at the 27.0 floor succeeds with exactly 4 warnings in 
 compiler echoes each once more as a source excerpt), on macOS, the iPhone 17 simulator and
 the Apple Vision Pro simulator alike (last checked 2026-09-23, after the shot lists, #36;
 down from 7 on 2026-09-20: #18 dropped one in `StripboardView`, #19 rewrote
-`BannerInputSheet` and `LocationAutocompleteField`); do not add new ones. The macOS and
-visionOS builds also print one build-system line, "The value for NSCameraUsageDescription
-must be a non-empty string", because #41's camera prompt is set only for the two iOS SDKs
-(`INFOPLIST_KEY_NSCameraUsageDescription[sdk=iphoneos*]`/`[sdk=iphonesimulator*]`), and the
-built Mac app's Info.plist carries the key empty; it is not a compiler warning, the iPhone
-build has none, and it is open (learnings 2026-09-23, integrating the shot lists). (The 4 main-actor-isolated `Codable` warnings went with #7:
+`BannerInputSheet` and `LocationAutocompleteField`); do not add new ones. No build prints
+a build-system `warning:` line with no file (count `grep -c "^warning:"` as well as the
+`file:line:` ones): the camera prompt's empty-key warning #41 brought to the macOS and
+visionOS builds was fixed in the #36 review by setting `INFOPLIST_KEY_NSCameraUsageDescription`
+unconditionally (learnings 2026-09-23, integrating the shot lists). (The 4 main-actor-isolated `Codable` warnings went with #7:
 the model's `Codable` conformances are `nonisolated`.) The test target adds 3 more, all
 main-actor isolation (`MonthPDFExporterTests` twice, echoed, and a `@Test(arguments:)` macro
 expansion in `ProjectDocumentTests`): 5 warning lines in the log.
@@ -884,8 +883,8 @@ the build inputs outside it, see Working agreements):
   `storyboardFrameCamera`, a `UIImagePickerController`, disabled where no camera is
   reported), and paste (`StoryboardFramePasteButton`, `storyboardFramePasteTarget`:
   SwiftUI's `PasteButton` and `pasteDestination`, both unavailable on visionOS, which gets
-  nothing); the camera's prompt is the iOS-only `INFOPLIST_KEY_NSCameraUsageDescription`
-  setting), `PlatformEditorContainer` (an adaptive editor's sheet: the Mac's fixed
+  nothing); the camera's prompt is the `INFOPLIST_KEY_NSCameraUsageDescription` setting,
+  unconditioned because a per-SDK string lands empty in the other SDKs' plists), `PlatformEditorContainer` (an adaptive editor's sheet: the Mac's fixed
   frame, the iPhone's detents, form sizing on iPad and visionOS; and
   `editorNavigationBarHidden()`, which hides the bar of an editor's own navigation stack
   where there is one), `LegacyProjectHandoff`,
@@ -1211,7 +1210,9 @@ metrics or wrapping are guarded by `PDFFixture.hasMacSystemFace`.
   `.shot-drag-payload` type, #42, and the `NSUbiquitousContainers` dictionary, ADR 0006). Never put a plist in the
   source folder: it would be bundled as a resource and collide with the generated plist in the flat iOS bundle.
   Version and bundle identifier live in build settings; an iOS-only key is a per-SDK `INFOPLIST_KEY_…[sdk=…]`
-  setting (the camera prompt, `NSCameraUsageDescription`, #41). Entitlements are per platform: `LSVR CineSched/CineSched.entitlements` for the Mac (sandbox and
+  setting, except a string: a per-SDK string is written as `""` into the other SDKs' plists
+  (learnings 2026-09-18 #12), so a purpose string (the camera prompt, `NSCameraUsageDescription`,
+  #41) is set unconditionally instead, or the Mac and visionOS builds warn and carry an empty one. Entitlements are per platform: `LSVR CineSched/CineSched.entitlements` for the Mac (sandbox and
   user-selected files, no iCloud) and `Config/CineSched-iOS.entitlements` for the four non-Mac SDKs (iCloud
   Documents in `iCloud.com.lsvr.LSVR-CineSched`). Any edit to the container keys needs a `CURRENT_PROJECT_VERSION`
   bump before iCloud rereads them. A device build signs only once that container exists on the App ID in the
