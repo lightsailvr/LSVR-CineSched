@@ -816,6 +816,7 @@ struct StripboardView: View {
                 onNext: { editingSceneIndex = sceneIndex + 1 },
                 positionLabel: "Scene \(sceneIndex + 1) of \(shootDays[dayIndex].scenes.count)",
                 knownLocations: allProjectLocations,
+                storyboardFrameBytes: ProjectData.storyboardFrameBytes(shootDays: shootDays, allScenes: allScenes),
                 breakdownSuggestions: ProjectData.breakdownSuggestions(shootDays: shootDays, allScenes: allScenes),
                 initialRoute: editingRoute
             )

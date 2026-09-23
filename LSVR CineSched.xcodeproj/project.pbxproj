@@ -430,6 +430,8 @@
 				"INFOPLIST_KEY_CFBundleDisplayName[sdk=xros*]" = CineSched;
 				"INFOPLIST_KEY_CFBundleDisplayName[sdk=xrsimulator*]" = CineSched;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
+				"INFOPLIST_KEY_NSCameraUsageDescription[sdk=iphoneos*]" = "CineSched uses the camera to photograph a storyboard frame for a shot.";
+				"INFOPLIST_KEY_NSCameraUsageDescription[sdk=iphonesimulator*]" = "CineSched uses the camera to photograph a storyboard frame for a shot.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -504,6 +506,8 @@
 				"INFOPLIST_KEY_CFBundleDisplayName[sdk=xros*]" = CineSched;
 				"INFOPLIST_KEY_CFBundleDisplayName[sdk=xrsimulator*]" = CineSched;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
+				"INFOPLIST_KEY_NSCameraUsageDescription[sdk=iphoneos*]" = "CineSched uses the camera to photograph a storyboard frame for a shot.";
+				"INFOPLIST_KEY_NSCameraUsageDescription[sdk=iphonesimulator*]" = "CineSched uses the camera to photograph a storyboard frame for a shot.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;

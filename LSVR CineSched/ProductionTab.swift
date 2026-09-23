@@ -327,6 +327,7 @@ struct ProductionTab: View {
                 breakdownExpandedByDefault: true,
                 closeAfterDelete: false,
                 knownLocations: project.knownLocations,
+                storyboardFrameBytes: project.storyboardFrameBytes,
                 breakdownSuggestions: project.breakdownSuggestions
             )
             .id(id)

@@ -329,6 +329,7 @@ struct PhoneSceneEditor: View {
                 positionLabel:  steps ? position.map { String(format: L("Scene %d of %d"), $0 + 1, siblings.count) } : nil,
                 knownLocations: project.knownLocations,
                 onDuplicate:    { dayEdits.duplicateScene(id: sceneID) },
+                storyboardFrameBytes: project.storyboardFrameBytes,
                 breakdownSuggestions: project.breakdownSuggestions
             )
             .id(sceneID)

@@ -1,7 +1,7 @@
 // ShotPage.swift
 // The scene editor's shot list (#39), the parts that are not the editor itself: the page
-// a shot row pushes (`ShotPage`), the row (`ShotRow`) and the frame slot both the page and
-// the scene's shotless frame row show (`StoryboardFrameSlot`).
+// a shot row pushes (`ShotPage`) and the row (`ShotRow`). The frame slot the page and the
+// scene's shotless frame row show is `StoryboardFrameSlot` (#41, its own file).
 //
 // The page is the call sheet editor's detail page pattern (#20): a grouped `Form` pushed
 // inside the scene editor's own `NavigationStack`, bound by id through a `ShotDraft` the
@@ -19,6 +19,8 @@ import SwiftUI
 struct ShotPage: View {
     @Binding var draft: ShotDraft
     let suggestions: BreakdownSuggestions
+    /// The project's frame total past 20 MB (#41), under the frame; nil below it.
+    var framesCaption: String? = nil
     @Environment(\.editorPresentation) private var presentation
     @FocusState private var detailsFocused: Bool
 
@@ -62,8 +64,14 @@ struct ShotPage: View {
                 Text(L("Separate items with commas"))
             }
 
-            Section(L("Storyboard Frame")) {
+            Section {
                 StoryboardFrameSlot(frame: $draft.frame)
+            } header: {
+                Text(L("Storyboard Frame"))
+            } footer: {
+                if let framesCaption {
+                    Text(framesCaption)
+                }
             }
         }
         .formStyle(.grouped)
@@ -137,41 +145,5 @@ struct ShotRow: View {
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-    }
-}
-
-// MARK: - Frame slot
-
-/// A storyboard frame in a bounded box, shown whole (#38's view), with Remove Frame while
-/// there is one. The scene's frame row (a shotless scene) and the shot page both show it.
-///
-/// #41 fills in the sources: the one place is `sourceControls` below, which today offers
-/// nothing but Remove.
-struct StoryboardFrameSlot: View {
-    @Binding var frame: Data?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            StoryboardFrameView(data: frame)
-                .frame(maxWidth: .infinity)
-                .frame(height: 160)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-            sourceControls
-        }
-        .padding(.vertical, 4)
-    }
-
-    /// The frame's actions. #41 adds the platform's sources here (paste, drop, Photos,
-    /// the camera, a file) beside Remove.
-    @ViewBuilder
-    private var sourceControls: some View {
-        if frame != nil {
-            Button(role: .destructive) {
-                frame = nil
-            } label: {
-                Label(L("Remove Frame"), systemImage: "trash")
-            }
-            .buttonStyle(.borderless)
-        }
     }
 }

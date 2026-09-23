@@ -49,6 +49,10 @@ struct SceneEditSheet: View {
     /// right-click menu has no home): saves the draft, calls this, closes. Nil at the
     /// Mac's call sites, which offer it on the strip's menu, so the footer is unchanged.
     var onDuplicate: (() -> Void)? = nil
+    /// The project's storyboard frame bytes when the editor was presented (#41):
+    /// `ProjectData.storyboardFrameBytes`, computed at the call site per presentation. The
+    /// shot page's caption shows it, with this scene's frames as the draft holds them.
+    var storyboardFrameBytes: Int = 0
     /// What the shot page's Equipment, Props and SFX fields suggest (#39):
     /// `ProjectData.breakdownSuggestions`, computed at the call site per presentation.
     var breakdownSuggestions: BreakdownSuggestions = .none
@@ -87,6 +91,7 @@ struct SceneEditSheet: View {
         closeAfterDelete: Bool = true,
         knownLocations: [String] = [],
         onDuplicate: (() -> Void)? = nil,
+        storyboardFrameBytes: Int = 0,
         breakdownSuggestions: BreakdownSuggestions = .none,
         initialRoute: SceneEditorRoute? = nil
     ) {
@@ -103,6 +108,7 @@ struct SceneEditSheet: View {
         self.closeAfterDelete      = closeAfterDelete
         self.knownLocations        = knownLocations
         self.onDuplicate           = onDuplicate
+        self.storyboardFrameBytes  = storyboardFrameBytes
         self.breakdownSuggestions  = breakdownSuggestions
         self.initialRoute          = initialRoute
         // Populated here rather than on appear so the first frame shows the scene.
@@ -415,9 +421,17 @@ struct SceneEditSheet: View {
     private func page(for route: Route) -> some View {
         switch route {
         case .shot(let id):
-            ShotPage(draft: shotDraftBinding(id), suggestions: breakdownSuggestions)
+            ShotPage(draft: shotDraftBinding(id), suggestions: breakdownSuggestions,
+                     framesCaption: framesCaption)
                 .id(id)
         }
+    }
+
+    /// The shot page's "Storyboard frames: 24 MB", past 20 MB only: the project's total with
+    /// this scene's frames as the draft holds them, so a frame just added counts.
+    private var framesCaption: String? {
+        StoryboardFrameTotals.caption(forBytes: StoryboardFrameTotals.bytes(
+            inProject: storyboardFrameBytes, replacing: scene, with: draft))
     }
 
     /// A page's fields, looked up by id on every get and set (never a captured index).

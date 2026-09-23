@@ -706,6 +706,7 @@ struct ContentView: View {
                     positionLabel: "Scene \(breakdownBrowserIndex + 1) of \(breakdownBrowserScenes.count) — script order",
                     breakdownExpandedByDefault: true,
                     closeAfterDelete: false,
+                    storyboardFrameBytes: document.project.storyboardFrameBytes,
                     breakdownSuggestions: document.project.breakdownSuggestions
                 )
             } else {
@@ -1467,6 +1468,7 @@ struct ContentView: View {
                 onPrevious: goToPreviousUnscheduledScene,
                 onNext: goToNextUnscheduledScene,
                 positionLabel: currentBoneyardPosition.map { "Scene \($0 + 1) of \(derived.sortedBoneyard.count)" },
+                storyboardFrameBytes: document.project.storyboardFrameBytes,
                 breakdownSuggestions: document.project.breakdownSuggestions
             )
         } else {

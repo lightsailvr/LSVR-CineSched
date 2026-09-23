@@ -91,6 +91,7 @@ extension ContentView {
                 onSave:      { inspectorKeepsSelection = true },
                 onDelete:    { deleteInspectedScene(id: id) },
                 knownLocations: document.project.knownLocations,
+                storyboardFrameBytes: document.project.storyboardFrameBytes,
                 breakdownSuggestions: document.project.breakdownSuggestions,
                 initialRoute: route(for: id)?.route
             )
