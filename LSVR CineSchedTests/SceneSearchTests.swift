@@ -237,4 +237,28 @@ struct SceneSearchTests {
         #expect(BoneyardSelection.ordered([], inDisplayOrder: displayed).isEmpty)
         #expect(BoneyardSelection.ordered([stray], inDisplayOrder: displayed).isEmpty)
     }
+
+    // MARK: - The Mac toolbar's search (#36 review)
+
+    /// The Mac's phrase rule as it always was (title, summary, cast; any strip; the query
+    /// as one phrase), plus a shot's description, equipment, props and SFX.
+    @Test func theToolbarSearchMatchesThePhraseInTheSceneAndItsShots() {
+        var scene = garage
+        scene.shots = [
+            Shot(details: "Dolly in towards Astrid", equipment: ["Technocrane"]),
+            Shot(details: "Insert", props: ["Truck keys"], sfx: ["Sparks"]),
+        ]
+        for query in ["dolly in", "  TECHNOCRANE ", "truck keys", "sparks"] {
+            #expect(SceneSearch.toolbarMatches(scene, query: query), "\(query)")
+        }
+        #expect(!SceneSearch.toolbarMatches(garage, query: "dolly"))
+        // One phrase, not words: "dolly sparks" is in no single field.
+        #expect(!SceneSearch.toolbarMatches(scene, query: "dolly sparks"))
+        #expect(!SceneSearch.toolbarMatches(scene, query: "   "))
+        // What it found before is found as before: the title, the summary, a cast name, and
+        // a banner by its title.
+        #expect(SceneSearch.toolbarMatches(street, query: street.title.lowercased()))
+        #expect(SceneSearch.toolbarMatches(kitchen, query: "letter"))
+        #expect(SceneSearch.toolbarMatches(banner, query: "company move"))
+    }
 }

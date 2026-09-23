@@ -19,7 +19,10 @@
 // row's "in shot 12B" caption. Also here:
 // the display order the Boneyard tab hands a multi-selection to Send to Day in
 // (`BoneyardSelection.ordered`), because a `Set` has no order and the pure moves honour
-// the order of the ids they are given (learnings 2026-09-20, the M3 review).
+// the order of the ids they are given (learnings 2026-09-20, the M3 review), and the
+// Mac toolbar's older rule (`toolbarMatches`: the query as one phrase in the title, the
+// summary or a cast name, any strip, and since #36's review in a shot's text too), kept
+// apart so what the Mac already found is found exactly as before.
 
 import Foundation
 
@@ -80,6 +83,20 @@ enum SceneSearch {
         return SceneSearchResult(scene: scene, location: location,
                                  matchedShotID: scene.shots[index].id,
                                  matchedShotNumber: scene.shotNumber(at: index))
+    }
+
+    /// The Mac toolbar's search (ContentView's results popover): the trimmed query,
+    /// lowercased, as one phrase contained in the scene's title, summary or a cast name, or
+    /// in any shot's description, equipment, props or SFX. Any strip, banners included, as
+    /// it always did; the shot text is what #36 adds ("search finds scenes by what their
+    /// shots say"). A blank query matches nothing.
+    static func toolbarMatches(_ scene: Scene, query: String) -> Bool {
+        let phrase = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !phrase.isEmpty else { return false }
+        return scene.title.lowercased().contains(phrase)
+            || scene.summary.lowercased().contains(phrase)
+            || scene.cast.contains { $0.lowercased().contains(phrase) }
+            || scene.shots.contains { shotTextHolds(phrase, shotText($0)) }
     }
 
     // MARK: The rules

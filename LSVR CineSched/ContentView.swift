@@ -1358,14 +1358,12 @@ struct ContentView: View {
     }
 
     private var scheduleSearchResults: [ScheduleSearchResult] {
-        let query = searchQuery.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !query.isEmpty else { return [] }
+        let query = searchQuery
+        guard !query.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
 
+        // The toolbar's phrase rule, shot text included (SceneSearch.swift).
         func matches(_ scene: Scene) -> Bool {
-            if scene.title.lowercased().contains(query) { return true }
-            if scene.summary.lowercased().contains(query) { return true }
-            if scene.cast.contains(where: { $0.lowercased().contains(query) }) { return true }
-            return false
+            SceneSearch.toolbarMatches(scene, query: query)
         }
 
         var results: [ScheduleSearchResult] = []
