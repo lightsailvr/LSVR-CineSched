@@ -276,6 +276,7 @@ struct PhoneEditor: View {
             exportStripboardPDF:    production(.exportStripSchedule),
             exportDaysOutOfDays:    production(.exportDaysOutOfDays),
             exportBreakdowns:       production(.exportBreakdowns),
+            exportShotList:         production(.exportShotList),
             openProductionSetup:    production(.openProductionSetup),
             scanForConflicts:       production(.scanForConflicts),
             openBreakdownBrowser:   production(.openBreakdownBrowser),

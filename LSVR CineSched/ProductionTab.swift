@@ -35,6 +35,7 @@ enum ProductionCommand: Hashable {
     case showColorLegend, showSceneColorSettings, showStripboardFields
     case importScript
     case exportScheduleCalendar, exportStripSchedule, exportDaysOutOfDays, exportBreakdowns
+    case exportShotList
 }
 
 // MARK: - The tab
@@ -64,6 +65,7 @@ struct ProductionTab: View {
         case productionSetup, conflictReport, scheduleLockReport, breakdownBrowser
         case colorLegend, sceneColorSettings, stripboardFields
         case monthOptions(month: Date)
+        case shotListOptions
         case importSummary
         var id: Self { self }
     }
@@ -103,6 +105,8 @@ struct ProductionTab: View {
     @AppStorage(MonthPDFOptionSettings.fieldsKey) var monthPDFFieldsRaw: String = MonthPDFOptionSettings.defaultFieldsRaw
     @AppStorage(MonthPDFOptionSettings.pagesKey)  var monthPDFShowPages: Bool = MonthPDFOptions.default.includePageCount
     @AppStorage(MonthPDFOptionSettings.timeKey)   var monthPDFShowTime:  Bool = MonthPDFOptions.default.includeEstimatedTime
+    @AppStorage(ShotListPDFOptionSettings.scopeKey)         var shotListScopeRaw: String = ShotListPDFOptionSettings.projectRaw
+    @AppStorage(ShotListPDFOptionSettings.includeFramesKey) var shotListIncludeFrames: Bool = ShotListPDFOptions.default.includeFrames
 
     var project:        ProjectData    { document.project }
     var shootDays:      [ShootDay]     { project.shootDays }
@@ -286,6 +290,8 @@ struct ProductionTab: View {
             StripboardFieldsSheet(selectedFields: stripboardFields, onDismiss: { activeSheet = nil })
         case .monthOptions(let month):
             monthOptionsSheet(month)
+        case .shotListOptions:
+            shotListOptionsSheet
         case .importSummary:
             importSummarySheet
         }
@@ -456,6 +462,7 @@ struct ProductionTab: View {
         case .exportStripSchedule:    exports.stripSchedule()
         case .exportDaysOutOfDays:    exports.daysOutOfDays(includeHold: includeHoldInDOOD)
         case .exportBreakdowns:       exports.breakdowns()
+        case .exportShotList:         activeSheet = .shotListOptions
         }
     }
 }

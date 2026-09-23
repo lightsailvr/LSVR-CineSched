@@ -164,6 +164,9 @@ struct ContentView: View {
     @AppStorage(MonthPDFOptionSettings.timeKey)   private var monthPDFShowTime:  Bool = MonthPDFOptions.default.includeEstimatedTime
     /// The month the options sheet exports, seeded as it opens (`openMonthPDFOptions`).
     @State private var monthPDFMonth: Date = Date()
+    // The Shot List's options (#40), app-wide like the month's and shared with the phone.
+    @AppStorage(ShotListPDFOptionSettings.scopeKey)         private var shotListScopeRaw: String = ShotListPDFOptionSettings.projectRaw
+    @AppStorage(ShotListPDFOptionSettings.includeFramesKey) private var shotListIncludeFrames: Bool = ShotListPDFOptions.default.includeFrames
 
     // MARK: - Derived state
 
@@ -218,6 +221,9 @@ struct ContentView: View {
         /// Month Calendar… (the calendar's own Export Month button went with the toolbar
         /// redesign). The month is `monthPDFMonth`.
         case monthPDFOptions
+        /// The Shot List's scope and frames before its export (#40), from File ▸ Export
+        /// Shot List… and the Share menu.
+        case shotListOptions
         var id: Self { self }
     }
     @State var activeSheet: ActiveSheet? = nil
@@ -451,6 +457,7 @@ struct ContentView: View {
             Divider()
             Button(L("Days Out of Days…"))   { projectCommands.exportDaysOutOfDays() }
             Button(L("Scene Breakdowns…"))   { projectCommands.exportBreakdowns() }
+            Button(L("Shot List…"))          { projectCommands.exportShotList() }
             if let day = selectedDay {
                 Divider()
                 Button("\(L("Call Sheet for")) \(formattedDate(day.date))…") { showCallSheetPDFSavePanel(for: day) }
@@ -492,6 +499,21 @@ struct ContentView: View {
             },
             month:                $monthPDFMonth,
             months:               document.project.productionMonths()
+        )
+    }
+
+    /// The Shot List's scope and frames, then its export (File ▸ Export Shot List…,
+    /// Share ▸ Shot List…).
+    private var shotListOptionsSheet: some View {
+        ShotListOptionsSheet(
+            shootDays:     shootDays,
+            scopeRaw:      $shotListScopeRaw,
+            includeFrames: $shotListIncludeFrames,
+            onCancel:      { activeSheet = nil },
+            onExport:      { options in
+                activeSheet = nil
+                exportShotList(options: options)
+            }
         )
     }
 
@@ -631,6 +653,8 @@ struct ContentView: View {
                     inspectorCallSheetSheet(dayID: dayID)
                 case .monthPDFOptions:
                     monthPDFOptionsSheet
+                case .shotListOptions:
+                    shotListOptionsSheet
                 }
             }
             .onChange(of: activeSheet) { _, newValue in
@@ -731,6 +755,7 @@ struct ContentView: View {
             exportStripboardPDF:    showStripboardPDFSavePanel,
             exportDaysOutOfDays:    showDaysOutOfDaysPDFSavePanel,
             exportBreakdowns:       showBreakdownPDFSavePanel,
+            exportShotList:         { activeSheet = .shotListOptions },
             openProductionSetup:    { activeSheet = .productionSetup },
             scanForConflicts:       {
                 conflictReportResults = ConflictScanner.scan(shootDays: shootDays, productionInfo: productionInfo)

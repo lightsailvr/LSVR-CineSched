@@ -2,7 +2,8 @@
 // The Production tab's Export section (#28): the six documents as rows — Schedule
 // Calendar, Month Calendar (a `Menu` of the months the shoot spans, then the calendar's
 // `MonthPDFOptionsSheet` on its `@AppStorage` keys), Strip Schedule, Shooting Schedule,
-// Days Out of Days with the Include Hold toggle beside it, Scene Breakdowns — each a call
+// Days Out of Days with the Include Hold toggle beside it, Scene Breakdowns, the Shot List
+// (#40: its `ShotListOptionsSheet` first, on the Mac's `@AppStorage` keys) — each a call
 // into `PhoneExports` (PhoneExports.swift, the phone's one export call site, which builds
 // the request and hands it to the editor's preview sheet or its alert). Nothing here
 // calls `PDFExport` or an exporter.
@@ -41,11 +42,38 @@ extension ProductionTab {
             actionRow(L("Scene Breakdowns"), systemImage: "list.clipboard") {
                 exports.breakdowns()
             }
+            actionRow(L("Shot List"), systemImage: "film.stack", detail: shotListDetail) {
+                activeSheet = .shotListOptions
+            }
         } header: {
             Text(L("Export"))
         } footer: {
             Text(L("Each export opens a preview you can share, print or save to Files."))
         }
+    }
+
+    // MARK: - The Shot List
+
+    /// The remembered choice, so the row says what Export will do before the sheet opens.
+    private var shotListDetail: String {
+        switch ShotListPDFOptionSettings.scope(fromRaw: shotListScopeRaw, in: shootDays) {
+        case .project: return shotListIncludeFrames ? L("Project · Frames") : L("Project")
+        case .day:     return shotListIncludeFrames ? L("One day · Frames") : L("One day")
+        }
+    }
+
+    /// The Shot List's scope and frames (the Mac's sheet), then its export (#40).
+    var shotListOptionsSheet: some View {
+        ShotListOptionsSheet(
+            shootDays:     shootDays,
+            scopeRaw:      $shotListScopeRaw,
+            includeFrames: $shotListIncludeFrames,
+            onCancel:      { activeSheet = nil },
+            onExport:      { options in
+                activeSheet = nil
+                exports.shotList(options: options)
+            }
+        )
     }
 
     // MARK: - The month calendar

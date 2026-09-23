@@ -196,6 +196,11 @@ struct CineSchedApp: App {
             }
             .keyboardShortcut("e", modifiers: [.command, .option])
             .disabled(commands == nil)
+
+            Button(L("Export Shot List…", lang: appLanguage)) {
+                commands?.exportShotList()
+            }
+            .disabled(commands == nil)
         }
 
         // A home for the actions that don't fit File/Edit/View

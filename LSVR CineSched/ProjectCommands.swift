@@ -25,6 +25,8 @@ struct ProjectCommands {
     var exportStripboardPDF:   () -> Void
     var exportDaysOutOfDays:   () -> Void
     var exportBreakdowns:      () -> Void
+    /// Opens the Shot List's options sheet; its Export builds the request (#40).
+    var exportShotList:        () -> Void
     // Production
     var openProductionSetup:   () -> Void
     var scanForConflicts:      () -> Void

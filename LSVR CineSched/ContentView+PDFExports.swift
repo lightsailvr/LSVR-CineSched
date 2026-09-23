@@ -88,6 +88,15 @@ extension ContentView {
         }
     }
 
+    /// File ▸ Export Shot List… and the Share menu's Shot List…, after the options sheet (#40).
+    func exportShotList(options: ShotListPDFOptions) {
+        do {
+            deliver(try PDFExport.shotList(project: document.project, scope: options.scope, includeFrames: options.includeFrames), savePanel: showPDFSavePanel)
+        } catch {
+            report(error)
+        }
+    }
+
     /// The Stripboard's per-day export passes just that day; the Export menu passes
     /// nothing and gets the whole schedule.
     func showShootingSchedulePDFSavePanel(for targetDays: [ShootDay]? = nil) {
