@@ -103,3 +103,38 @@ struct ShotListOptionsSheet: View {
         )
     }
 }
+
+// MARK: - Export after dismiss
+
+extension ShotListOptionsSheet {
+    /// The sheet as both editors present it (the Mac window's `ContentView`, the phone's
+    /// Production tab): Export keeps the options in `pendingExport` and closes the sheet,
+    /// and the caller's `.sheet(item:onDismiss:)` runs them through `runPendingExport`, so
+    /// the preview or the failure alert is never presented over a sheet still going away.
+    init(
+        shootDays:     [ShootDay],
+        scopeRaw:      Binding<String>,
+        includeFrames: Binding<Bool>,
+        pendingExport: Binding<ShotListPDFOptions?>,
+        dismiss:       @escaping () -> Void
+    ) {
+        self.init(
+            shootDays:     shootDays,
+            scopeRaw:      scopeRaw,
+            includeFrames: includeFrames,
+            onCancel:      dismiss,
+            onExport:      { options in
+                pendingExport.wrappedValue = options
+                dismiss()
+            }
+        )
+    }
+
+    /// The `.sheet`'s `onDismiss`: the export the sheet asked for, once it is gone (and
+    /// nothing when it was cancelled or another sheet closed).
+    static func runPendingExport(_ pendingExport: Binding<ShotListPDFOptions?>, _ export: (ShotListPDFOptions) -> Void) {
+        guard let options = pendingExport.wrappedValue else { return }
+        pendingExport.wrappedValue = nil
+        export(options)
+    }
+}

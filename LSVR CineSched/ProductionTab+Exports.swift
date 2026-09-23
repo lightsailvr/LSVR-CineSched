@@ -68,19 +68,14 @@ extension ProductionTab {
             shootDays:     shootDays,
             scopeRaw:      $shotListScopeRaw,
             includeFrames: $shotListIncludeFrames,
-            onCancel:      { activeSheet = nil },
-            onExport:      { options in
-                pendingShotListExport = options
-                activeSheet = nil
-            }
+            pendingExport: $pendingShotListExport,
+            dismiss:       { activeSheet = nil }
         )
     }
 
     /// The `.sheet`'s `onDismiss`: the export the options sheet asked for, once it is gone.
     func runPendingShotListExport() {
-        guard let options = pendingShotListExport else { return }
-        pendingShotListExport = nil
-        exports.shotList(options: options)
+        ShotListOptionsSheet.runPendingExport($pendingShotListExport) { exports.shotList(options: $0) }
     }
 
     // MARK: - The month calendar
