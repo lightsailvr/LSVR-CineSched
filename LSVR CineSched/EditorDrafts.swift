@@ -4,7 +4,8 @@
 // Time sheet (#26) hold between opening and Save, with what each reads from the model and
 // the one value it writes back. Pure and view-free, so every conversion (eighths to
 // "1 7/8" and back, minutes to "2:30", comma lists, the Custom type's blank-means-none
-// rule, the time of day read off a slugline) is pinned in `EditorDraftsTests`. A view
+// rule, the time of day read off a slugline, a shot's fields, #39) is pinned in
+// `EditorDraftsTests`. A view
 // keeps one draft in `@State`, repopulates it when its subject changes, and on Save
 // assigns `draft.applied(to:)` (or `makeBanner()` / `makeEvent()` / `makeScene()`) to its
 // binding **once**, so a Save is one `perform` and one undo step by construction
@@ -35,6 +36,13 @@ struct SceneDraft: Equatable {
     var sfx:              String
     var vfx:              String
     var breakdownNotes:   String
+
+    /// The shot list and the scene's own frame (#39), carried whole and edited only
+    /// through the shot edits below, which run ShotEdits.swift's rules on a scene value so
+    /// the estimate is the sum and the frame moves onto shot A exactly as a project edit
+    /// would. Save writes both back with the rest, in the one assignment.
+    var shots:            [Shot]
+    var frame:            Data?
 
     /// The pages as seeded and the eighths they stand for: a whole number of pages
     /// shows as "1" or "2", which the parser would read as eighths (a bare integer is
@@ -68,6 +76,8 @@ struct SceneDraft: Equatable {
         sfx              = scene.sfx.joined(separator: ", ")
         vfx              = scene.vfx.joined(separator: ", ")
         breakdownNotes   = scene.breakdownNotes
+        shots            = scene.shots
+        frame            = scene.frame
     }
 
     // MARK: Validation
@@ -116,24 +126,183 @@ struct SceneDraft: Equatable {
         saved.sfx              = Self.commaList(sfx)
         saved.vfx              = Self.commaList(vfx)
         saved.breakdownNotes   = breakdownNotes
+        saved.shots            = shots
+        saved.frame            = frame
+        // The estimate rule once more, so a Save with shots writes the sum whatever the
+        // estimate text says (the field is read-only then, and shows that sum).
+        saved.applyShotEstimate()
         return saved
     }
 
     // MARK: Conversions
 
-    /// A stored minute count as the editor shows it (no units): "45", "2", "2:05".
+    /// A stored minute count as the editor shows it (no units): "45", "2", "2:05", in a
+    /// form `TimeParser` reads back as the same count. A bare integer up to 10 is hours
+    /// there and 11 or more is minutes, so 5 minutes is "0:05" (never "5", five hours)
+    /// and 11 hours is "11:00" (never "11", eleven minutes): a shot's 10 minutes, or an
+    /// estimate left by removing the last shot, must survive an untouched Save (#39).
     static func minutesForEditing(_ minutes: Int) -> String {
         let hours = minutes / 60
         let mins  = minutes % 60
-        if hours > 0 && mins > 0 { return "\(hours):\(String(format: "%02d", mins))" }
-        if hours > 0              { return "\(hours)" }
-        return "\(mins)"
+        if mins == 0 && (1...10).contains(hours) { return "\(hours)" }
+        if hours == 0 && mins > 14               { return "\(mins)" }
+        return "\(hours):\(String(format: "%02d", mins))"
     }
 
     static func commaList(_ text: String) -> [String] {
         text.components(separatedBy: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
+    }
+}
+
+// MARK: - Scene draft: the shot list (#39)
+
+extension SceneDraft {
+    var hasShots: Bool { !shots.isEmpty }
+
+    /// The shot `id` as the editor holds it; nil once it is gone.
+    func shot(withID id: UUID) -> Shot? {
+        shots.first { $0.id == id }
+    }
+
+    /// The displayed number of the shot with `id` for the number as typed ("12A"), by
+    /// #37's letter rule; nil when the draft has no such shot.
+    func shotNumber(forShotID id: UUID) -> String? {
+        shotScene.shotNumber(forShotID: id)
+    }
+
+    /// Appends `shot`, or inserts it right after `previousID` (Add Another, #37's
+    /// add-after); the first shot takes the scene's frame. The new shot's id, or nil when
+    /// the edit was refused.
+    @discardableResult
+    mutating func addShot(_ shot: Shot = Shot(), after previousID: UUID? = nil) -> UUID? {
+        editShots { $0.addShot(shot, after: previousID) } ? shot.id : nil
+    }
+
+    /// Replaces the shot with `shot.id` in place (a page's commit).
+    @discardableResult
+    mutating func updateShot(_ shot: Shot) -> Bool {
+        editShots { $0.updateShot(shot) }
+    }
+
+    /// Removes the shot with `id`; the last one leaves its sum as the estimate, editable.
+    @discardableResult
+    mutating func removeShot(withID id: UUID) -> Bool {
+        editShots { $0.removeShot(withID: id) }
+    }
+
+    /// A list's `onMove` over the shot rows.
+    @discardableResult
+    mutating func moveShots(fromOffsets source: IndexSet, toOffset destination: Int) -> Bool {
+        editShots { $0.moveShots(fromOffsets: source, toOffset: destination) }
+    }
+
+    /// A copy of the shot with `id` right after it; the copy's id.
+    @discardableResult
+    mutating func duplicateShot(withID id: UUID) -> UUID? {
+        editShots { $0.duplicateShot(withID: id) }
+    }
+
+    /// The Props the shots add to the breakdown: what the union (#37) lists after the
+    /// scene's own items, i.e. every shot item the Props field does not already name,
+    /// compared case-insensitively. Empty when the shots add nothing.
+    var propsFromShots: [String] {
+        Self.itemsFromShots(Self.commaList(props), shots.map { $0.props })
+    }
+
+    /// The same for Special Equipment, which a shot's equipment feeds.
+    var equipmentFromShots: [String] {
+        Self.itemsFromShots(Self.commaList(specialEquipment), shots.map { $0.equipment })
+    }
+
+    /// The same for SFX.
+    var sfxFromShots: [String] {
+        Self.itemsFromShots(Self.commaList(sfx), shots.map { $0.sfx })
+    }
+
+    // MARK: Helpers
+
+    /// The union starts with the scene's items de-duplicated, so what follows them is
+    /// exactly what the shots contribute.
+    private static func itemsFromShots(_ sceneItems: [String], _ shotItems: [[String]]) -> [String] {
+        let own   = Scene.breakdownUnion(sceneItems, [])
+        let union = Scene.breakdownUnion(sceneItems, shotItems)
+        return Array(union.dropFirst(own.count))
+    }
+
+    /// The draft's shot list as a scene value, for #37's rules: the number and title as
+    /// typed (the letters' prefix), the estimate as it parses, the shots and the frame.
+    private var shotScene: Scene {
+        Scene(
+            title:         title,
+            sceneNumber:   sceneNumber,
+            estimatedTime: parsedMinutes ?? 0,
+            shots:         shots,
+            frame:         frame
+        )
+    }
+
+    /// Runs one of #37's `Scene` edits on the draft's shot list and reads back what it
+    /// wrote: the shots, the frame, and, while the scene has or had shots, the estimate
+    /// (the sum, or the last sum after the last shot goes) as the field shows it.
+    private mutating func editShots<Result>(_ change: (inout Scene) -> Result) -> Result {
+        var scene   = shotScene
+        let hadShots = !scene.shots.isEmpty
+        let result  = change(&scene)
+        shots = scene.shots
+        frame = scene.frame
+        if hadShots || !scene.shots.isEmpty {
+            estimatedTime = Self.minutesForEditing(scene.estimatedTime)
+        }
+        return result
+    }
+}
+
+// MARK: - Shot (#39)
+
+/// A shot's page in the scene editor: the description, the duration as `TimeParser`
+/// reads it, the three breakdown lists as comma-separated text and the frame. The page
+/// edits one in `@State`, and each change is written into the scene draft through
+/// `SceneDraft.updateShot(draft.applied(to:))`, so the rules run and the list behind the
+/// page is always current; the scene's one Save writes it all back.
+struct ShotDraft: Equatable {
+    /// The shot this page edits.
+    let shotID:    UUID
+    var details:   String
+    var duration:  String
+    var equipment: String
+    var props:     String
+    var sfx:       String
+    var frame:     Data?
+
+    init(shot: Shot) {
+        shotID    = shot.id
+        details   = shot.details
+        duration  = SceneDraft.minutesForEditing(shot.durationMinutes)
+        equipment = shot.equipment.joined(separator: ", ")
+        props     = shot.props.joined(separator: ", ")
+        sfx       = shot.sfx.joined(separator: ", ")
+        frame     = shot.frame
+    }
+
+    var parsedMinutes: Int? { TimeParser.parseToMinutes(duration) }
+
+    /// A shot always has a duration: blank or malformed is not valid.
+    var isValid: Bool { parsedMinutes != nil }
+
+    /// `shot` with the page's fields: the description trimmed, the duration in minutes
+    /// (the shot's own kept while the text does not parse), the lists split and trimmed
+    /// with blanks dropped, the frame as the page holds it. The id is `shot`'s.
+    func applied(to shot: Shot) -> Shot {
+        var saved = shot
+        saved.details   = details.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let minutes = parsedMinutes { saved.durationMinutes = minutes }
+        saved.equipment = SceneDraft.commaList(equipment)
+        saved.props     = SceneDraft.commaList(props)
+        saved.sfx       = SceneDraft.commaList(sfx)
+        saved.frame     = frame
+        return saved
     }
 }
 

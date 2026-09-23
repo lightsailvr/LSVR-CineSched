@@ -84,6 +84,18 @@ struct EditorDraftsTests {
         #expect(SceneDraft.minutesForEditing(45)  == "45")
         #expect(SceneDraft.minutesForEditing(120) == "2")
         #expect(SceneDraft.minutesForEditing(125) == "2:05")
+        // A bare integer up to 10 is hours to the parser, 11 or more minutes (#39).
+        #expect(SceneDraft.minutesForEditing(10)  == "0:10")
+        #expect(SceneDraft.minutesForEditing(15)  == "15")
+        #expect(SceneDraft.minutesForEditing(660) == "11:00")
+    }
+
+    /// Every count the editor shows reads back as itself, so an untouched estimate or
+    /// shot duration survives a Save (5 minutes was "5", five hours, before #39).
+    @Test func minutesForEditingRoundTripsThroughTheParser() {
+        for minutes in 0...(24 * 60) {
+            #expect(TimeParser.parseToMinutes(SceneDraft.minutesForEditing(minutes)) == minutes)
+        }
     }
 
     /// A scene whose number is still at the front of its title (the pre-field shape)
@@ -586,5 +598,211 @@ struct EditorDraftsTests {
         draft.dayNightType = .custom
         #expect(draft.resolvedDayNightType == .custom)
         #expect(draft.makeScene().dayNightType == .custom)
+    }
+
+    // MARK: - Scene draft: the shot list (#39)
+
+    private static func frameBytes(_ byte: UInt8) -> Data { Data([0xFF, 0xD8, byte, 0xFF, 0xD9]) }
+
+    private static func shot(_ details: String, minutes: Int, equipment: [String] = [], props: [String] = [], sfx: [String] = []) -> Shot {
+        Shot(details: details, durationMinutes: minutes, equipment: equipment, props: props, sfx: sfx)
+    }
+
+    @Test func sceneDraftCarriesTheShotsAndTheFrame() {
+        var original = Self.scene()
+        original.shots = [Self.shot("Wide", minutes: 20), Self.shot("Push in", minutes: 25)]
+        original.estimatedTime = 45
+        let draft = SceneDraft(scene: original)
+        #expect(draft.shots == original.shots)
+        #expect(draft.hasShots)
+        #expect(draft.estimatedTime == "45")
+
+        var shotless = Self.scene()
+        shotless.frame = Self.frameBytes(1)
+        #expect(SceneDraft(scene: shotless).frame == shotless.frame)
+        #expect(!SceneDraft(scene: shotless).hasShots)
+    }
+
+    /// An untouched draft writes an equal scene, shots and frame included.
+    @Test func sceneDraftRoundTripsShotsAndFrameUnchanged() {
+        var withShots = Self.scene()
+        withShots.shots = [Self.shot("Wide", minutes: 10), Self.shot("Push in", minutes: 140)]
+        withShots.shots[0].frame = Self.frameBytes(2)
+        withShots.estimatedTime = 150
+        #expect(SceneDraft(scene: withShots).applied(to: withShots) == withShots)
+
+        var framed = Self.scene()
+        framed.frame = Self.frameBytes(3)
+        #expect(SceneDraft(scene: framed).applied(to: framed) == framed)
+    }
+
+    @Test func sceneDraftShotEditsWriteTheSumIntoTheEstimate() {
+        let original = Self.scene()   // 150 minutes typed, no shots
+        var draft    = SceneDraft(scene: original)
+        let a = draft.addShot()
+        #expect(a != nil)
+        #expect(draft.estimatedTime == "15", "a new shot is 15 minutes, and the sum replaces the typed estimate")
+        let b = draft.addShot(Self.shot("Close", minutes: 30))
+        #expect(b != nil)
+        #expect(draft.estimatedTime == "45")
+
+        let saved = draft.applied(to: original)
+        #expect(saved.shots.map(\.durationMinutes) == [15, 30])
+        #expect(saved.estimatedTime == 45)
+    }
+
+    /// Save with shots writes the sum through the rule even when the estimate text says
+    /// otherwise (the field is read-only then, so only a stale text could).
+    @Test func sceneDraftSaveWithShotsWritesTheSum() {
+        var original = Self.scene()
+        original.shots = [Self.shot("Wide", minutes: 20), Self.shot("Push in", minutes: 25)]
+        var draft = SceneDraft(scene: original)
+        draft.estimatedTime = "4"
+        #expect(draft.applied(to: original).estimatedTime == 45)
+    }
+
+    @Test func sceneDraftAddAnotherInsertsAfterTheCurrentShot() {
+        var draft = SceneDraft(scene: Self.scene())
+        let first  = draft.addShot(Self.shot("A", minutes: 15))!
+        let last   = draft.addShot(Self.shot("C", minutes: 15))!
+        let middle = draft.addShot(Self.shot("B", minutes: 15), after: first)!
+        #expect(draft.shots.map(\.id) == [first, middle, last])
+        #expect(draft.shotNumber(forShotID: middle) == "12AB")
+        let refused = draft.addShot(Self.shot("X", minutes: 15), after: UUID())
+        #expect(refused == nil)
+    }
+
+    @Test func sceneDraftShotNumbersFollowTheNumberAsTyped() {
+        var draft = SceneDraft(scene: Self.scene())
+        let id = draft.addShot()!
+        #expect(draft.shotNumber(forShotID: id) == "12AA")
+        draft.sceneNumber = "7"
+        #expect(draft.shotNumber(forShotID: id) == "7A")
+        #expect(draft.shotNumber(forShotID: UUID()) == nil)
+    }
+
+    @Test func sceneDraftUpdatesRemovesMovesAndDuplicatesShots() {
+        var draft = SceneDraft(scene: Self.scene())
+        let a = draft.addShot(Self.shot("A", minutes: 15))!
+        let b = draft.addShot(Self.shot("B", minutes: 20))!
+        let c = draft.addShot(Self.shot("C", minutes: 25))!
+        #expect(draft.estimatedTime == "1")   // 60 minutes
+
+        var edited = draft.shot(withID: b)!
+        edited.durationMinutes = 50
+        let updated = draft.updateShot(edited)
+        #expect(updated)
+        #expect(draft.estimatedTime == "1:30")
+
+        let moved = draft.moveShots(fromOffsets: IndexSet(integer: 2), toOffset: 0)
+        #expect(moved)
+        #expect(draft.shots.map(\.id) == [c, a, b])
+        #expect(draft.shotNumber(forShotID: c) == "12AA", "the letters follow the order")
+
+        let copy = draft.duplicateShot(withID: a)
+        #expect(copy != nil)
+        #expect(draft.shots.map(\.id) == [c, a, copy!, b])
+        #expect(draft.estimatedTime == "1:45")
+
+        let removed = draft.removeShot(withID: b)
+        #expect(removed)
+        #expect(draft.estimatedTime == "55")
+        let gone = draft.removeShot(withID: b)
+        #expect(!gone)
+    }
+
+    /// Removing the last shot leaves the last sum in the field, editable again.
+    @Test func sceneDraftKeepsTheLastSumWhenTheLastShotGoes() {
+        let original = Self.scene()
+        var draft    = SceneDraft(scene: original)
+        let id = draft.addShot(Self.shot("Only", minutes: 10))!
+        let removed = draft.removeShot(withID: id)
+        #expect(removed)
+        #expect(!draft.hasShots)
+        #expect(draft.estimatedTime == "0:10")
+        #expect(draft.applied(to: original).estimatedTime == 10)
+        draft.estimatedTime = "40"
+        #expect(draft.applied(to: original).estimatedTime == 40)
+    }
+
+    /// The first shot takes the scene's frame (#37's frame rule, run on the draft).
+    @Test func sceneDraftFirstShotTakesTheScenesFrame() {
+        var original = Self.scene()
+        original.frame = Self.frameBytes(4)
+        var draft = SceneDraft(scene: original)
+        let id = draft.addShot()!
+        #expect(draft.frame == nil)
+        #expect(draft.shot(withID: id)?.frame == Self.frameBytes(4))
+        let saved = draft.applied(to: original)
+        #expect(saved.frame == nil)
+        #expect(saved.shots.first?.frame == Self.frameBytes(4))
+    }
+
+    /// The "From shots" lines: what the shots add after the scene's own items, compared
+    /// case-insensitively against the field as typed.
+    @Test func sceneDraftListsWhatTheShotsContribute() {
+        var draft = SceneDraft(scene: Self.scene())   // props Letter, Knife; equipment Crane; sfx Smoke
+        #expect(draft.propsFromShots.isEmpty)
+        draft.addShot(Self.shot("A", minutes: 15, equipment: ["Dolly", "crane"], props: ["knife", "Gun"]))
+        draft.addShot(Self.shot("B", minutes: 15, equipment: ["20mm probe", "dolly"], props: ["Gun"], sfx: ["SMOKE"]))
+        #expect(draft.equipmentFromShots == ["Dolly", "20mm probe"])
+        #expect(draft.propsFromShots     == ["Gun"])
+        #expect(draft.sfxFromShots       == [])
+        draft.props = "Letter"
+        #expect(draft.propsFromShots     == ["knife", "Gun"])
+    }
+
+    // MARK: - Shot draft (#39)
+
+    @Test func shotDraftReadsEveryField() {
+        var shot = Shot(details: "Dolly in towards Astrid", durationMinutes: 90,
+                        equipment: ["Dolly", "Ronin"], props: ["Umbrella"], sfx: ["Rain"])
+        shot.frame = Self.frameBytes(5)
+        let draft = ShotDraft(shot: shot)
+        #expect(draft.shotID    == shot.id)
+        #expect(draft.details   == "Dolly in towards Astrid")
+        #expect(draft.duration  == "1:30")
+        #expect(draft.equipment == "Dolly, Ronin")
+        #expect(draft.props     == "Umbrella")
+        #expect(draft.sfx       == "Rain")
+        #expect(draft.frame     == shot.frame)
+        #expect(draft.isValid)
+        #expect(ShotDraft(shot: Shot()).duration == "15", "a new shot reads 15 minutes")
+    }
+
+    @Test func shotDraftRejectsADurationThatDoesNotParse() {
+        var draft = ShotDraft(shot: Shot())
+        for bad in ["", "  ", "soon", "1:75"] {
+            draft.duration = bad
+            #expect(!draft.isValid, "\(bad)")
+        }
+        draft.duration = "2:30"
+        #expect(draft.isValid)
+        #expect(draft.parsedMinutes == 150)
+    }
+
+    @Test func shotDraftWritesBackTrimmedMinutesListsAndTheFrameUntouched() {
+        var original = Shot(details: "Old", durationMinutes: 15)
+        original.frame = Self.frameBytes(6)
+        var draft = ShotDraft(shot: original)
+        draft.details   = "  Push in on the letter \n"
+        draft.duration  = "45"
+        draft.equipment = " Dolly , , Ronin "
+        draft.props     = "Letter,"
+        draft.sfx       = ""
+        let saved = draft.applied(to: original)
+        #expect(saved.id              == original.id)
+        #expect(saved.details         == "Push in on the letter")
+        #expect(saved.durationMinutes == 45)
+        #expect(saved.equipment       == ["Dolly", "Ronin"])
+        #expect(saved.props           == ["Letter"])
+        #expect(saved.sfx             == [])
+        #expect(saved.frame           == original.frame)
+
+        #expect(ShotDraft(shot: original).applied(to: original) == original, "untouched is equal")
+
+        var invalid = draft
+        invalid.duration = "soon"
+        #expect(invalid.applied(to: original).durationMinutes == 15, "a duration that does not parse keeps the shot's")
     }
 }

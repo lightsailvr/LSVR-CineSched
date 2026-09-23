@@ -60,6 +60,32 @@ struct EditorSelectionTests {
         #expect(project.knownLocations.isEmpty)
     }
 
+    // MARK: - Breakdown suggestions (#39)
+
+    @Test func breakdownSuggestionsAreEveryScenesAndShotsItemsOnceSorted() {
+        var project = self.project
+        project.allScenes[0].props            = ["Letter", "knife"]
+        project.allScenes[0].specialEquipment = ["Crane"]
+        project.allScenes[0].shots            = [Shot(equipment: ["Ronin", "dolly"], props: ["Knife"], sfx: ["Rain"])]
+        project.shootDays[1].scenes[1].props  = ["Apple"]
+        project.shootDays[1].scenes[1].sfx    = ["smoke", " "]
+        project.shootDays[1].scenes[1].shots  = [Shot(equipment: ["ronin", "Dolly"], props: ["Umbrella"], sfx: ["Smoke"])]
+        let suggestions = project.breakdownSuggestions
+        #expect(suggestions.equipment == ["Crane", "dolly", "Ronin"])
+        #expect(suggestions.props     == ["Apple", "knife", "Letter", "Umbrella"])
+        #expect(suggestions.sfx       == ["Rain", "smoke"])
+        #expect(ProjectData.breakdownSuggestions(shootDays: project.shootDays, allScenes: project.allScenes) == suggestions)
+    }
+
+    @Test func breakdownSuggestionsSkipNoticeStripsAndAreEmptyForABareProject() {
+        #expect(project.breakdownSuggestions == .none)
+        var project = self.project
+        var banner  = Scene.createBanner(type: .notice, title: "Company move")
+        banner.props = ["Van"]
+        project.shootDays[0].scenes.append(banner)
+        #expect(project.breakdownSuggestions == .none)
+    }
+
     // MARK: - Pruning
 
     @Test func aSelectionWhoseTargetExistsIsKept() {

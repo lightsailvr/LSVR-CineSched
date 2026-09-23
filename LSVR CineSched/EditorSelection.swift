@@ -12,8 +12,9 @@
 //
 // Also here, beside `locate(sceneID:)`: the by-id write-back every editor bound by id
 // makes (`replaceScene`, `removeScene(withID:)`, #28) and the location suggestions the
-// scene editors share (`knownLocations`), because each is the same lookup over the
-// Boneyard and the days.
+// scene editors share (`knownLocations`) and the shot page's breakdown suggestions
+// (`breakdownSuggestions`, #39), because each is the same lookup over the Boneyard and
+// the days.
 
 import Foundation
 
@@ -118,5 +119,46 @@ extension ProjectData {
         for scene in allScenes where !scene.realLocation.isEmpty { set.insert(scene.realLocation) }
         for location in productionInfo?.locationRoster ?? [] where !location.name.isEmpty { set.insert(location.name) }
         return Array(set).sorted()
+    }
+}
+
+// MARK: - Breakdown suggestions (#39)
+
+/// What the shot page's Equipment, Props and SFX fields suggest: every item of that
+/// category the project's script scenes and their shots name (a shot's equipment and a
+/// scene's Special Equipment are one category, as in the breakdown union), each once
+/// whatever its case (the first spelling met, the Boneyard before the days), sorted
+/// case-insensitively.
+nonisolated struct BreakdownSuggestions: Equatable {
+    var equipment: [String] = []
+    var props:     [String] = []
+    var sfx:       [String] = []
+
+    static let none = BreakdownSuggestions()
+}
+
+extension ProjectData {
+    /// The suggestions over the whole project. Computed when an editor is presented,
+    /// never per keystroke.
+    nonisolated var breakdownSuggestions: BreakdownSuggestions {
+        Self.breakdownSuggestions(shootDays: shootDays, allScenes: allScenes)
+    }
+
+    /// The same over the pieces, for a view that holds the days and the Boneyard rather
+    /// than the project (the Stripboard, the calendar).
+    nonisolated static func breakdownSuggestions(shootDays: [ShootDay], allScenes: [Scene]) -> BreakdownSuggestions {
+        let scenes = (allScenes + shootDays.flatMap(\.scenes)).filter { !$0.isBanner && !$0.isCalendarEvent }
+        return BreakdownSuggestions(
+            equipment: suggestionList(scenes.flatMap { [$0.specialEquipment] + $0.shots.map(\.equipment) }),
+            props:     suggestionList(scenes.flatMap { [$0.props]            + $0.shots.map(\.props) }),
+            sfx:       suggestionList(scenes.flatMap { [$0.sfx]              + $0.shots.map(\.sfx) })
+        )
+    }
+
+    private nonisolated static func suggestionList(_ lists: [[String]]) -> [String] {
+        Scene.breakdownUnion([], lists).sorted {
+            let order = $0.caseInsensitiveCompare($1)
+            return order == .orderedSame ? $0 < $1 : order == .orderedAscending
+        }
     }
 }
