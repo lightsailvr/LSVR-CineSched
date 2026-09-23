@@ -121,6 +121,24 @@ struct ShotListPDFExporterTests {
         }
     }
 
+    /// A shotless scene with no number (#36 review): its entry has no number of its own
+    /// (never the "1" `extractedSceneNumber` falls back to), prints "—" in the number's
+    /// place, and is named by its scene line right above it, the slugline, in both modes.
+    @Test func anUnnumberedShotlessSceneIsNamedByItsSceneLine() {
+        let scene = Scene(title: "INT. HAYLOFT - NIGHT", estimatedTime: 25, summary: "Owls at the window")
+        #expect(ShotListExporter.entries(for: scene).map(\.number) == [""])
+        for frames in [true, false] {
+            let text = pdfFullText(pdfDocument(
+                from: ShotListExporter.generatePDF(shootDays: [], boneyard: [scene], projectTitle: "Barn",
+                                                   scope: .project, includeFrames: frames),
+                dumpAs: nil))
+            #expect(text.contains("INT. HAYLOFT - NIGHT"), "frames \(frames)")
+            #expect(text.contains("—"), "frames \(frames)")
+            #expect(text.contains("Owls at the window"), "frames \(frames)")
+            #expect(!text.contains("1A"), "frames \(frames)")
+        }
+    }
+
     @Test func theBoneyardHeaderPrintsOnlyForTheProject() {
         for frames in [true, false] {
             #expect(pdfFullText(render(.project, frames: frames)).contains("Boneyard"))
