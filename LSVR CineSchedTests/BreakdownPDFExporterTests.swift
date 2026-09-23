@@ -161,4 +161,25 @@ struct BreakdownPDFExporterTests {
         #expect(!text.contains("• Prop item 24 with a longer description"))
         #expect(text.contains("• Lightning enhancement"))
     }
+
+    /// Props, Special Equipment and SFX print the union of the scene's items and its
+    /// shots' (#37): a shot's equipment is the scene's Special Equipment, and an item the
+    /// scene already lists under another case prints once.
+    @Test func breakdownPrintsTheShotsPropsEquipmentAndSFX() {
+        var scene = Scene(title: "EXT. PORCH - DUSK", sceneNumber: "12", duration: 8, estimatedTime: 30)
+        scene.props = ["Lantern"]
+        scene.shots = [
+            Shot(details: "Wide", durationMinutes: 20, equipment: ["Technocrane"], props: ["Truck keys", "lantern"], sfx: ["Practical rain"]),
+            Shot(details: "Close", durationMinutes: 10, equipment: ["Ronin"]),
+        ]
+        let doc = render(days: [], boneyard: [scene], dumpAs: "Breakdown-Shots.pdf")
+        #expect(doc.pageCount == 1)
+        let text = doc.page(at: 0)?.string ?? ""
+        #expect(text.contains("• Lantern"))
+        #expect(text.contains("• Truck keys"))
+        #expect(!text.contains("• lantern"))
+        #expect(text.contains("• Technocrane"))
+        #expect(text.contains("• Ronin"))
+        #expect(text.contains("• Practical rain"))
+    }
 }

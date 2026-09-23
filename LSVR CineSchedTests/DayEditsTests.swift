@@ -96,6 +96,28 @@ struct DayEditsTests {
         #expect(!copy.isBanner && !copy.isCalendarEvent)
     }
 
+    /// Duplicate Scene carries the shot list under fresh shot ids and the scene's own
+    /// storyboard frame (#37).
+    @Test func duplicatedCarriesTheShotsUnderFreshIDsAndTheFrame() {
+        var original = a
+        original.shots = [
+            Shot(details: "Wide",  durationMinutes: 20, equipment: ["Dolly"], frame: Data([0xFF, 0xD8, 0xFF, 0xD9])),
+            Shot(details: "Close", durationMinutes: 10, props: ["Letter"]),
+        ]
+        original.frame = Data([0xFF, 0xD8, 0x00, 0xFF, 0xD9])
+
+        let copy = original.duplicated()
+
+        #expect(copy.shots.count == 2)
+        #expect(Set(copy.shots.map(\.id)).isDisjoint(with: original.shots.map(\.id)))
+        #expect(copy.shots.map(\.details)         == ["Wide", "Close"])
+        #expect(copy.shots.map(\.durationMinutes) == [20, 10])
+        #expect(copy.shots.map(\.equipment)       == [["Dolly"], []])
+        #expect(copy.shots.map(\.props)           == [[], ["Letter"]])
+        #expect(copy.shots.map(\.frame)           == original.shots.map(\.frame))
+        #expect(copy.frame == original.frame)
+    }
+
     @Test func duplicateSceneAppendsTheCopyToTheBoneyardAndReturnsItsID() throws {
         var data = project()
         let minted = data.duplicateScene(withID: a.id)

@@ -5,7 +5,8 @@
 // every word must appear somewhere in the scene: as its number (exactly or as a prefix,
 // so "12" finds 12, 12A and 120 the way a scene list reads), in its slugline, in a cast
 // name (the character name join's terms: case-insensitive, trimmed), in its summary or
-// in its real location. Only script scenes match: a banner, an auto-meal or a calendar
+// in its real location, or in any of its shots' descriptions, equipment, props or SFX
+// (#37: "dolly" finds every scene with a dolly shot). Only script scenes match: a banner, an auto-meal or a calendar
 // event is not something a scheduler looks up by name, and none has a place in the
 // Boneyard.
 //
@@ -61,6 +62,18 @@ enum SceneSearch {
         return results
     }
 
+    /// The shots of `scene` that hold at least one word of `query` in their description,
+    /// equipment, props or SFX, in shot order; none for a blank query. What a result's
+    /// caption can name when a scene was found by its shot list (#43).
+    static func matchingShots(in scene: Scene, query: String) -> [Shot] {
+        let terms = terms(of: query)
+        guard !terms.isEmpty else { return [] }
+        return scene.shots.filter { shot in
+            let text = shotText(shot)
+            return terms.contains { term in text.contains { $0.contains(term) } }
+        }
+    }
+
     // MARK: The rules
 
     /// The query's words, lowercased; empty for a blank query.
@@ -78,13 +91,23 @@ enum SceneSearch {
         let summary  = scene.summary.lowercased()
         let location = scene.realLocation.lowercased()
         let cast     = scene.cast.map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+        let shots    = scene.shots.map { shotText($0) }
         return terms.allSatisfy { term in
             (!number.isEmpty && number.hasPrefix(term))
                 || title.contains(term)
                 || summary.contains(term)
                 || location.contains(term)
                 || cast.contains { $0.contains(term) }
+                || shots.contains { $0.contains { $0.contains(term) } }
         }
+    }
+
+    /// A shot's searchable fields, lowercased.
+    private static func shotText(_ shot: Shot) -> [String] {
+        [shot.details.lowercased()]
+            + shot.equipment.map { $0.lowercased() }
+            + shot.props.map { $0.lowercased() }
+            + shot.sfx.map { $0.lowercased() }
     }
 }
 

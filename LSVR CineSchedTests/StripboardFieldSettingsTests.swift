@@ -53,4 +53,17 @@ struct StripboardFieldSettingsTests {
         #expect(StripboardField.vehicles.displayValue(for: scene) == "")
         #expect(StripboardField.breakdownNotes.displayValue(for: scene) == "")
     }
+
+    /// Props, Special Equipment and SFX chips read the breakdown unions (#37): the
+    /// scene's items, then each shot's, case-insensitive duplicates dropped.
+    @Test func displayValueReadsTheShotUnionsForTheirThreeFields() {
+        var scene = Scene(title: "EXT. PORCH - DUSK", sceneNumber: "12", props: ["Lantern"], specialEquipment: ["Rain rig"])
+        scene.shots = [
+            Shot(details: "Wide",  equipment: ["Dolly"], props: ["lantern", "Mug"], sfx: ["Rain"]),
+            Shot(details: "Close", equipment: ["dolly", "Ronin"]),
+        ]
+        #expect(StripboardField.props.displayValue(for: scene) == "Lantern, Mug")
+        #expect(StripboardField.specialEquipment.displayValue(for: scene) == "Rain rig, Dolly, Ronin")
+        #expect(StripboardField.sfx.displayValue(for: scene) == "Rain")
+    }
 }

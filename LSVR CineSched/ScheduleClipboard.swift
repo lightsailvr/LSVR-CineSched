@@ -86,14 +86,18 @@ enum ScheduleClipboard {
         }
     }
 
-    /// Inserts `scenes` at `destination` as new scenes (new ids, everything else as
+    /// Inserts `scenes` at `destination` as new scenes (new ids, their shots under new
+    /// ids too, #37; everything else — the shots' contents and frames among it — as
     /// copied) and returns the new ids in insertion order, so the editor can select
     /// them. Nothing is inserted, and nothing returned, for a day the project does not
     /// have; the Boneyard takes script scenes only.
     @discardableResult
     static func paste(_ scenes: [Scene], at destination: PasteDestination, into project: inout ProjectData) -> [UUID] {
         var copies = scenes
-        for index in copies.indices { copies[index].id = UUID() }
+        for index in copies.indices {
+            copies[index].id = UUID()
+            copies[index].refreshShotIDs()
+        }
 
         switch destination {
         case .boneyard:

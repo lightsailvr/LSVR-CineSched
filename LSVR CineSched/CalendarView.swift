@@ -1095,6 +1095,7 @@ struct CompactMonthCalendarView: View {
         guard let dayId = shootDays.first(where: { $0.scenes.contains(where: { $0.id == scene.id }) })?.id else { return }
         var dup = scene
         dup.id = UUID()
+        dup.refreshShotIDs()
         onBeforeSceneChange()
         assignScene(dup, shootDays.first(where: { $0.id == dayId })!)
     }

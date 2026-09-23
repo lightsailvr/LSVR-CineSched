@@ -109,6 +109,24 @@ struct SceneSearchTests {
         #expect(!SceneSearch.matches(garage, query: "letter"))
     }
 
+    /// A shot's description, equipment, props and SFX are searched like the scene's own
+    /// fields (#37), and `matchingShots` names the shots a query found.
+    @Test func matchesAShotsDescriptionEquipmentPropsAndSFX() {
+        var scene = garage
+        scene.shots = [
+            Shot(details: "Dolly in towards Astrid", equipment: ["Technocrane"]),
+            Shot(details: "Insert", props: ["Truck keys"], sfx: ["Sparks"]),
+        ]
+        for query in ["dolly", "ASTRID", "technocrane", "truck keys", "sparks", "dolly sparks"] {
+            #expect(SceneSearch.matches(scene, query: query), "\(query)")
+        }
+        #expect(!SceneSearch.matches(scene, query: "steadicam"))
+        #expect(!SceneSearch.matches(garage, query: "dolly"))
+        #expect(SceneSearch.matchingShots(in: scene, query: "sparks").map(\.details) == ["Insert"])
+        #expect(SceneSearch.matchingShots(in: scene, query: "dolly sparks").map(\.details) == ["Dolly in towards Astrid", "Insert"])
+        #expect(SceneSearch.matchingShots(in: scene, query: "  ").isEmpty)
+    }
+
     @Test func bannersAutoMealsAndEventsNeverMatch() {
         // Each carries a word the query names; none is a scene.
         #expect(!SceneSearch.matches(banner, query: "kitchen"))

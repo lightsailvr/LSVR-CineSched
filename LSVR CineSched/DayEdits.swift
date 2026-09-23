@@ -25,7 +25,8 @@ extension Scene {
     /// `DayEditsTests`): a new id, the title suffixed " (Copy)", the same number, lengths,
     /// type, cast, summary and breakdown tags. The set and address, the fixed start time,
     /// the completion flag and the banner fields are not carried: the copy is a fresh,
-    /// unscheduled script scene.
+    /// unscheduled script scene. The shot list (under fresh shot ids) and the scene's own
+    /// storyboard frame are carried (#37): a copied scene is a whole scene.
     func duplicated() -> Scene {
         Scene(
             title:            title + " (Copy)",
@@ -45,7 +46,9 @@ extension Scene {
             stunts:           stunts,
             sfx:              sfx,
             vfx:              vfx,
-            breakdownNotes:   breakdownNotes
+            breakdownNotes:   breakdownNotes,
+            shots:            shots.map { shot in var copy = shot; copy.id = UUID(); return copy },
+            frame:            frame
         )
     }
 }

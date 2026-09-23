@@ -138,6 +138,24 @@ struct ScheduleClipboardTests {
         #expect(sceneCount(project) == sceneCount(before) + 2)
     }
 
+    /// The shots travel with the scene value; a paste gives each one a fresh id, as it
+    /// does the scene, and keeps its contents and frame (#37).
+    @Test func aPasteGivesEveryShotAFreshIDAndKeepsItsContents() throws {
+        var project = project()
+        var shotScene = b
+        shotScene.shots = [
+            Shot(details: "Wide",  durationMinutes: 20, frame: Data([0xFF, 0xD8, 0xFF, 0xD9])),
+            Shot(details: "Close", durationMinutes: 10, sfx: ["Rain"]),
+        ]
+        let inserted = ScheduleClipboard.paste([shotScene], at: .boneyard, into: &project)
+        let pastedID = try #require(inserted.first)
+        let pasted   = try #require(project.scene(withID: pastedID))
+        #expect(Set(pasted.shots.map(\.id)).isDisjoint(with: shotScene.shots.map(\.id)))
+        #expect(pasted.shots.map(\.details) == ["Wide", "Close"])
+        #expect(pasted.shots.map(\.frame)   == shotScene.shots.map(\.frame))
+        #expect(pasted.shots.map(\.sfx)     == [[], ["Rain"]])
+    }
+
     @Test func aPasteBeforeAStripLandsThere() {
         var project = project()
         let day1 = project.shootDays[0]

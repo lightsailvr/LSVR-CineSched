@@ -138,20 +138,20 @@ struct BreakdownExporter {
             // Row 4: Hair & Makeup | Props | Set Dressing
             drawThreeUp(canvas, row: 4, rowTops: rowTops, rowHeights: rowHeights, margin: margin, contentWidth: contentWidth,
                         a: ("HAIR & MAKEUP", formatBulletList(scene.makeupHair), hairMakeupColor),
-                        b: ("PROPS", formatBulletList(scene.props), propsColor),
+                        b: ("PROPS", formatBulletList(scene.allProps), propsColor),
                         c: ("SET DRESSING", formatBulletList(scene.setDressing), setDressColor),
                         labelSize: 11.5)
 
             // Row 5: Vehicles | Special Equipment | Stunts
             drawThreeUp(canvas, row: 5, rowTops: rowTops, rowHeights: rowHeights, margin: margin, contentWidth: contentWidth,
                         a: ("VEHICLES", formatBulletList(scene.vehicles), vehiclesColor),
-                        b: ("SPECIAL EQUIPMENT", formatBulletList(scene.specialEquipment), specialEqColor),
+                        b: ("SPECIAL EQUIPMENT", formatBulletList(scene.allSpecialEquipment), specialEqColor),
                         c: ("STUNTS", formatBulletList(scene.stunts), stuntsColor),
                         labelSize: 11.5)
 
             // Row 6: SFX | VFX
             drawTwoUp(canvas, row: 6, rowTops: rowTops, rowHeights: rowHeights, margin: margin, contentWidth: contentWidth,
-                      a: ("SFX", formatBulletList(scene.sfx), sfxColor),
+                      a: ("SFX", formatBulletList(scene.allSFX), sfxColor),
                       b: ("VFX", formatBulletList(scene.vfx), vfxColor),
                       labelSize: 11.5)
 
@@ -202,9 +202,9 @@ struct BreakdownExporter {
         let compactHeight: CGFloat = 28 // Height for empty category rows
         
         let row3HasContent = !scene.cast.isEmpty || !scene.extras.isEmpty || !scene.wardrobe.isEmpty
-        let row4HasContent = !scene.makeupHair.isEmpty || !scene.props.isEmpty || !scene.setDressing.isEmpty
-        let row5HasContent = !scene.vehicles.isEmpty || !scene.specialEquipment.isEmpty || !scene.stunts.isEmpty
-        let row6HasContent = !scene.sfx.isEmpty || !scene.vfx.isEmpty
+        let row4HasContent = !scene.makeupHair.isEmpty || !scene.allProps.isEmpty || !scene.setDressing.isEmpty
+        let row5HasContent = !scene.vehicles.isEmpty || !scene.allSpecialEquipment.isEmpty || !scene.stunts.isEmpty
+        let row6HasContent = !scene.allSFX.isEmpty || !scene.vfx.isEmpty
         let row7HasContent = !scene.breakdownNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         
         let w3: CGFloat = row3HasContent ? 100 : compactHeight
