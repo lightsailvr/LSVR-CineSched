@@ -10,9 +10,10 @@
 // Per window and never in the file (story 42 of #36): `ContentView` keeps `showAll` as a
 // `@WindowPreference` (the next window opens the way this one was) and the exceptions as
 // plain `@State`, because they are scene ids of this project and would mean nothing to
-// the next window, which may hold another project.
+// the next window, which may hold another project. `PhoneEditor` keeps the same pair. Both
+// build their bindings with `binding(showAll:exceptions:)` and `showAllBinding(_:)` below.
 
-import Foundation
+import SwiftUI
 
 nonisolated struct ShotExpansion: Hashable, Sendable {
     /// Show Shots: every strip expanded, apart from the exceptions.
@@ -45,5 +46,40 @@ nonisolated struct ShotExpansion: Hashable, Sendable {
     mutating func setShowAll(_ on: Bool) {
         showAll    = on
         exceptions = []
+    }
+}
+
+// MARK: - Bindings
+
+extension ShotExpansion {
+    /// The expansion over where an editor keeps its two halves: Show Shots (a
+    /// `@WindowPreference`) and the chevrons' exceptions (`@State`). What the board and
+    /// the phone's lists are handed.
+    static func binding(showAll: Binding<Bool>, exceptions: Binding<Set<UUID>>) -> Binding<ShotExpansion> {
+        Binding(
+            get: { ShotExpansion(showAll: showAll.wrappedValue, exceptions: exceptions.wrappedValue) },
+            set: { new in
+                if new.showAll != showAll.wrappedValue { showAll.wrappedValue = new.showAll }
+                exceptions.wrappedValue = new.exceptions
+            }
+        )
+    }
+
+    /// Show Shots over that binding, for the View menu, the toolbar and the phone's row:
+    /// every strip at once, the chevrons' exceptions dropped (`setShowAll`), under
+    /// `animation` when one is given.
+    static func showAllBinding(_ expansion: Binding<ShotExpansion>, animation: Animation? = nil) -> Binding<Bool> {
+        Binding(
+            get: { expansion.wrappedValue.showAll },
+            set: { on in
+                var value = expansion.wrappedValue
+                value.setShowAll(on)
+                if let animation {
+                    withAnimation(animation) { expansion.wrappedValue = value }
+                } else {
+                    expansion.wrappedValue = value
+                }
+            }
+        )
     }
 }

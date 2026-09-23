@@ -317,26 +317,13 @@ struct PhoneEditor: View {
     /// Which strips show their shots: Show Shots and the chevrons' exceptions
     /// (`ContentView`'s binding, the same `ShotExpansion` rule).
     private var shotExpansionBinding: Binding<ShotExpansion> {
-        Binding(
-            get: { ShotExpansion(showAll: showShots, exceptions: shotExpansionExceptions) },
-            set: { new in
-                if new.showAll != showShots { showShots = new.showAll }
-                shotExpansionExceptions = new.exceptions
-            }
-        )
+        ShotExpansion.binding(showAll: $showShots, exceptions: $shotExpansionExceptions)
     }
 
     /// Show Shots, for the Production tab's row and the menu bar: every strip at once, the
     /// chevrons' exceptions dropped.
     private var showShotsBinding: Binding<Bool> {
-        Binding(
-            get: { showShots },
-            set: { on in
-                var expansion = shotExpansionBinding.wrappedValue
-                expansion.setShowAll(on)
-                withAnimation(.easeInOut(duration: 0.15)) { shotExpansionBinding.wrappedValue = expansion }
-            }
-        )
+        ShotExpansion.showAllBinding(shotExpansionBinding, animation: .easeInOut(duration: 0.15))
     }
 
     // MARK: - Edit funnel

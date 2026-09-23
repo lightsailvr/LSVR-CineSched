@@ -522,20 +522,14 @@ struct ContentView: View {
             shootDays:     shootDays,
             scopeRaw:      $shotListScopeRaw,
             includeFrames: $shotListIncludeFrames,
-            onCancel:      { activeSheet = nil },
-            onExport:      { options in
-                pendingShotListExport = options
-                activeSheet = nil
-            }
+            pendingExport: $pendingShotListExport,
+            dismiss:       { activeSheet = nil }
         )
     }
 
-    /// The export the options sheet asked for, once the sheet is gone: a failure's alert
-    /// presented while the sheet was still dismissing never showed on the Mac.
+    /// The `.sheet`'s `onDismiss`: the export the options sheet asked for, once it is gone.
     private func runPendingShotListExport() {
-        guard let options = pendingShotListExport else { return }
-        pendingShotListExport = nil
-        exportShotList(options: options)
+        ShotListOptionsSheet.runPendingExport($pendingShotListExport) { exportShotList(options: $0) }
     }
 
     // MARK: - Mac window toolbar
@@ -1314,26 +1308,13 @@ struct ContentView: View {
 
     /// Which strips show their shots: this window's Show Shots and the chevrons' exceptions.
     private var shotExpansionBinding: Binding<ShotExpansion> {
-        Binding(
-            get: { ShotExpansion(showAll: showShots, exceptions: shotExpansionExceptions) },
-            set: { new in
-                if new.showAll != showShots { showShots = new.showAll }
-                shotExpansionExceptions = new.exceptions
-            }
-        )
+        ShotExpansion.binding(showAll: $showShots, exceptions: $shotExpansionExceptions)
     }
 
     /// Show Shots, for the View menu, the toolbar's menus and `projectCommands`: every strip
     /// at once, the chevrons' exceptions dropped.
     private var showShotsBinding: Binding<Bool> {
-        Binding(
-            get: { showShots },
-            set: { on in
-                var expansion = shotExpansionBinding.wrappedValue
-                expansion.setShowAll(on)
-                shotExpansionBinding.wrappedValue = expansion
-            }
-        )
+        ShotExpansion.showAllBinding(shotExpansionBinding)
     }
 
     /// A shot dropped among its scene's sub-rows: one edit, one undo step, the letters
