@@ -362,6 +362,20 @@ the build inputs outside it, see Working agreements):
   general call, else 07:30 AM) and `dayTimeline(for:scenes:)` → `[UUID:
   DayTimelineEntry]` (range, start, end, duration as clock strings). The Stripboard and
   both phone lists call it; calendar events are never passed in.
+- `StoryboardFrame.swift`: a storyboard frame's stored bytes (#38, `StoryboardFrameTests`),
+  pure, CoreGraphics and ImageIO only: `StoryboardFrame.encode(_:)` (a `CGImage` to JPEG
+  at `jpegQuality` 0.8, the long edge capped at `maxLongEdge` 1200 and never upscaled —
+  `storedSize(width:height:)`, the short edge rounded — alpha flattened onto white, sRGB,
+  equal pixels giving equal bytes), `encode(data:)` (any ImageIO-readable bytes, upright
+  by their EXIF orientation, decoded near the target size through the thumbnail call:
+  what every frame source calls), `decode(_:)` (decoded at once and kept in a bounded
+  `NSCache` keyed by the bytes), `cachedImage(for:)` (the lookup a view body may make)
+  and `pixelSize(of:)` (from the properties, no decode). Nothing else writes frame bytes.
+- `StoryboardFrameView.swift`: a frame's bytes shown whole (#38): aspect-fit and never
+  cropped on a subtle background (letterboxed), a `photo` placeholder with an optional
+  caption for nil, empty or unreadable bytes. Greedy: the container gives it its box.
+  The body only reads the decode cache; `.task(id:)` decodes new bytes off the main
+  actor, so a list of thumbnails never decodes per redraw. Platform-free.
 - `ProjectLaunchBackground.swift`: the launch screen's backdrop (#12), moved out of the
   deleted `MinimalProjectEditor.swift` (#24).
 - `EditorSelection.swift`: the inspector's selection (#17), pure: `EditorSelection` (`.scene(id:)`
@@ -835,6 +849,11 @@ save with its sync, each refusing a gone target),
 id), `CalendarEventDraft`, `NewSceneDraft` and `QuickTimeDraft` (`EditorDraftsTests`: what each reads,
 validation, the value written back, the Custom type's blank-means-none rule, the new
 scene's estimate from its pages and its type from the slugline),
+`StoryboardFrame` (`StoryboardFrameTests`: images synthesized with a `CGContext`; the
+long-edge cap, landscape and portrait, no upscale, the result read back as JPEG, equal
+bytes twice, no source metadata, alpha flattened onto white, PNG bytes by the same rule,
+an EXIF-rotated JPEG upright, the decode cache by content; the view has no unit seam:
+learnings.md 2026-09-23 #38 renders it with `ImageRenderer` in a throwaway test),
 `SceneSearch` and `BoneyardSelection` (`SceneSearchTests`: the blank query, every field,
 the number's exact-or-prefix rule, cast trimmed and case-insensitive, notice strips never,
 the results' order and locations, the selection's display order; the tabs themselves have

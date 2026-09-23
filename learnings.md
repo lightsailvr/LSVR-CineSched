@@ -9,6 +9,28 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-23 — Storyboard frame bytes: ImageIO's JPEG is deterministic but always carries a small Exif block, the thumbnail call is not the size rule, and an `ImageRenderer` probe reports through test attachments (#38)
+
+- **`CGImageDestination` JPEG output is byte-for-byte deterministic** for the same pixels
+  when the only property passed is the quality: no timestamp, no random data (checked on
+  macOS and the iOS 27 simulator). It still writes a JFIF header, an sRGB ICC profile and a
+  **minimal `{Exif}` block (ColorSpace, PixelX/YDimension)** you cannot suppress, so
+  a "no metadata" test must pin "only those keys", not "no Exif dictionary".
+- **`CGImageSourceCreateThumbnailAtIndex` with `ThumbnailMaxPixelSize` is not documented
+  to round the short edge as our rule does**, so `StoryboardFrame.encode(data:)` uses it only to decode a big photo
+  near the target size (and to apply the EXIF orientation with `WithTransform`), then
+  redraws at exactly `storedSize`. Pass `FromImageAlways` too, or ImageIO may hand back
+  the small thumbnail a camera JPEG embeds (Apple's documented behaviour).
+- **A view with no caller yet is probed with `ImageRenderer` in a throwaway test.** It
+  renders once, synchronously, so `.task` never runs: prime `StoryboardFrame.decode`
+  first. Writing a PNG to the scratchpad from the Mac test host fails (the host is the
+  sandboxed app, and `ENABLE_APP_SANDBOX=NO` still got EPERM there); record the PNG with
+  Swift Testing's `Attachment.record(data, named:)` and pull it out with
+  `xcrun xcresulttool export attachments --path <the .xcresult the log names> --output-path <dir>`.
+  Works the same on the iOS simulator.
+
+---
+
 ## 2026-09-23 — Toolbar redesign: a segmented picker in a toolbar group is a pill in a pill, visionOS lacks the fixes, and `screencapture -l` probes a Mac window
 
 - **On iOS 27 a segmented `Picker` in a `ToolbarItemGroup` sits inside the group's shared
