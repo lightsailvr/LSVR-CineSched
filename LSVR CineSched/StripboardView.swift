@@ -427,7 +427,7 @@ struct StripboardView: View {
     /// a tint of its color, so the sub-rows read as the strip's.
     @ViewBuilder
     private func shotList(for scene: Scene, dayId: UUID) -> some View {
-        let tint   = scene.stripColor(in: palette).opacity(colorScheme == .dark ? 0.35 : 0.28)
+        let tint   = ShotSubRow.tint(for: scene, palette: palette, colorScheme: colorScheme)
         // Once per strip: the prefix can fall back to a pattern match on the slugline.
         let numbers = scene.shotNumbers
         VStack(spacing: 0) {

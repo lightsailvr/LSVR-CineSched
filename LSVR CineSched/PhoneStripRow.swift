@@ -258,11 +258,6 @@ struct PhoneShotRow: View {
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
-
-    /// The row's fill: the strip's color, lightened, the Stripboard's sub-row tint.
-    static func rowColor(for scene: Scene, palette: ScenePalette) -> Color {
-        scene.stripColor(in: palette).opacity(0.28)
-    }
 }
 
 /// A day's strips as the Days list and the Day screen draw them: each strip with its
@@ -279,6 +274,7 @@ struct PhoneDayStrips: View {
     let visibleFields:    Set<StripboardField>
     let actions:          PhoneStripActions
     @Environment(\.scenePalette) private var palette
+    @Environment(\.colorScheme)  private var colorScheme
 
     var body: some View {
         let rows      = PhoneStripListRows.rows(for: strips, expansion: actions.shotExpansion?.wrappedValue ?? ShotExpansion())
@@ -293,12 +289,12 @@ struct PhoneDayStrips: View {
                     .stripInteractions(actions, scene: scene)
             case .shot(let shot, let number):
                 PhoneShotRow(number: number, shot: shot)
-                    .stripListRow(color: PhoneShotRow.rowColor(for: row.scene, palette: palette))
+                    .stripListRow(color: ShotSubRow.tint(for: row.scene, palette: palette, colorScheme: colorScheme))
                     .shotInteractions(actions, scene: row.scene, shot: shot)
                     .moveDisabled(true)
             case .noShots:
                 noShotsRow(row.scene)
-                    .stripListRow(color: PhoneShotRow.rowColor(for: row.scene, palette: palette))
+                    .stripListRow(color: ShotSubRow.tint(for: row.scene, palette: palette, colorScheme: colorScheme))
                     .moveDisabled(true)
             }
         }

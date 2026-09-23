@@ -54,4 +54,11 @@ struct ShotSubRow: View {
         }
         .accessibilityElement(children: .combine)
     }
+
+    /// The fill behind a scene's sub-rows (and its "No shots" line): the strip's color,
+    /// lightened, a little stronger in dark appearance where the board behind is dark. The
+    /// one rule for the Mac Stripboard and both phone lists.
+    static func tint(for scene: Scene, palette: ScenePalette, colorScheme: ColorScheme) -> Color {
+        scene.stripColor(in: palette).opacity(colorScheme == .dark ? 0.35 : 0.28)
+    }
 }
