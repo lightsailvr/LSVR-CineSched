@@ -9,6 +9,39 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-23 — The Shot List export: the PDF dump needs the entitlements dropped, an export after an options sheet waits for `onDismiss`, and System Events resolves a stored process by name (#40)
+
+- **`CINESCHED_PDF_DUMP_DIR` wrote nothing on the Mac with `ENABLE_APP_SANDBOX=NO` alone**
+  (the test host is the signed, sandboxed app). Adding `CODE_SIGN_ENTITLEMENTS=` (empty) to
+  the same `xcodebuild … test` dropped the sandbox and the dump landed in the scratchpad:
+  `TEST_RUNNER_CINESCHED_PDF_DUMP_DIR=<dir> xcodebuild … ENABLE_APP_SANDBOX=NO
+  CODE_SIGN_ENTITLEMENTS= -only-testing:… test`. The #6 pixel-diff tool, rebuilt as one
+  `pdftool.swift` (text, png, diff at 288 dpi), found all 17 existing fixtures (83 pages)
+  identical before and after `drawImage(_:aspectFitIn:)`.
+- **An export started from an options sheet runs from the sheet's `onDismiss`, not from its
+  Export button.** The phone's failure alert would otherwise be presented while the sheet
+  is still going away. The options sheet stores a pending `ShotListPDFOptions`, sets
+  `activeSheet = nil`, and `.sheet(item:onDismiss:)` runs the export. On the iPhone
+  simulator the preview and the Export Failed alert then both appear. The month export
+  still calls straight from its button, and gets away with it because it only ever
+  presents the preview.
+- **The Mac's `alert(isPresented: $showingAlert)` did not appear in the probe, even for
+  the existing Days Out of Days failure** (File ▸ Export Days Out of Days… on a project
+  with no cast). The accessibility tree showed no sheet and no alert window. `applyAlerts`
+  chains two `.alert(isPresented:)` on the same view, which is a known way to lose one.
+  This predates #40. It is on the device checklist rather than fixed here.
+- **Driving a Mac probe with System Events while another instance of the same app is
+  running.** In a script file, `set p to first process whose unix id is N` stores
+  `application process "LSVR CineSched"`, a reference *by name*, so later lines hit
+  whichever instance comes first (here, a parallel agent's probe: "Invalid index" on a
+  menu item that one lacks). Repeat the `whose unix id is N` clause inline on every line.
+  Activation is also fragile while the user works in another app: `set frontmost` does
+  not make a window key, so menu items stay disabled (`commands == nil`). What worked was
+  starting the script first, with a loop that polls `frontmost` for up to 10 s and acts as
+  soon as it is true, then running `open -a <the probe's .app>`.
+
+---
+
 ## 2026-09-23 — Shots in the model: the codec was never byte-stable, `JSONEncoder` escapes base64's slashes, and the Mac probe cannot autosave into the scratchpad (#37)
 
 - **`ProjectCodec` never wrote the same project to the same bytes twice.** Without

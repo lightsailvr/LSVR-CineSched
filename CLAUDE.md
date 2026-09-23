@@ -41,8 +41,8 @@ Add `CODE_SIGNING_ALLOWED=NO` for a headless build that should not touch signing
 iPhone 17, iPad Pro 13-inch (M5) and Apple Vision Pro; `xcrun simctl list devices available`
 for the current names). Everything, including every PDF exporter and its tests
 (`PDFCanvasTests`, `SchedulePDFExporterTests`, `MonthPDFExporterTests`,
-`CallSheetPDFExporterTests`, `BreakdownPDFExporterTests`, `DaysOutOfDaysPDFExporterTests`),
-must pass there.
+`CallSheetPDFExporterTests`, `BreakdownPDFExporterTests`, `DaysOutOfDaysPDFExporterTests`,
+`ShotListPDFExporterTests`), must pass there.
 
 ```bash
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -scheme "LSVR CineSched" -destination 'platform=iOS Simulator,name=iPhone 17' CODE_SIGNING_ALLOWED=NO build
@@ -155,9 +155,11 @@ the build inputs outside it, see Working agreements):
   which confirms through `previewProductionRange` when scenes would return to the
   Boneyard — the copy says the call sheets, events, types and notes move or stay by
   `ProductionRangePreview.shifts` — and applies `updateProductionRange` as one `edit`),
-  `ProductionTab+Exports.swift` (Export: the six documents through `PhoneExports`, the
+  `ProductionTab+Exports.swift` (Export: the seven documents through `PhoneExports`, the
   month one through a `Menu` of `productionMonths` and `MonthPDFOptionsSheet` on the
-  calendar's `@AppStorage` keys, Include Hold as a row) and `ProductionTab+Import.swift`
+  calendar's `@AppStorage` keys, Include Hold as a row, the Shot List through
+  `ShotListOptionsSheet` on the Mac's keys, #40, also reached as
+  `ProductionCommand.exportShotList`) and `ProductionTab+Import.swift`
   (`fileImporter` → `ScriptImport.parse` → `ImportSummaryView` in its `.existingProject`
   confirmation → one `edit` on Add to Boneyard). Row details (cast count, conflicted
   scenes, lock date, changes, scene count) come from the project and
@@ -167,8 +169,8 @@ the build inputs outside it, see Working agreements):
   `ContentView+PDFExports.swift`): `PhoneExports` (the project, where a request goes —
   `PhoneEditor.exportPreview` — and where a failure's message goes), one function per
   document (`scheduleCalendar`, `monthCalendar`, `stripSchedule`, `shootingSchedule`,
-  `daysOutOfDays`, `breakdowns`, `callSheet`), each a `PDFExport` request delivered.
-  The Production tab and `PhoneDayEdits` (the Day screen's and the call sheet editor's
+  `daysOutOfDays`, `breakdowns`, `callSheet`, `shotList(options:)`), each a `PDFExport`
+  request delivered. The Production tab and `PhoneDayEdits` (the Day screen's and the call sheet editor's
   Export Call Sheet PDF) call it; nothing else on the phone calls `PDFExport`.
 - `ProductionEdits.swift`: the production-wide edits as pure `ProjectData` mutations
   (`ProductionEditsTests`): `renameCharacter(from:to:)` (every scene's cast and every
@@ -395,6 +397,28 @@ the build inputs outside it, see Working agreements):
   caption for nil, empty or unreadable bytes. Greedy: the container gives it its box.
   The body only reads the decode cache; `.task(id:)` decodes new bytes off the main
   actor, so a list of thumbnails never decodes per redraw. Platform-free.
+- `ShotListExporter.swift`: the Shot List (#40, `ShotListPDFExporterTests`), portrait
+  Letter on `PDFCanvas`: `ShotListScope` (`.project`, `.day(id)`), the pure
+  `sections(shootDays:boneyard:scope:)` (the days in schedule order under their
+  `DaySummary.label`, then the Boneyard in script order for the project; nil for a gone
+  day) and `entries(for:)` (one `Entry` per shot, lettered; a shotless scene one entry
+  under its bare number with its summary, estimate, unions and frame), `prints(_:)` (no
+  banner, auto-meal, event or legacy notice strip), and `generatePDF(shootDays:boneyard:
+  projectTitle:scope:includeFrames:)`: frames on, three equal slots a page, each a
+  reserved header band (day bar, scene line, "continued" at a page top) over a 238 pt
+  frame box drawn with `drawImage(_:aspectFitIn:)` and the text; frames off, a table
+  with repeating column heads. Nil when nothing in scope prints.
+- `ShotListPDFOptions.swift`: `ShotListPDFOptions` (scope, include frames, `default`,
+  `pickableDays(in:)`: the days with a scene that prints) and
+  `ShotListPDFOptionSettings` (the two `@AppStorage` keys and the scope's string form,
+  `"project"` or `"day:<uuid>"`; `scope(fromRaw:in:)` falls back to the project for a
+  day that is gone or empty), pure (`ShotListPDFOptionsTests`). `ShotListOptionsSheet.swift`:
+  the adaptive options form (a segmented scope, a day `Picker`, Include Storyboard
+  Frames as a `FieldToggleRow`), writing through to the keys like the month sheet; its
+  Export hands the options to the caller (`ContentView.ActiveSheet.shotListOptions`,
+  `ProductionTab.ActiveSheet.shotListOptions`), which keeps them as
+  `pendingShotListExport` and runs the export from the `.sheet`'s `onDismiss`, so the
+  preview or the failure alert never presents over a dismissing sheet.
 - `ProjectLaunchBackground.swift`: the launch screen's backdrop (#12), moved out of the
   deleted `MinimalProjectEditor.swift` (#24).
 - `EditorSelection.swift`: the inspector's selection (#17), pure: `EditorSelection` (`.scene(id:)`
@@ -570,8 +594,8 @@ the build inputs outside it, see Working agreements):
 - `PDFExportRequest.swift`: the export request (#23), pure: `PDFExportRequest` (kind, file name
   with `.pdf`, the exporter's bytes; `Equatable` by those, `Identifiable` per presentation) and
   `PDFExport`, one function per document (`scheduleCalendar`, `monthCalendar`, `stripSchedule`,
-  `shootingSchedule`, `daysOutOfDays`, `breakdowns`, `callSheet`) from the project and the
-  per-export parameters to a request, or a `PDFExportError` with the alert's message. The one
+  `shootingSchedule`, `daysOutOfDays`, `breakdowns`, `callSheet`, `shotList`, #40) from the
+  project and the per-export parameters to a request, or a `PDFExportError` with the alert's message. The one
   place the exporters are called with the project's values, so every platform gets the same
   bytes (`PDFExportRequestTests`).
 - `PDFExportPresentation.swift`: the preview sheet (`PDFExportPreviewSheet`: the PDF, Done, a
@@ -657,10 +681,11 @@ the build inputs outside it, see Working agreements):
 - `CalendarView.swift`, `StripboardView.swift`: the two schedule views.
 - `*Sheet.swift`: modal editors. `*Exporter.swift`: PDF generators; every call site is in
   `ContentView+PDFExports.swift` or `PhoneExports.swift`. `PDFCanvas.swift` is the shared drawing helper (CoreGraphics +
-  CoreText, no AppKit); all six exporters (`StripboardPDFExporter`, `ShootingSchedulePDFExporter`,
+  CoreText, no AppKit); all seven exporters (`StripboardPDFExporter`, `ShootingSchedulePDFExporter`,
   `PDFExporter` (the month calendar), `CallSheetExporter`, `BreakdownExporter`,
-  `DaysOutOfDaysExporter`) draw on it and build everywhere (its header comment is the recipe
-  for writing one). `Fountain*`, `FinalDraftParser`, `HighlandArchiveReader`: importers.
+  `DaysOutOfDaysExporter`, `ShotListExporter`) draw on it and build everywhere (its header
+  comment is the recipe for writing one; its one image call, `drawImage(_:aspectFitIn:)`,
+  #40, draws a `CGImage` aspect-fit and never cropped). `Fountain*`, `FinalDraftParser`, `HighlandArchiveReader`: importers.
 - Platform seams (ADR 0003): `FilePanels`, `SelectAllTextField`, `WindowAccessor`, `ModifierKeys`
   (the Mac polls `NSEvent`; the others read the recorded press), `PlatformPressObserver`
   (how that press is recorded: a `UIGestureRecognizer` on the window that reads each
@@ -910,10 +935,13 @@ and per-slot undo are in `ProjectDocumentTests`, the file shape in `ProjectCodec
 output with the PDF's time-derived bytes masked, the file names, the failure messages, the
 shared temporary file),
 `ProjectDocument` with its reader, writer, type and undo funnel (`ProjectDocumentTests`, against a
-real `UndoManager` with `groupsByEvent` off), and all six exporters (rendered from the shared
+real `UndoManager` with `groupsByEvent` off), and all seven exporters (rendered from the shared
 fixture in `PDFTestSupport.swift` and read back through PDFKit in `SchedulePDFExporterTests`,
-`MonthPDFExporterTests`, `CallSheetPDFExporterTests`, `BreakdownPDFExporterTests` and
-`DaysOutOfDaysPDFExporterTests`; set `CINESCHED_PDF_DUMP_DIR` to keep the PDFs for a visual
+`MonthPDFExporterTests`, `CallSheetPDFExporterTests`, `BreakdownPDFExporterTests`,
+`DaysOutOfDaysPDFExporterTests` and `ShotListPDFExporterTests` — the last on
+`PDFFixture.projectWithShots`, with real frame bytes, checking the page rhythm, the shot
+numbers, the shotless block, the Boneyard header and the frames as pixels;
+`ShotListPDFOptionsTests` covers the remembered scope's fallback; set `CINESCHED_PDF_DUMP_DIR` to keep the PDFs for a visual
 diff, see `PDFTestSupport`'s header). Prefer adding tests there over UI tests. The document
 lifecycle itself (Open panel types, Finder association, autosave, the viewer role of `.json`)
 has no unit seam; check it by running the app (learnings.md, 2026-09-16 #8 has a recipe that
