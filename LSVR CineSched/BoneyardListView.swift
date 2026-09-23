@@ -67,6 +67,16 @@ struct BoneyardListView: View {
 
                         Spacer(minLength: 4)
 
+                        // The shots count (spec #36 story 49): the Boneyard never
+                        // expands, so this is all it says of a shot list. Nothing for none.
+                        if !item.scene.shots.isEmpty {
+                            Text(StripboardField.shotCount(item.scene.shots.count))
+                                .font(.system(size: 10))
+                                .foregroundColor(item.scene.stripTextColor.opacity(0.6))
+                                .lineLimit(1)
+                                .fixedSize()
+                        }
+
                         Text(FractionParser.formatEighths(item.scene.duration))
                             .font(.system(size: 10, weight: .bold))
                             .monospacedDigit()
