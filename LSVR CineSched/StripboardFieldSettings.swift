@@ -124,21 +124,23 @@ enum StripboardField: String, CaseIterable, Identifiable {
     /// The text to print for this field on a strip; empty when the scene has nothing set,
     /// in which case the strip omits the chip entirely (same rule Cast always followed).
     /// Props, Special Equipment and SFX are the breakdown unions, the scene's items then
-    /// its shots' (#37).
+    /// its shots' (#37). A scene without shots prints its own list as it always did, with
+    /// no union built: this runs per chip per strip on every redraw, calendar cells
+    /// included (#34), and most scenes have no shots.
     func displayValue(for scene: Scene) -> String {
         switch self {
         case .cast:             return scene.cast.joined(separator: ", ")
         case .realLocation:     return scene.realLocation.trimmingCharacters(in: .whitespaces)
         case .summary:          return scene.summary.trimmingCharacters(in: .whitespacesAndNewlines)
         case .extras:           return scene.extras.joined(separator: ", ")
-        case .props:            return scene.allProps.joined(separator: ", ")
+        case .props:            return (scene.shots.isEmpty ? scene.props : scene.allProps).joined(separator: ", ")
         case .setDressing:      return scene.setDressing.joined(separator: ", ")
         case .wardrobe:         return scene.wardrobe.joined(separator: ", ")
         case .makeupHair:       return scene.makeupHair.joined(separator: ", ")
         case .vehicles:         return scene.vehicles.joined(separator: ", ")
-        case .specialEquipment: return scene.allSpecialEquipment.joined(separator: ", ")
+        case .specialEquipment: return (scene.shots.isEmpty ? scene.specialEquipment : scene.allSpecialEquipment).joined(separator: ", ")
         case .stunts:           return scene.stunts.joined(separator: ", ")
-        case .sfx:              return scene.allSFX.joined(separator: ", ")
+        case .sfx:              return (scene.shots.isEmpty ? scene.sfx : scene.allSFX).joined(separator: ", ")
         case .vfx:              return scene.vfx.joined(separator: ", ")
         case .breakdownNotes:   return scene.breakdownNotes.trimmingCharacters(in: .whitespacesAndNewlines)
         case .shots:            return Self.shotCount(scene.shots.count)

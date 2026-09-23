@@ -67,6 +67,14 @@ struct StripboardFieldSettingsTests {
         #expect(StripboardField.sfx.displayValue(for: scene) == "Rain")
     }
 
+    /// A scene without shots prints its own lists exactly as before #37, no union built.
+    @Test func displayValueOfAShotlessSceneIsItsOwnList() {
+        let scene = Scene(title: "INT. BARN - NIGHT", sceneNumber: "3", props: ["Lamp", "lamp"], specialEquipment: ["Crane"], sfx: ["Smoke"])
+        #expect(StripboardField.props.displayValue(for: scene) == "Lamp, lamp")
+        #expect(StripboardField.specialEquipment.displayValue(for: scene) == "Crane")
+        #expect(StripboardField.sfx.displayValue(for: scene) == "Smoke")
+    }
+
     // MARK: - The Shots field (#42)
 
     @Test func theShotsFieldHasItsLabelIconAndEmoji() {
