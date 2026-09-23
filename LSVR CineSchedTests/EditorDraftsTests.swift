@@ -679,6 +679,12 @@ struct EditorDraftsTests {
         draft.sceneNumber = "7"
         #expect(draft.shotNumber(forShotID: id) == "7A")
         #expect(draft.shotNumber(forShotID: UUID()) == nil)
+        let second = draft.addShot()!
+        #expect(draft.shotNumbers == ["7A", "7B"])
+        draft.sceneNumber = ""
+        draft.title       = "9. EXT. FIELD - DAY"
+        #expect(draft.shotNumbers == ["9A", "9B"])
+        #expect(draft.shotNumber(forShotID: second) == "9B")
     }
 
     @Test func sceneDraftUpdatesRemovesMovesAndDuplicatesShots() {

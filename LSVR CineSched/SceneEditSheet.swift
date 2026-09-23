@@ -350,10 +350,12 @@ struct SceneEditSheet: View {
     // MARK: - Shots (#39)
 
     private var shotsSection: some View {
-        Section {
-            ForEach(draft.shots) { shot in
+        // Once per body: the prefix can fall back to a pattern match on the slugline.
+        let numbers = draft.shotNumbers
+        return Section {
+            ForEach(Array(zip(draft.shots, numbers)), id: \.0.id) { shot, number in
                 NavigationLink(value: Route.shot(shot.id)) {
-                    ShotRow(number: draft.shotNumber(forShotID: shot.id) ?? "", shot: shot)
+                    ShotRow(number: number, shot: shot)
                 }
                 .contextMenu {
                     // Move Up / Move Down are the drag's keyboard- and pointer-free twin,

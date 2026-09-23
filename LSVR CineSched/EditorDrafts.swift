@@ -169,7 +169,19 @@ extension SceneDraft {
     /// The displayed number of the shot with `id` for the number as typed ("12A"), by
     /// #37's letter rule; nil when the draft has no such shot.
     func shotNumber(forShotID id: UUID) -> String? {
-        shotScene.shotNumber(forShotID: id)
+        guard let index = shots.firstIndex(where: { $0.id == id }) else { return nil }
+        return Scene.shotNumber(prefix: shotNumberPrefix, index: index)
+    }
+
+    /// Every shot's displayed number, in order: what the Shots section's rows read, one
+    /// prefix lookup per body rather than one per row.
+    var shotNumbers: [String] {
+        Scene.shotNumbers(prefix: shotNumberPrefix, count: shots.count)
+    }
+
+    /// The number the shots are lettered after, for the number and title as typed.
+    var shotNumberPrefix: String {
+        Scene.shotNumberPrefix(sceneNumber: sceneNumber, title: title)
     }
 
     /// Appends `shot`, or inserts it right after `previousID` (Add Another, #37's

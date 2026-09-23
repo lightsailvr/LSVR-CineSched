@@ -82,6 +82,20 @@ struct ShotEditsTests {
         #expect(legacy.shotNumber(at: 2) == "7BC")
         let unnumbered = Scene(title: "INT. BARN - NIGHT")
         #expect(unnumbered.shotNumber(at: 0) == "A")
+        #expect(Scene(title: "#14 EXT. ROAD").shotNumberPrefix == "14")
+        #expect(Scene(title: "  3a. INT. HALL").shotNumberPrefix == "3a")
+    }
+
+    /// The list's numbers are the per-shot numbers, worked out with one prefix lookup:
+    /// what the editor's rows, the Stripboard's sub-rows and the phone's rows read.
+    @Test func theShotNumbersListEveryShotsNumberInOrder() {
+        var scene = Scene(title: "7B. INT. BARN - NIGHT")
+        #expect(scene.shotNumbers == [])
+        scene.shots = [wide, close, insert]
+        #expect(scene.shotNumbers == ["7BA", "7BB", "7BC"])
+        #expect(scene.shotNumbers == scene.shots.indices.map { scene.shotNumber(at: $0) })
+        #expect(Scene.shotNumbers(prefix: "12", count: 28).last == "12AB")
+        #expect(Scene.shotNumbers(prefix: "12", count: -1) == [])
     }
 
     @Test func aNewShotLastsFifteenMinutesAndHasNothingElse() {

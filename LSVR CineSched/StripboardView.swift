@@ -429,7 +429,7 @@ struct StripboardView: View {
     private func shotList(for scene: Scene, dayId: UUID) -> some View {
         let tint   = scene.stripColor(in: palette).opacity(colorScheme == .dark ? 0.35 : 0.28)
         // Once per strip: the prefix can fall back to a pattern match on the slugline.
-        let prefix = scene.shotNumberPrefix
+        let numbers = scene.shotNumbers
         VStack(spacing: 0) {
             ForEach(Array(scene.shots.enumerated()), id: \.element.id) { index, shot in
                 let target = ShotDropTarget.shot(id: shot.id, sceneID: scene.id)
@@ -437,7 +437,7 @@ struct StripboardView: View {
                     if shotDropTarget == target {
                         DropIndicatorView()
                     }
-                    ShotSubRow(number: prefix + Shot.letter(forIndex: index), shot: shot)
+                    ShotSubRow(number: numbers[index], shot: shot)
                         .padding(.leading, 30).padding(.trailing, 12).padding(.vertical, 3)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(tint)

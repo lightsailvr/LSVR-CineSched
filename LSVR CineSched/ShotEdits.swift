@@ -51,16 +51,41 @@ extension Scene {
     /// the title (scenes saved before the field existed), else nothing — never the "1"
     /// `extractedSceneNumber` falls back to, which would letter an unnumbered scene 1A.
     var shotNumberPrefix: String {
+        Self.shotNumberPrefix(sceneNumber: sceneNumber, title: title)
+    }
+
+    /// The same over the two fields, for the scene editor's draft, which holds them as typed.
+    static func shotNumberPrefix(sceneNumber: String, title: String) -> String {
         let field = sceneNumber.trimmingCharacters(in: .whitespaces)
         if !field.isEmpty { return field }
-        let title = self.title.trimmingCharacters(in: .whitespaces)
-        guard let match = title.range(of: "^#?\\d+[A-Za-z]?", options: .regularExpression) else { return "" }
-        return String(title[match]).replacingOccurrences(of: "#", with: "")
+        let title = title.trimmingCharacters(in: .whitespaces)
+        guard let match = leadingNumber.firstMatch(in: title, range: NSRange(title.startIndex..., in: title)),
+              let found = Range(match.range, in: title) else { return "" }
+        return String(title[found]).replacingOccurrences(of: "#", with: "")
+    }
+
+    /// "12", "#12A" leading a title. Built once: the prefix is read per strip on a redraw.
+    private static let leadingNumber = try! NSRegularExpression(pattern: #"^#?\d+[A-Za-z]?"#)
+
+    /// The one way a shot number is made: the prefix followed by the letter at `index`.
+    static func shotNumber(prefix: String, index: Int) -> String {
+        prefix + Shot.letter(forIndex: index)
+    }
+
+    /// Every shot's displayed number, in order, for one prefix lookup per list: what a
+    /// list of shot rows reads (the editor's Shots section, the Stripboard's sub-rows, the
+    /// phone's rows) rather than a number worked out per row.
+    var shotNumbers: [String] {
+        Self.shotNumbers(prefix: shotNumberPrefix, count: shots.count)
+    }
+
+    static func shotNumbers(prefix: String, count: Int) -> [String] {
+        (0..<max(0, count)).map { shotNumber(prefix: prefix, index: $0) }
     }
 
     /// The displayed number of the shot at `index`: "12A", "12AA" in scene 12A.
     func shotNumber(at index: Int) -> String {
-        shotNumberPrefix + Shot.letter(forIndex: index)
+        Self.shotNumber(prefix: shotNumberPrefix, index: index)
     }
 
     /// The displayed number of the shot with `id`; nil when the scene has no such shot.

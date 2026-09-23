@@ -83,9 +83,8 @@ enum PhoneStripListRows {
             if scene.shots.isEmpty {
                 rows.append(PhoneStripListRow(scene: scene, kind: .noShots))
             } else {
-                let prefix = scene.shotNumberPrefix
-                for (index, shot) in scene.shots.enumerated() {
-                    rows.append(PhoneStripListRow(scene: scene, kind: .shot(shot, number: prefix + Shot.letter(forIndex: index))))
+                for (shot, number) in zip(scene.shots, scene.shotNumbers) {
+                    rows.append(PhoneStripListRow(scene: scene, kind: .shot(shot, number: number)))
                 }
             }
         }
