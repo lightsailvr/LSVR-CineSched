@@ -9,6 +9,26 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-23 — Integrating the shot lists: a build-setting warning hides from a `file:line:` count, and eight agents' docs drift in the same bullets (#36)
+
+- **The warning count the tickets reported missed one line.** Every ticket counted distinct
+  `file:line: warning:` locations and found the 4 `onChange` ones; the macOS and visionOS
+  builds also print `warning: The value for NSCameraUsageDescription must be a non-empty
+  string`, a build-system line with no file, because #41 set the camera prompt only for
+  `[sdk=iphoneos*]` and `[sdk=iphonesimulator*]`. Count `grep "^warning:"` too, on every
+  platform. The built Mac app's Info.plist does carry `NSCameraUsageDescription => ""`
+  (`plutil -p`): inert, since nothing asks for the camera there, but an empty purpose
+  string is what App Review rejects. Recorded beside the warning count in CLAUDE.md; the
+  fix is a project-file change (drop the empty key on the other SDKs), left for a ticket.
+- **Parallel agents each documented their own ticket in the shared bullets**, so the file
+  map read in ticket order (the shot files scattered, a phone file among the Mac's), the
+  glossary's Production tab still said "six documents", the drafts bullet had no
+  `ShotDraft`, the system map in CONTEXT.md had no shot file at all, and ADR 0007 credited
+  the frame caption to the wrong ticket. A documentation pass that reads every claim
+  against the code at the integration tip is worth its own step.
+
+---
+
 ## 2026-09-23 — The shots review round: two chained `.alert`s lose the inner one on macOS, a first responder under a context menu raises the keyboard, and a window probe runs with the screen locked (#36)
 
 - **Two `.alert(isPresented:)` chained on one view: on macOS 27 only the outer one ever
@@ -223,12 +243,14 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
   `activeSheet = nil`, and `.sheet(item:onDismiss:)` runs the export. On the iPhone
   simulator the preview and the Export Failed alert then both appear. The month export
   still calls straight from its button, and gets away with it because it only ever
-  presents the preview.
+  presents the preview. (Promoted to CLAUDE.md, "Adding a PDF export".)
 - **The Mac's `alert(isPresented: $showingAlert)` did not appear in the probe, even for
   the existing Days Out of Days failure** (File ▸ Export Days Out of Days… on a project
   with no cast). The accessibility tree showed no sheet and no alert window. `applyAlerts`
   chains two `.alert(isPresented:)` on the same view, which is a known way to lose one.
-  This predates #40. It is on the device checklist rather than fixed here.
+  This predates #40. It is on the device checklist rather than fixed here. (Fixed in
+  #36's review round, see its entry; the one-alert rule is now in CLAUDE.md's
+  `ContentView.body` convention.)
 - **Driving a Mac probe with System Events while another instance of the same app is
   running.** In a script file, `set p to first process whose unix id is N` stores
   `application process "LSVR CineSched"`, a reference *by name*, so later lines hit

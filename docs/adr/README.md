@@ -14,4 +14,4 @@ work has something explicit to contradict or reaffirm.
 - [0004](0004-one-project-document-on-every-platform.md) — One project document on every platform
 - [0005](0005-native-cinesched-file-type.md) — A native `.cinesched` file type
 - [0006](0006-icloud-folder-owned-by-the-ios-app.md) — The CineSched iCloud folder is owned by the iOS app; the Mac stays entitlement-free
-- [0007](0007-storyboard-frames-inside-the-project-file.md) — Storyboard frames inside the project file
+- [0007](0007-storyboard-frames-inside-the-project-file.md) — Storyboard frames inside the project file, as base64 JPEG (amends 0001; the package format, #44, is the future path)

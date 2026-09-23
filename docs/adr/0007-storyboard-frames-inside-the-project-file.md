@@ -31,13 +31,24 @@ to JSON, not to a package. No image bytes were stored anywhere before. The alter
   alphabet's `/` as `\/`). Both fields are optional with `decodeIfPresent` defaults, so
   older files open and older builds ignore them (ADR 0001).
 - Frames are **downscaled at import**: every source (paste, drop, Photos, the camera, a
-  file) decodes the image and passes it through one pure function that scales the long
-  edge down to at most 1200 px and encodes JPEG at a fixed quality (#38). A 1200 px frame
-  is about 100–200 KB; the original photo is never stored.
-- The shot page shows the project's **total frame size** as a caption once it passes
-  20 MB, so the user knows the file is getting heavy before sync slows down (#39).
-- The project file is written with **sorted keys**. Without them the encoder wrote each
-  object's keys in an order that changed from save to save, so an unchanged project never
+  file) hands its bytes to one pure function, `StoryboardFrame.encode(data:)`, which
+  decodes them upright (EXIF orientation applied), scales the long edge down to at most
+  1200 px (never up), flattens any transparency onto white and encodes JPEG at quality
+  0.8 in sRGB (#38; the sources are #41's). Equal pixels give equal bytes. A 1200 px
+  frame is about 100–200 KB; the original photo is never stored, and nothing else writes
+  frame bytes.
+- A frame is shown whole, aspect-fit and never cropped, whatever its aspect (2:1, a
+  fisheye circle, 16:9), in the editor and in the Shot List export alike.
+- **One frame per board, never two.** A scene with no shots may carry a frame of its own;
+  the first shot added takes it (the frame rule, `Scene.addShot`), so a scene with shots
+  carries none. A first shot that brings a frame of its own while the scene has one is
+  refused rather than dropping either (#36's review).
+- The shot page shows the project's **total frame size** as a caption under the frame
+  once it passes 20 MB (20,000,000 bytes, "Storyboard frames: 24 MB"), so the user knows
+  the file is getting heavy before sync slows down (#41, `StoryboardFrameTotals`).
+- The project file is written with **sorted keys** (`ProjectCodec`,
+  `[.prettyPrinted, .sortedKeys]`). Without them the encoder wrote each object's keys in
+  an order that changed from save to save, so an unchanged project never
   saved to the same bytes twice; with frames the file is large and iCloud uploads it
   whole, and identical bytes for an identical project is the least it should do.
 - A scene with no shots and no frame writes neither key, so a project without shot lists
