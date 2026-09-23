@@ -132,4 +132,41 @@ struct BreakdownBrowserTests {
         let removedAgain = project.removeScene(withID: boneyard.id)
         #expect(!removedAgain)
     }
+
+    // MARK: - The Mac's copy, pinned (#35)
+
+    /// `ContentView.populateBreakdownBrowserScenes` as it stood before the Mac's browser
+    /// moved to `BreakdownBrowser`: the list it built, as an oracle.
+    private func macBrowserScenes(_ project: ProjectData) -> [Scene] {
+        var seen = Set<UUID>()
+        var combined: [Scene] = []
+        for s in project.allScenes where !seen.contains(s.id) { seen.insert(s.id); combined.append(s) }
+        for day in project.shootDays {
+            for s in day.scenes where !seen.contains(s.id) { seen.insert(s.id); combined.append(s) }
+        }
+        return combined.sorted {
+            let a = $0.scriptOrderKey
+            let b = $1.scriptOrderKey
+            if a.0 != b.0 { return a.0 < b.0 }
+            return a.1 < b.1
+        }
+    }
+
+    @Test func theOrderMatchesTheMacsCopy() {
+        let twice   = scene("7")
+        let banner  = Scene.createBanner(type: .mealBreak, title: "Lunch")
+        let event   = Scene.createCalendarEvent(title: "Tech scout", time: "9:00 AM")
+        let project = ProjectData(
+            allScenes: [scene("13"), scene("", title: "Zeta"), twice, scene("2"), scene("12B"), scene("2")],
+            shootDays: [
+                day(0, scenes: [scene("12A"), banner, scene("1"), twice, event]),
+                day(1, scenes: []),
+                day(2, scenes: [scene("12"), scene("", title: "Alpha"), scene("A1"), scene("100")]),
+            ]
+        )
+        let expected = macBrowserScenes(project)
+        #expect(expected.count == 14, "every scene once: the one listed twice counts once")
+        #expect(BreakdownBrowser(project: project).sceneIDs == expected.map(\.id))
+        #expect(BreakdownBrowser(project: project).scenes(in: project) == expected)
+    }
 }

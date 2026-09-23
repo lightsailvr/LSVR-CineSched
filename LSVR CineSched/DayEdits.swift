@@ -72,27 +72,12 @@ extension ProjectData {
         return true
     }
 
-    /// Back to a plain shoot day with no note. A day outside `productionRange` (the range
-    /// pickers', whole days) exists only to hold something — a type, a note, an event, a
-    /// call sheet (`updateProductionRange` keeps such days past the range's edges, and the
-    /// Mac's calendar creates them) — so once the type and note are cleared and nothing
-    /// else is on it, the day goes entirely, as the inspector's and the calendar's Clear
-    /// Day Type do. With no range known nothing is dropped. False when no day has that id.
+    /// Back to a plain shoot day with no note, the day being dropped if that leaves it
+    /// empty outside `productionRange` (`[ShootDay].clearDayType`, the rule the phone, the
+    /// inspector and the calendar share). False when no day has that id.
     @discardableResult
     mutating func clearDayType(forDayID dayID: UUID, productionRange: ClosedRange<Date>?, calendar: Calendar = .current) -> Bool {
-        guard let index = dayIndex(forDayID: dayID) else { return false }
-        shootDays[index].dayType = .shoot
-        shootDays[index].dayNote = ""
-        if let productionRange {
-            let day     = shootDays[index]
-            let start   = calendar.startOfDay(for: productionRange.lowerBound)
-            let end     = calendar.startOfDay(for: productionRange.upperBound)
-            let inRange = day.date >= start && day.date <= end
-            if !inRange, day.scenes.isEmpty, !day.hasCallSheetData {
-                shootDays.remove(at: index)
-            }
-        }
-        return true
+        shootDays.clearDayType(forDayID: dayID, productionRange: productionRange, calendar: calendar)
     }
 
     // MARK: Notice strips
@@ -162,5 +147,53 @@ extension ProjectData {
         let copy = original.duplicated()
         allScenes.append(copy)
         return copy.id
+    }
+}
+
+// MARK: - Days outside the range
+
+/// The range pickers' two dates as the production range these functions take: whole days,
+/// nil while the end precedes the start (a half-edited range drops nothing). The phone's,
+/// the inspector's and the calendar's one way to build it.
+func pickerRange(start: Date, end: Date, calendar: Calendar = .current) -> ClosedRange<Date>? {
+    let first = calendar.startOfDay(for: start)
+    let last  = calendar.startOfDay(for: end)
+    return first <= last ? first...last : nil
+}
+
+extension [ShootDay] {
+
+    /// Back to a plain shoot day with no note. A day outside `productionRange` (the range
+    /// pickers', whole days) exists only to hold something — a type, a note, an event, a
+    /// call sheet (`updateProductionRange` keeps such days past the range's edges, and the
+    /// Mac's calendar creates them) — so once the type and note are cleared and nothing
+    /// else is on it, the day goes entirely (`removeIfEmptyOutsideRange`). With no range
+    /// known nothing is dropped. False when no day has that id. The calendar calls this
+    /// on its days; `ProjectData.clearDayType` on the project's.
+    @discardableResult
+    mutating func clearDayType(forDayID dayID: UUID, productionRange: ClosedRange<Date>?, calendar: Calendar = .current) -> Bool {
+        guard let index = firstIndex(where: { $0.id == dayID }) else { return false }
+        self[index].dayType = .shoot
+        self[index].dayNote = ""
+        removeIfEmptyOutsideRange(dayID: dayID, productionRange: productionRange, calendar: calendar)
+        return true
+    }
+
+    /// Drops the day if it lies outside `productionRange` (compared as whole days) and
+    /// holds nothing: no strips, a plain shoot type, no note, no call sheet. The date is an
+    /// empty tile again instead of a stray blank day. What the calendar runs on the source
+    /// day after a day swap or a band move, and Clear Day Type after its reset. Nil drops
+    /// nothing. True when the day went.
+    @discardableResult
+    mutating func removeIfEmptyOutsideRange(dayID: UUID, productionRange: ClosedRange<Date>?, calendar: Calendar = .current) -> Bool {
+        guard let productionRange, let index = firstIndex(where: { $0.id == dayID }) else { return false }
+        let day     = self[index]
+        let start   = calendar.startOfDay(for: productionRange.lowerBound)
+        let end     = calendar.startOfDay(for: productionRange.upperBound)
+        let inRange = day.date >= start && day.date <= end
+        guard !inRange, day.scenes.isEmpty, day.dayType.isShootable, day.dayNote.isEmpty, !day.hasCallSheetData
+        else { return false }
+        remove(at: index)
+        return true
     }
 }

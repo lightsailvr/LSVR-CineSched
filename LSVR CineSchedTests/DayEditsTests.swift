@@ -384,4 +384,159 @@ struct DayEditsTests {
         #expect(!ok24)
         #expect(data == before)
     }
+
+    // MARK: - The Mac's copies, pinned (#35)
+
+    // `ContentView.duplicateBoneyardScene`, `ContentView+Inspector.clearDayType` and
+    // `CalendarView.clearDayType` / `pruneIfEmptyOutsideRange` as they stood before the
+    // Mac's call sites moved to the functions here, transcribed as oracles.
+
+    private func macBoneyardDuplicate(_ scene: Scene) -> Scene {
+        Scene(
+            title:            scene.title + " (Copy)",
+            sceneNumber:      scene.sceneNumber,
+            duration:         scene.duration,
+            estimatedTime:    scene.estimatedTime,
+            dayNightType:     scene.dayNightType,
+            cast:             scene.cast,
+            summary:          scene.summary,
+            extras:           scene.extras,
+            props:            scene.props,
+            setDressing:      scene.setDressing,
+            wardrobe:         scene.wardrobe,
+            makeupHair:       scene.makeupHair,
+            vehicles:         scene.vehicles,
+            specialEquipment: scene.specialEquipment,
+            stunts:           scene.stunts,
+            sfx:              scene.sfx,
+            vfx:              scene.vfx,
+            breakdownNotes:   scene.breakdownNotes
+        )
+    }
+
+    /// The inspector's Clear Day Type, over the range pickers' two dates.
+    private func macInspectorClearDayType(_ data: inout ProjectData, dayID: UUID, startDate: Date, endDate: Date) {
+        let calendar   = Calendar.current
+        let rangeStart = calendar.startOfDay(for: startDate)
+        let rangeEnd   = calendar.startOfDay(for: endDate)
+        guard let index = data.dayIndex(forDayID: dayID) else { return }
+        data.shootDays[index].dayType = .shoot
+        data.shootDays[index].dayNote = ""
+        let day     = data.shootDays[index]
+        let inRange = day.date >= rangeStart && day.date <= rangeEnd
+        if !inRange, day.scenes.isEmpty, !day.hasCallSheetData {
+            data.shootDays.remove(at: index)
+        }
+    }
+
+    /// The calendar's prune after a day swap, a band move or Clear Day Type.
+    private func macCalendarPrune(_ days: inout [ShootDay], dayId: UUID, startDate: Date, endDate: Date) {
+        guard let idx = days.firstIndex(where: { $0.id == dayId }) else { return }
+        let day = days[idx]
+        let cal = Calendar.current
+        let inRange = day.date >= cal.startOfDay(for: startDate) && day.date <= cal.startOfDay(for: endDate)
+        if !inRange, day.scenes.isEmpty, day.dayType.isShootable, day.dayNote.isEmpty, !day.hasCallSheetData {
+            days.remove(at: idx)
+        }
+    }
+
+    private func macCalendarClearDayType(_ days: inout [ShootDay], dayID: UUID, startDate: Date, endDate: Date) {
+        guard let idx = days.firstIndex(where: { $0.id == dayID }) else { return }
+        days[idx].dayType = .shoot
+        days[idx].dayNote = ""
+        macCalendarPrune(&days, dayId: dayID, startDate: startDate, endDate: endDate)
+    }
+
+    /// The fixture's two days plus four outside the range: an emptied travel day, one with
+    /// a note only, one holding an event, one holding a call sheet.
+    private func pinningDays() -> [ShootDay] {
+        let later = { (days: Double) in Calendar.current.startOfDay(for: Date(timeIntervalSince1970: 1_800_086_400 + days * 86_400)) }
+        var withEvent = ShootDay(date: later(15), dayType: .travel)
+        withEvent.scenes = [event]
+        var withCallSheet = ShootDay(date: later(16), dayType: .scout)
+        withCallSheet.callSheet.generalCallTime = "06:00 AM"
+        var inside = project().shootDays
+        inside[1].dayType = .holiday
+        inside[1].dayNote = "Labor Day"
+        return inside + [
+            ShootDay(date: later(13), dayType: .travel, dayNote: "Fly home"),
+            ShootDay(date: later(14), dayNote: "Hold"),
+            withEvent,
+            withCallSheet,
+            ShootDay(date: later(17)),
+        ]
+    }
+
+    @Test func duplicatedMatchesTheMacsBoneyardCopy() {
+        let original = Scene(
+            title: "INT. KITCHEN - NIGHT", sceneNumber: "12A", duration: 15, estimatedTime: 150,
+            dayNightType: .night, cast: ["Alex"], summary: "Alex finds the letter.",
+            realLocation: "Stage 4", locationAddress: "100 Universal City Plaza",
+            extras: ["Diners"], props: ["Letter"], setDressing: ["Curtains"], wardrobe: ["Apron"],
+            makeupHair: ["Scar"], vehicles: ["Taxi"], specialEquipment: ["Crane"], stunts: ["Fall"],
+            sfx: ["Smoke"], vfx: ["Fire"], breakdownNotes: "Watch the continuity.",
+            customStartTime: "9:00 AM", isCompleted: true
+        )
+        var copy     = original.duplicated()
+        let expected = macBoneyardDuplicate(original)
+        #expect(copy.id != original.id)
+        copy.id = expected.id
+        #expect(copy == expected, "field for field, the Boneyard's Duplicate and the Stripboard's are one copy")
+    }
+
+    @Test func clearDayTypeMatchesTheInspectorsAndTheCalendarsCopies() {
+        let fixture = pinningDays()
+        let start   = fixture[0].date.addingTimeInterval(9 * 3600)
+        let end     = fixture[1].date.addingTimeInterval(18 * 3600)
+        for day in fixture {
+            var inspected = ProjectData(allScenes: [c], shootDays: fixture, projectTitle: "Fixture")
+            var actual    = inspected
+            var calendar  = fixture
+            macInspectorClearDayType(&inspected, dayID: day.id, startDate: start, endDate: end)
+            macCalendarClearDayType(&calendar, dayID: day.id, startDate: start, endDate: end)
+            actual.clearDayType(forDayID: day.id, productionRange: start...end)
+            #expect(actual.shootDays == inspected.shootDays)
+            #expect(actual.shootDays == calendar)
+
+            var days = fixture
+            days.clearDayType(forDayID: day.id, productionRange: start...end)
+            #expect(days == calendar)
+        }
+    }
+
+    @Test func pruneMatchesTheCalendarsCopy() {
+        let fixture = pinningDays()
+        let start   = fixture[0].date
+        let end     = fixture[1].date
+        for day in fixture {
+            var expected = fixture
+            var actual   = expected
+            macCalendarPrune(&expected, dayId: day.id, startDate: start, endDate: end)
+            actual.removeIfEmptyOutsideRange(dayID: day.id, productionRange: start...end)
+            #expect(actual == expected)
+        }
+        // Only the plain, empty day past the range goes; a type or a note keeps a day.
+        var days = fixture
+        let plain = days[6]
+        let plainWent = days.removeIfEmptyOutsideRange(dayID: plain.id, productionRange: start...end)
+        #expect(plainWent)
+        #expect(!days.contains { $0.id == plain.id })
+        let typedWent = days.removeIfEmptyOutsideRange(dayID: days[2].id, productionRange: start...end)
+        #expect(!typedWent, "a typed day stays")
+        let notedWent = days.removeIfEmptyOutsideRange(dayID: days[3].id, productionRange: start...end)
+        #expect(!notedWent, "a noted day stays")
+        var unranged = fixture
+        let unrangedWent = unranged.removeIfEmptyOutsideRange(dayID: plain.id, productionRange: nil)
+        #expect(!unrangedWent, "no range drops nothing")
+    }
+
+    @Test func thePickerRangeIsWholeDaysAndNilWhileInverted() {
+        let calendar = Calendar.current
+        let day1 = calendar.startOfDay(for: Date(timeIntervalSince1970: 1_800_000_000))
+        let day2 = calendar.startOfDay(for: Date(timeIntervalSince1970: 1_800_086_400))
+        #expect(pickerRange(start: day1.addingTimeInterval(15 * 3600), end: day2.addingTimeInterval(9 * 3600)) == day1...day2)
+        // The same day with the end's time before the start's is still that day.
+        #expect(pickerRange(start: day1.addingTimeInterval(15 * 3600), end: day1.addingTimeInterval(9 * 3600)) == day1...day1)
+        #expect(pickerRange(start: day2, end: day1) == nil)
+    }
 }

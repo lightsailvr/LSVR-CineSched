@@ -81,4 +81,33 @@ struct EditorSelectionTests {
         #expect(selection.pruned(in: moved) == selection)
         #expect(moved.locate(sceneID: scene.id) == .scheduled(dayIndex: 0, sceneIndex: 0))
     }
+
+    // MARK: - The Mac's copies, pinned (#35)
+
+    /// `ContentView+Inspector.knownLocations` and `StripboardView.allProjectLocations` (the
+    /// same lines) as they stood before both moved to `knownLocations`, as an oracle.
+    private func macKnownLocations(shootDays: [ShootDay], allScenes: [Scene], productionInfo: ProductionInfo) -> [String] {
+        var set = Set<String>()
+        for d in shootDays {
+            for s in d.scenes where !s.realLocation.isEmpty { set.insert(s.realLocation) }
+        }
+        for s in allScenes where !s.realLocation.isEmpty { set.insert(s.realLocation) }
+        for loc in productionInfo.locationRoster where !loc.name.isEmpty { set.insert(loc.name) }
+        return Array(set).sorted()
+    }
+
+    @Test func knownLocationsMatchTheMacsCopies() {
+        var dressed = self.project
+        dressed.allScenes[0].realLocation = "Stage 4"
+        dressed.shootDays[1].scenes[1].realLocation = "alameda Warehouse"
+        dressed.shootDays[1].scenes.append(Scene(title: "INT. HALL - DAY", sceneNumber: "3", realLocation: "Stage 4"))
+        dressed.productionInfo = ProductionInfo(locationRoster: [Location(name: "City Hall"), Location(name: ""), Location(name: "Stage 4")])
+        for project in [self.project, dressed] {
+            let expected = macKnownLocations(shootDays: project.shootDays, allScenes: project.allScenes,
+                                             productionInfo: project.productionInfo ?? ProductionInfo())
+            #expect(project.knownLocations == expected)
+            #expect(ProjectData.knownLocations(shootDays: project.shootDays, allScenes: project.allScenes,
+                                               productionInfo: project.productionInfo) == expected)
+        }
+    }
 }

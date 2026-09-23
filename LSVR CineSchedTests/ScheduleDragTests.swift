@@ -403,4 +403,116 @@ struct ScheduleDragTests {
         #expect(ScheduleMoves.adjacentDayID(of: days[1].id, .next,     in: days) == nil)
         #expect(ScheduleMoves.adjacentDayID(of: UUID(),     .next,     in: days) == nil)
     }
+
+    // MARK: - The Mac's day swaps, pinned (#35)
+
+    // `StripboardView.handleDayRearrange` and `CalendarView.handleDayRearrange` /
+    // `swapDayContents` (the calendar's then pruned the source day if it was left empty
+    // outside the range) as they stood before both moved to `swapDays`, as oracles.
+
+    private func macStripboardSwap(_ days: inout [ShootDay], sourceDayId: UUID, targetDayId: UUID) {
+        guard sourceDayId != targetDayId,
+              let sourceIdx = days.firstIndex(where: { $0.id == sourceDayId }),
+              let targetIdx = days.firstIndex(where: { $0.id == targetDayId })
+        else { return }
+        let sourceScenes    = days[sourceIdx].scenes
+        let sourceCallSheet = days[sourceIdx].callSheet
+        let sourceType      = days[sourceIdx].dayType
+        let sourceNote      = days[sourceIdx].dayNote
+        let targetScenes    = days[targetIdx].scenes
+        let targetCallSheet = days[targetIdx].callSheet
+        let targetType      = days[targetIdx].dayType
+        let targetNote      = days[targetIdx].dayNote
+        days[sourceIdx].scenes    = targetScenes
+        days[sourceIdx].callSheet = targetCallSheet
+        days[sourceIdx].dayType   = targetType
+        days[sourceIdx].dayNote   = targetNote
+        days[targetIdx].scenes    = sourceScenes
+        days[targetIdx].callSheet = sourceCallSheet
+        days[targetIdx].dayType   = sourceType
+        days[targetIdx].dayNote   = sourceNote
+    }
+
+    private func macCalendarSwapDayContents(_ days: inout [ShootDay], _ a: Int, _ b: Int) {
+        let scenes    = days[a].scenes
+        let callSheet = days[a].callSheet
+        let type      = days[a].dayType
+        let note      = days[a].dayNote
+        days[a].scenes    = days[b].scenes
+        days[a].callSheet = days[b].callSheet
+        days[a].dayType   = days[b].dayType
+        days[a].dayNote   = days[b].dayNote
+        days[b].scenes    = scenes
+        days[b].callSheet = callSheet
+        days[b].dayType   = type
+        days[b].dayNote   = note
+    }
+
+    private func macCalendarPrune(_ days: inout [ShootDay], dayId: UUID, startDate: Date, endDate: Date) {
+        guard let idx = days.firstIndex(where: { $0.id == dayId }) else { return }
+        let day = days[idx]
+        let cal = Calendar.current
+        let inRange = day.date >= cal.startOfDay(for: startDate) && day.date <= cal.startOfDay(for: endDate)
+        if !inRange, day.scenes.isEmpty, day.dayType.isShootable, day.dayNote.isEmpty, !day.hasCallSheetData {
+            days.remove(at: idx)
+        }
+    }
+
+    private func macCalendarRearrange(_ days: inout [ShootDay], sourceDayId: UUID, targetDayId: UUID, startDate: Date, endDate: Date) {
+        guard let srcIdx = days.firstIndex(where: { $0.id == sourceDayId }),
+              let dstIdx = days.firstIndex(where: { $0.id == targetDayId }),
+              srcIdx != dstIdx else { return }
+        macCalendarSwapDayContents(&days, srcIdx, dstIdx)
+        macCalendarPrune(&days, dayId: sourceDayId, startDate: startDate, endDate: endDate)
+    }
+
+    /// The dressed board (day 1 a travel day with a call sheet, day 2 holding d) plus,
+    /// past the range, an empty plain day and a scout day holding nothing else.
+    private func swapBoard() -> [ShootDay] {
+        var (days, _) = dressedBoard()
+        let cal = Calendar.current
+        for i in days.indices { days[i].date = cal.startOfDay(for: days[i].date) }
+        days.append(ShootDay(date: days[1].date.addingTimeInterval(7 * 86_400)))
+        days.append(ShootDay(date: days[1].date.addingTimeInterval(8 * 86_400), dayType: .scout, dayNote: "Recce"))
+        return days
+    }
+
+    @Test func swapDaysMatchesTheStripboardsCopyForEveryPair() {
+        let board = swapBoard()
+        let ids   = board.map(\.id) + [UUID()]
+        for source in ids {
+            for target in ids {
+                var expected = board
+                var actual   = expected
+                macStripboardSwap(&expected, sourceDayId: source, targetDayId: target)
+                ScheduleMoves.swapDays(source, target, in: &actual)
+                #expect(actual == expected)
+            }
+        }
+    }
+
+    @Test func swapDaysThenThePruneMatchesTheCalendarsCopyForEveryPair() {
+        let board = swapBoard()
+        let start = board[0].date.addingTimeInterval(10 * 3600)
+        let end   = board[1].date.addingTimeInterval(10 * 3600)
+        let ids   = board.map(\.id) + [UUID()]
+        for source in ids {
+            for target in ids {
+                var expected = board
+                var actual   = expected
+                macCalendarRearrange(&expected, sourceDayId: source, targetDayId: target, startDate: start, endDate: end)
+                if ScheduleMoves.swapDays(source, target, in: &actual) {
+                    actual.removeIfEmptyOutsideRange(dayID: source, productionRange: start...end)
+                }
+                #expect(actual == expected)
+            }
+        }
+        // The scout day swapped onto the empty day past the range: the emptied source goes.
+        var days = board
+        let scout = days[3].id, empty = days[2].id
+        ScheduleMoves.swapDays(scout, empty, in: &days)
+        days.removeIfEmptyOutsideRange(dayID: scout, productionRange: start...end)
+        #expect(days.map(\.id) == [board[0].id, board[1].id, empty])
+        #expect(days[2].dayType == .scout && days[2].dayNote == "Recce")
+    }
 }

@@ -102,9 +102,15 @@ extension ProjectData {
     // MARK: - Locations
 
     /// The location roster plus every real location a scene names, once each, sorted:
-    /// what the scene editors' location field suggests (the inspector's and the
-    /// Stripboard sheet's rule, which keep their own copies).
+    /// what every scene editor's location field suggests (the phone's, the inspector's
+    /// and the Stripboard sheet's).
     nonisolated var knownLocations: [String] {
+        Self.knownLocations(shootDays: shootDays, allScenes: allScenes, productionInfo: productionInfo)
+    }
+
+    /// The same over the pieces, for a view that holds the days, the Boneyard and the
+    /// production info rather than the project (the Stripboard).
+    nonisolated static func knownLocations(shootDays: [ShootDay], allScenes: [Scene], productionInfo: ProductionInfo?) -> [String] {
         var set = Set<String>()
         for day in shootDays {
             for scene in day.scenes where !scene.realLocation.isEmpty { set.insert(scene.realLocation) }

@@ -1,7 +1,7 @@
 // BreakdownBrowser.swift
 // The Breakdown Browser's pure part (#28): which scenes it pages through and in what
-// order. The list is the one the Mac's browser has always built, as a second copy of the
-// order (`ContentView.populateBreakdownBrowserScenes`, which stays as it is): every scene of
+// order, for both browsers (the Mac's `ContentView.populateBreakdownBrowserScenes` takes
+// its snapshot through `scenes(in:)` since #35, pinned by `BreakdownBrowserTests`): every scene of
 // the project, Boneyard first and then the days, once each, sorted by `scriptOrderKey`
 // (12, 12A, 12B, 13; scenes without a number after them, by title). Banners count as the
 // Mac counts them, so the two browsers show the same list for the same project.
@@ -31,6 +31,12 @@ struct BreakdownBrowser: Equatable {
         // `sort` is stable, so scenes with the same key keep their board order.
         combined.sort { $0.scriptOrderKey < $1.scriptOrderKey }
         sceneIDs = combined.map(\.id)
+    }
+
+    /// The scenes themselves, in the browser's order: the Mac's browser pages through a
+    /// snapshot of these and writes each back by id.
+    func scenes(in project: ProjectData) -> [Scene] {
+        sceneIDs.compactMap { project.scene(withID: $0) }
     }
 
     var isEmpty: Bool  { sceneIDs.isEmpty }
