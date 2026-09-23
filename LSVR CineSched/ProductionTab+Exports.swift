@@ -70,10 +70,17 @@ extension ProductionTab {
             includeFrames: $shotListIncludeFrames,
             onCancel:      { activeSheet = nil },
             onExport:      { options in
+                pendingShotListExport = options
                 activeSheet = nil
-                exports.shotList(options: options)
             }
         )
+    }
+
+    /// The `.sheet`'s `onDismiss`: the export the options sheet asked for, once it is gone.
+    func runPendingShotListExport() {
+        guard let options = pendingShotListExport else { return }
+        pendingShotListExport = nil
+        exports.shotList(options: options)
     }
 
     // MARK: - The month calendar

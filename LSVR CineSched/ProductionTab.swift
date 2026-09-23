@@ -98,6 +98,10 @@ struct ProductionTab: View {
     @State var showingImportPicker = false
     @State var pendingImport: FountainImportResult?
     @State var alertMessage: String?
+    /// The Shot List options sheet's Export, run once the sheet has gone
+    /// (`runPendingShotListExport`), so the preview or the failure alert is not
+    /// presented over a sheet that is still dismissing.
+    @State var pendingShotListExport: ShotListPDFOptions?
 
     // App-wide preferences the exports and the fields picker read (the Mac's keys).
     @AppStorage("CineSchedIncludeHoldInDOOD") var includeHoldInDOOD: Bool = true
@@ -134,7 +138,7 @@ struct ProductionTab: View {
             importSection
         }))
         .insetGroupedListStyle()
-        .sheet(item: $activeSheet) { sheet in
+        .sheet(item: $activeSheet, onDismiss: runPendingShotListExport) { sheet in
             sheetContent(sheet)
         }
         .onChange(of: activeSheet) { _, newValue in

@@ -167,6 +167,8 @@ struct ContentView: View {
     // The Shot List's options (#40), app-wide like the month's and shared with the phone.
     @AppStorage(ShotListPDFOptionSettings.scopeKey)         private var shotListScopeRaw: String = ShotListPDFOptionSettings.projectRaw
     @AppStorage(ShotListPDFOptionSettings.includeFramesKey) private var shotListIncludeFrames: Bool = ShotListPDFOptions.default.includeFrames
+    /// The options sheet's Export, run as the sheet finishes dismissing (`runPendingShotListExport`).
+    @State private var pendingShotListExport: ShotListPDFOptions? = nil
 
     // MARK: - Derived state
 
@@ -511,10 +513,18 @@ struct ContentView: View {
             includeFrames: $shotListIncludeFrames,
             onCancel:      { activeSheet = nil },
             onExport:      { options in
+                pendingShotListExport = options
                 activeSheet = nil
-                exportShotList(options: options)
             }
         )
+    }
+
+    /// The export the options sheet asked for, once the sheet is gone: a failure's alert
+    /// presented while the sheet was still dismissing never showed on the Mac.
+    private func runPendingShotListExport() {
+        guard let options = pendingShotListExport else { return }
+        pendingShotListExport = nil
+        exportShotList(options: options)
     }
 
     // MARK: - Mac window toolbar
@@ -605,7 +615,7 @@ struct ContentView: View {
                     ImportSummaryView(result: result, onDismiss: { showingImportSummary = false })
                 }
             }
-            .sheet(item: $activeSheet) { sheet in
+            .sheet(item: $activeSheet, onDismiss: runPendingShotListExport) { sheet in
                 switch sheet {
                 case .unscheduledEdit:
                     unscheduledEditSheet

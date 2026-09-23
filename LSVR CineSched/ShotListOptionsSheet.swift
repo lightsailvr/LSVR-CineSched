@@ -41,6 +41,7 @@ struct ShotListOptionsSheet: View {
                         Text(L("One Day")).tag(true)
                     }
                     .pickerStyle(.segmented)
+                    .disabled(days.isEmpty)
                     if case .day(let id) = scope {
                         Picker(L("Day"), selection: dayBinding(current: id)) {
                             ForEach(days) { day in
@@ -48,8 +49,6 @@ struct ShotListOptionsSheet: View {
                             }
                         }
                     }
-                } header: {
-                    Text(L("Scope"))
                 } footer: {
                     if days.isEmpty {
                         Text(L("No shoot day has scenes yet, so the Shot List covers the whole project."))
