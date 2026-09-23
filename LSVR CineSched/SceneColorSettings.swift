@@ -113,8 +113,8 @@ nonisolated struct ScenePalette: Codable, Equatable {
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: SlotKey.self)
-        // Walked in slot order; the encoder orders the keys its own way, as it does the
-        // rest of the file (ProjectCodec sets no `sortedKeys`).
+        // Walked in slot order; the file's keys are written sorted, as the rest of the
+        // file's are (ProjectCodec sets `sortedKeys` since #37).
         for slot in SceneColorSlot.allCases {
             if let hex = hexBySlot[slot] {
                 try c.encode(hex, forKey: SlotKey(slot))

@@ -180,6 +180,86 @@ struct ProjectCodecTests {
         #expect(text.contains("\"palette\" : {\n    \"intNight\" : \"00FF00\"\n  }"))
     }
 
+    // MARK: - Shots and frames (#37)
+
+    /// Every file written before shot lists has neither key: each scene decodes with no
+    /// shots and no frame, and saves again without either key.
+    @Test func aPreShotsFileDecodesWithNoShotsAndNoFrame() throws {
+        let decoded = try ProjectCodec.decode(Data(Self.legacyJSON.utf8))
+        let scene   = try #require(decoded.allScenes.first)
+        #expect(scene.shots.isEmpty)
+        #expect(scene.frame == nil)
+
+        let text = try #require(String(data: try ProjectCodec.encode(Self.project), encoding: .utf8))
+        #expect(!text.contains("\"shots\""))
+        #expect(!text.contains("\"frame\""))
+    }
+
+    /// Adding the two fields changed nothing else a scene writes: the keys of a shotless
+    /// scene are exactly the ones the synthesized encoder wrote before #37.
+    @Test func aShotlessSceneWritesTheKeysItAlwaysDid() throws {
+        var banner = Scene.createAutoMeal(kind: .lunch, timeString: "1:00 PM")
+        banner.bannerType = .mealBreak
+        let data   = try JSONEncoder().encode(banner)
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(Set(object.keys) == [
+            "id", "title", "sceneNumber", "duration", "estimatedTime", "dayNightType", "cast", "summary",
+            "realLocation", "locationAddress", "extras", "props", "setDressing", "wardrobe", "makeupHair",
+            "vehicles", "specialEquipment", "stunts", "sfx", "vfx", "breakdownNotes", "isBanner", "bannerType",
+            "bannerTitle", "bannerNote", "bannerColorHex", "isAutoMeal", "mealKind", "isCalendarEvent",
+            "customStartTime", "isCompleted",
+        ])
+        #expect(try JSONDecoder().decode(Scene.self, from: data) == banner)
+    }
+
+    /// A project with shots and frames (frames as base64 in the JSON, ADR 0007) comes back
+    /// equal, and encoding it again gives the same bytes.
+    @Test func shotsAndFramesRoundTripByteForByte() throws {
+        var original = Self.project
+        var withShots = original.allScenes[0]
+        withShots.shots = [
+            Shot(details: "Dolly in towards Astrid", durationMinutes: 20, equipment: ["Dolly", "Track"],
+                 props: ["Lantern"], sfx: ["Rain"], frame: Data([0xFF, 0xD8, 0xFF, 0xD9])),
+            Shot(details: "Close", durationMinutes: 10),
+        ]
+        withShots.estimatedTime = 30
+        original.allScenes[0] = withShots
+        var framed = original.allScenes[1]
+        framed.frame = Data([0xFF, 0xD8, 0x00, 0x01, 0xFF, 0xD9])
+        original.allScenes[1] = framed
+
+        let first   = try ProjectCodec.encode(original)
+        let decoded = try ProjectCodec.decode(first)
+        #expect(decoded == original)
+        #expect(decoded.allScenes[0].shots.first?.frame == Data([0xFF, 0xD8, 0xFF, 0xD9]))
+        #expect(decoded.allScenes[1].frame == Data([0xFF, 0xD8, 0x00, 0x01, 0xFF, 0xD9]))
+        let second = try ProjectCodec.encode(decoded)
+        #expect(second == first)
+
+        let text = try #require(String(data: first, encoding: .utf8))
+        // Base64 as a JSON string; `JSONEncoder` escapes the alphabet's "/" as "\/"
+        // (no `.withoutEscapingSlashes` in the codec), so these bytes read "\/9j\/2Q==".
+        let base64 = Data([0xFF, 0xD8, 0xFF, 0xD9]).base64EncodedString()
+        #expect(base64 == "/9j/2Q==")
+        #expect(text.contains(#""frame" : "\/9j\/2Q==""#))
+        #expect(text.contains("\"details\" : \"Dolly in towards Astrid\""))
+    }
+
+    /// A hand-edited shot with only a description opens with a fresh id, the default
+    /// 15 minutes, empty lists and no frame.
+    @Test func aShotWithOnlyADescriptionDecodesWithDefaults() throws {
+        let json = """
+        { "id" : "5D9F6C88-0F84-4B7A-9A6C-4C2E0F1D2A11", "title" : "INT. BARN - NIGHT", "duration" : 8,
+          "estimatedTime" : 30, "dayNightType" : "NIGHT", "shots" : [ { "details" : "Wide" } ] }
+        """
+        let scene = try JSONDecoder().decode(Scene.self, from: Data(json.utf8))
+        let shot  = try #require(scene.shots.first)
+        #expect(shot.details == "Wide")
+        #expect(shot.durationMinutes == 15)
+        #expect(shot.equipment.isEmpty && shot.props.isEmpty && shot.sfx.isEmpty)
+        #expect(shot.frame == nil)
+    }
+
     @Test func garbageThrows() {
         #expect(throws: (any Error).self) {
             try ProjectCodec.decode(Data("not a project".utf8))

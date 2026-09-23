@@ -200,6 +200,13 @@ struct Scene: Identifiable, nonisolated Codable, nonisolated Hashable {
     /// scene's real Day/Night/Dawn/Dusk/Afternoon classification to do it.
     var isCompleted: Bool
 
+    // Shot list (#37): the scene's shots in shooting order, lettered by position
+    // (ShotEdits.swift), and the storyboard frame of a scene that has none — JPEG bytes,
+    // base64 in the file (ADR 0007). Every change to `shots` goes through ShotEdits so the
+    // estimate and frame rules run; a scene with shots never carries a frame of its own.
+    var shots: [Shot]
+    var frame: Data?
+
     init(
         title: String,
         sceneNumber: String = "",
@@ -230,7 +237,9 @@ struct Scene: Identifiable, nonisolated Codable, nonisolated Hashable {
         mealKind: MealKind? = nil,
         isCalendarEvent: Bool = false,
         customStartTime: String = "",
-        isCompleted: Bool = false
+        isCompleted: Bool = false,
+        shots: [Shot] = [],
+        frame: Data? = nil
     ) {
         self.id               = UUID()
         self.title            = title
@@ -263,6 +272,8 @@ struct Scene: Identifiable, nonisolated Codable, nonisolated Hashable {
         self.isCalendarEvent  = isCalendarEvent
         self.customStartTime  = customStartTime
         self.isCompleted      = isCompleted
+        self.shots            = shots
+        self.frame            = frame
     }
 
     static func createBanner(type: BannerType, title: String, note: String = "", estimatedTime: String = "0:30", colorHex: String = "8B5CF6") -> Scene {
@@ -374,6 +385,7 @@ struct Scene: Identifiable, nonisolated Codable, nonisolated Hashable {
         case extras, props, setDressing, wardrobe, makeupHair, vehicles, specialEquipment, stunts, sfx, vfx, breakdownNotes
         case isBanner, bannerType, bannerTitle, bannerNote, bannerColorHex, isAutoMeal, mealKind, isCalendarEvent, customStartTime
         case isCompleted
+        case shots, frame
     }
 
     nonisolated init(from decoder: Decoder) throws {
@@ -417,6 +429,49 @@ struct Scene: Identifiable, nonisolated Codable, nonisolated Hashable {
         isCalendarEvent  = try c.decodeIfPresent(Bool.self, forKey: .isCalendarEvent) ?? false
         customStartTime  = try c.decodeIfPresent(String.self, forKey: .customStartTime) ?? ""
         isCompleted      = try c.decodeIfPresent(Bool.self, forKey: .isCompleted) ?? false
+        shots            = try c.decodeIfPresent([Shot].self, forKey: .shots) ?? []
+        frame            = try c.decodeIfPresent(Data.self, forKey: .frame)
+    }
+
+    /// Written by hand only so a scene with no shots and no frame writes neither key, and a
+    /// project saved from before shot lists keeps the same content on its next save. Every
+    /// other field is written exactly as the synthesized encoder did (optionals only when
+    /// set), so older builds read the file as before and ignore the two new keys.
+    nonisolated func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id,                        forKey: .id)
+        try c.encode(title,                     forKey: .title)
+        try c.encode(sceneNumber,               forKey: .sceneNumber)
+        try c.encode(duration,                  forKey: .duration)
+        try c.encode(estimatedTime,             forKey: .estimatedTime)
+        try c.encode(dayNightType,              forKey: .dayNightType)
+        try c.encode(cast,                      forKey: .cast)
+        try c.encode(summary,                   forKey: .summary)
+        try c.encode(realLocation,              forKey: .realLocation)
+        try c.encode(locationAddress,           forKey: .locationAddress)
+        try c.encode(extras,                    forKey: .extras)
+        try c.encode(props,                     forKey: .props)
+        try c.encode(setDressing,               forKey: .setDressing)
+        try c.encode(wardrobe,                  forKey: .wardrobe)
+        try c.encode(makeupHair,                forKey: .makeupHair)
+        try c.encode(vehicles,                  forKey: .vehicles)
+        try c.encode(specialEquipment,          forKey: .specialEquipment)
+        try c.encode(stunts,                    forKey: .stunts)
+        try c.encode(sfx,                       forKey: .sfx)
+        try c.encode(vfx,                       forKey: .vfx)
+        try c.encode(breakdownNotes,            forKey: .breakdownNotes)
+        try c.encode(isBanner,                  forKey: .isBanner)
+        try c.encodeIfPresent(bannerType,       forKey: .bannerType)
+        try c.encode(bannerTitle,               forKey: .bannerTitle)
+        try c.encode(bannerNote,                forKey: .bannerNote)
+        try c.encode(bannerColorHex,            forKey: .bannerColorHex)
+        try c.encode(isAutoMeal,                forKey: .isAutoMeal)
+        try c.encodeIfPresent(mealKind,         forKey: .mealKind)
+        try c.encode(isCalendarEvent,           forKey: .isCalendarEvent)
+        try c.encode(customStartTime,           forKey: .customStartTime)
+        try c.encode(isCompleted,               forKey: .isCompleted)
+        if !shots.isEmpty { try c.encode(shots, forKey: .shots) }
+        try c.encodeIfPresent(frame,            forKey: .frame)
     }
 
     /// "12A. INT. HOUSE - DAY" for display — combines the dedicated number field
@@ -561,6 +616,75 @@ struct Scene: Identifiable, nonisolated Codable, nonisolated Hashable {
         let letter  = trimmed.dropFirst(digits.count).prefix { $0.isLetter }
         guard let number = Int(digits) else { return nil }
         return (number, String(letter).uppercased())
+    }
+}
+
+// MARK: - Shot
+
+/// One shot of a scene's shot list (#37): what it is, how long it takes including its
+/// relight, what it needs, and one optional storyboard frame (JPEG bytes, ADR 0007). A
+/// shot has no stored letter: its letter is its position in `Scene.shots`
+/// (`Shot.letter(forIndex:)`, `Scene.shotNumber(at:)`). Edited only through ShotEdits.swift.
+struct Shot: Identifiable, nonisolated Codable, nonisolated Hashable {
+    /// What a new shot lasts: the cascade's 15 minutes for an unestimated strip, so a shot
+    /// typed as one line of description counts as the scene did before it had any.
+    nonisolated static let defaultDurationMinutes = 15
+
+    var id:              UUID
+    /// The free-text description ("Dolly in towards Astrid"). Not `description`, which
+    /// would read as `CustomStringConvertible` in the debugger and in string interpolation.
+    var details:         String
+    var durationMinutes: Int
+    /// Feeds the scene's Special Equipment in the breakdown union.
+    var equipment:       [String]
+    var props:           [String]
+    var sfx:             [String]
+    var frame:           Data?
+
+    nonisolated init(
+        id:              UUID     = UUID(),
+        details:         String   = "",
+        durationMinutes: Int      = Shot.defaultDurationMinutes,
+        equipment:       [String] = [],
+        props:           [String] = [],
+        sfx:             [String] = [],
+        frame:           Data?    = nil
+    ) {
+        self.id              = id
+        self.details         = details
+        self.durationMinutes = durationMinutes
+        self.equipment       = equipment
+        self.props           = props
+        self.sfx             = sfx
+        self.frame           = frame
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, details, durationMinutes, equipment, props, sfx, frame
+    }
+
+    /// Every field is optional in the file, so a hand-edited shot with only a description
+    /// opens (with a fresh id and the default duration).
+    nonisolated init(from decoder: Decoder) throws {
+        let c           = try decoder.container(keyedBy: CodingKeys.self)
+        id              = try c.decodeIfPresent(UUID.self,     forKey: .id) ?? UUID()
+        details         = try c.decodeIfPresent(String.self,   forKey: .details) ?? ""
+        durationMinutes = try c.decodeIfPresent(Int.self,      forKey: .durationMinutes) ?? Shot.defaultDurationMinutes
+        equipment       = try c.decodeIfPresent([String].self, forKey: .equipment) ?? []
+        props           = try c.decodeIfPresent([String].self, forKey: .props) ?? []
+        sfx             = try c.decodeIfPresent([String].self, forKey: .sfx) ?? []
+        frame           = try c.decodeIfPresent(Data.self,     forKey: .frame)
+    }
+
+    nonisolated func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id,              forKey: .id)
+        try c.encode(details,         forKey: .details)
+        try c.encode(durationMinutes, forKey: .durationMinutes)
+        try c.encode(equipment,       forKey: .equipment)
+        try c.encode(props,           forKey: .props)
+        try c.encode(sfx,             forKey: .sfx)
+        try c.encodeIfPresent(frame,  forKey: .frame)
     }
 }
 

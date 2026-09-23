@@ -24,9 +24,14 @@ nonisolated enum ProjectCodec {
 
     // MARK: - Encode
 
+    /// Keys sorted (#37): without `.sortedKeys` the encoder writes each object's keys in
+    /// an order that differs from one object, and one save, to the next, so the same
+    /// project never saved to the same bytes twice. With storyboard frames in the file
+    /// (ADR 0007) a save is large and iCloud uploads it whole; a stable order means an
+    /// unchanged project writes identical bytes. Readers never depended on the order.
     static func encode(_ project: ProjectData) throws -> Data {
         let encoder = JSONEncoder()
-        encoder.outputFormatting = .prettyPrinted
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .formatted(makeISODateFormatter())
         return try encoder.encode(project)
     }
