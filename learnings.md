@@ -9,6 +9,45 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-23 — Frame sources: the iOS 27 simulator has a camera, visionOS has no paste API, a form row hides a menu's words, and a locked screen ends a Mac probe (#41)
+
+- **The iOS 27 simulator reports a camera.** `UIImagePickerController.isSourceTypeAvailable(.camera)`
+  is true on the iPhone 17 simulator, and Take Photo… presents the real camera UI over a
+  grey simulated feed (flash, zoom, shutter). Its controls are out of process: they are
+  not in the app's XCUITest tree, and a coordinate tap on the shutter captured nothing, so
+  a camera capture is a device step. Do not write "disabled in the simulator" into a
+  ticket's acceptance again. XCUITest's debug description marks a disabled menu item
+  "Disabled"; a disabled one is "not hittable".
+- **`pasteDestination(for:)` and `PasteButton` are unavailable on visionOS** (a compile
+  error, not a no-op), so the paste pieces live in the seam (`PlatformFrameSources`).
+- **A form row on iOS draws a `Menu`'s and a `Button`'s `Label` as the icon alone** (the
+  slot's first build showed three bare icons); `.labelStyle(.titleAndIcon)` brings the
+  words back. A `PasteButton` in an `HStack` proposes no height of its own and stretched
+  the row to some 300 pt; `.fixedSize(horizontal: false, vertical: true)` on the row fixed
+  it. The words then overflowed the iPad's 340 pt inspector column ("Remov"), so the row is
+  a `ViewThatFits` over the titled row and an icon-only one.
+- **The Photos picker in an XCUITest**: on the iPhone its photos are `images` whose labels
+  begin "Photo" and tap fine; on the iPad (landscape) they were not in the tree, and a tap
+  at a point computed from the screenshot picked the photo. `XCUIScreen` screenshots come
+  out portrait on a landscape iPad (rotate before cropping). `simctl addmedia` seeds the
+  library.
+- **Vision Pro under XCUITest**: a coordinate tap fails ("Received invalid scene ID (nil)
+  from Accessibility"), `press(forDuration:thenDragTo:)` on an element does not scroll the
+  inspector, `swipeUp()` on the app scrolls it a whole page past its middle, and
+  `XCUIScreen.main.screenshot()` is a 1-pixel image (use `simctl io … screenshot`). The
+  inspector's Shots section could not be reached, so Vision Pro's Photos picker is on the
+  device checklist; the picker code is the same modifier the iPhone and iPad probes ran.
+- **A Mac probe cannot run while the screen is locked**: System Events lists the
+  process's windows once, then "Invalid index", and `screencapture -l` says "could not
+  create image from window". `CGSessionCopyCurrentDictionary()["CGSSessionScreenIsLocked"]`
+  says so up front. The Mac's paste and drop path was pinned instead in
+  `StoryboardFrameImportTests` (item providers shaped like Finder's file and Preview's
+  TIFF); `NSItemProvider(item:typeIdentifier:)` is deprecated in the 27 SDK, use
+  `registerDataRepresentation(for:)` on an empty provider. The Mac app also restores every
+  window the earlier probes of the same bundle opened.
+
+---
+
 ## 2026-09-23 — Shots on the Stripboard: a destination is chosen by type before the drop decodes, `exported(as:)` ignores `exportingCondition`, the iPad's portrait inspector closes on a board tap, and a 200-strip board kills the simulator's backboardd (#42)
 
 - **A drag's hover never sees the payload, only its types.** `isTargeted` fires on any

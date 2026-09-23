@@ -422,10 +422,25 @@ the build inputs outside it, see Working agreements):
 - `ShotPage.swift`: the scene editor's shot list pieces (#39): `ShotPage` (a shot's page:
   the description, focused on appear except in the inspector; the duration with the
   estimate field's hint; Equipment, Props and SFX as list-mode autocomplete fields, one
-  section each, suggesting `BreakdownSuggestions`; the frame slot), `ShotRow` (number,
-  description, duration, a thumbnail when framed) and `StoryboardFrameSlot` (a frame in a
-  bounded box with Remove Frame; its `sourceControls` is the one place #41 adds the frame
-  sources). Platform-free.
+  section each, suggesting `BreakdownSuggestions`; the frame slot, with the project's frame
+  total under it past 20 MB, #41) and `ShotRow` (number, description, duration, a thumbnail
+  when framed). Platform-free.
+- `StoryboardFrameSlot.swift`: the frame slot the shot page and a shotless scene's frame row
+  show (#41): the frame whole in a bounded box that takes a drop and, focused, a paste
+  (⌘V); a control row of the Add Frame / Replace `Menu` (the seam's pickers and Choose
+  File… through `fileImporter`), the Paste button and Remove, words and icons where they
+  fit and icons alone where not (`ViewThatFits`: the iPad's 340 pt inspector column);
+  `accept`, the one way a picture becomes the frame (`StoryboardFrame.encode(data:)` off the
+  main actor, into the draft's binding, an alert for unreadable bytes); and
+  `StoryboardFrameImport`, the import-only `Transferable` a paste or a drop reads (a file
+  or bytes of any image type; a scene drag never matches). Platform-free.
+- `StoryboardFrameTotals.swift`: the project's frame bytes (#41, `StoryboardFrameTotalsTests`),
+  pure: `Scene.storyboardFrameBytes` (its frame and its shots'), `ProjectData.storyboardFrameBytes`
+  (the Boneyard and every day; `storyboardFrameBytes(shootDays:allScenes:)` over the
+  pieces), `SceneDraft.storyboardFrameBytes`, `StoryboardFrameTotals.bytes(inProject:replacing:with:)`
+  (the editor's total with its draft's frames in place of the saved scene's) and
+  `caption(forBytes:)` ("Storyboard frames: 24 MB" past `captionThreshold`, 20,000,000
+  bytes; nil at or below; its `ByteCountFormatter` built once).
 - `ShotSubRow.swift`: one shot under its strip on the Stripboard (#42), platform-free
   content only (the shot number, the description, the equipment dimmed, the duration
   through `TimeParser.formatMinutes`; never a time, never a thumbnail); the Mac board puts
@@ -494,7 +509,9 @@ the build inputs outside it, see Working agreements):
   Shot, Add Another, Done, with Add Another and Duplicate replacing the page on top; pages
   write into the draft as typed; the estimate read-only with "From N shots" while there
   are shots, a "From shots:" line under Props, Special Equipment and SFX, the scene's frame
-  row while shotless; `breakdownSuggestions:` from every call site and `initialRoute:`, a
+  row while shotless; `breakdownSuggestions:` and, with #41, `storyboardFrameBytes:` (the
+  project's `storyboardFrameBytes`, for the shot page's caption) from every call site, computed
+  per presentation, and `initialRoute:`, a
   `SceneEditorRoute` (`.shot(id)`, `.newShot`) for #42 and #43), `DayDetailSheet` (the day detail: day type and note, the actions as rows,
   call schedule, events, scenes; Done), `BannerInputSheet` (add, or edit with
   `initialBanner`, #26), `CalendarEventInputSheet`, `SendToDaySheet` (a `Mode`:
@@ -761,7 +778,14 @@ the build inputs outside it, see Working agreements):
   trailing column: `.inspector` where it exists, a trailing pane on visionOS, which has no
   such modifier), `PlatformExportPresentation` (whether an export opens the preview sheet
   with Share or the Mac's save panel, and PDFKit's `PDFView` wrapped for SwiftUI on each
-  view layer), `PlatformEditorContainer` (an adaptive editor's sheet: the Mac's fixed
+  view layer), `PlatformFrameSources` (#41: where a storyboard frame comes from beyond the
+  slot's own file importer and drop — `offersPhotos` (iPhone, iPad, Vision Pro, through
+  `storyboardFramePhotosPicker`), `offersCamera` / `cameraAvailable` (iPhone and iPad,
+  `storyboardFrameCamera`, a `UIImagePickerController`, disabled where no camera is
+  reported), and paste (`StoryboardFramePasteButton`, `storyboardFramePasteTarget`:
+  SwiftUI's `PasteButton` and `pasteDestination`, both unavailable on visionOS, which gets
+  nothing); the camera's prompt is the iOS-only `INFOPLIST_KEY_NSCameraUsageDescription`
+  setting), `PlatformEditorContainer` (an adaptive editor's sheet: the Mac's fixed
   frame, the iPhone's detents, form sizing on iPad and visionOS; and
   `editorNavigationBarHidden()`, which hides the bar of an editor's own navigation stack
   where there is one), `LegacyProjectHandoff`,
@@ -969,6 +993,13 @@ long-edge cap, landscape and portrait, no upscale, the result read back as JPEG,
 bytes twice, no source metadata, alpha flattened onto white, PNG bytes by the same rule,
 an EXIF-rotated JPEG upright, the decode cache by content; the view has no unit seam:
 learnings.md 2026-09-23 #38 renders it with `ImageRenderer` in a throwaway test),
+`ProjectData.storyboardFrameBytes`, the editor's total and the caption
+(`StoryboardFrameTotalsTests`: every scene and shot frame in the Boneyard and the days, 0
+without frames, the pieces equal to the project, the draft's frames in place of the saved
+scene's, nothing up to 20 MB and the total past it), `StoryboardFrameImport`
+(`StoryboardFrameImportTests`: a PNG file, TIFF, JPEG and PNG bytes each import their bytes
+and encode to a 1200 px JPEG, a scene drag never imports; the slot and the pickers have no
+unit seam: learnings.md 2026-09-23 #41 has the probe),
 `SceneSearch` and `BoneyardSelection` (`SceneSearchTests`: the blank query, every field
 and every shot field,
 the number's exact-or-prefix rule, cast trimmed and case-insensitive, notice strips never,
