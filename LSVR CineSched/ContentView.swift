@@ -596,13 +596,28 @@ struct ContentView: View {
 
     // MARK: - Modifiers
 
+    /// One alert for both messages. Two `.alert(isPresented:)` chained on one view left
+    /// the inner one (`showingAlert`: every export failure, the schedule lock, the empty
+    /// Breakdown Browser) never presenting on macOS 27, only the outer import result
+    /// (#36's review; learnings 2026-09-23). The import result wins if both are set.
+    private var messageAlertPresented: Binding<Bool> {
+        Binding(
+            get: { showingAlert || showingImportAlert },
+            set: { presented in
+                if !presented {
+                    showingAlert       = false
+                    showingImportAlert = false
+                }
+            }
+        )
+    }
+
     private func applyAlerts<Content: View>(_ content: Content) -> some View {
         content
-            .alert(isPresented: $showingAlert) {
-                Alert(title: Text("CineSched"), message: Text(alertMessage), dismissButton: .default(Text("OK")))
-            }
-            .alert(isPresented: $showingImportAlert) {
-                Alert(title: Text("Import Result"), message: Text(importMessage), dismissButton: .default(Text("OK")))
+            .alert(showingImportAlert ? L("Import Result") : "CineSched", isPresented: messageAlertPresented) {
+                Button(L("OK")) {}
+            } message: {
+                Text(showingImportAlert ? importMessage : alertMessage)
             }
             .confirmationDialog(
                 "Import into Current Project?",
