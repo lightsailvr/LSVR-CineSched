@@ -137,9 +137,9 @@ struct SceneDraft: Equatable {
     // MARK: Conversions
 
     /// A stored minute count as the editor shows it (no units): "45", "2", "2:05", in a
-    /// form `TimeParser` reads back as the same count. A bare integer up to 10 is hours
-    /// there and 11 or more is minutes, so 5 minutes is "0:05" (never "5", five hours)
-    /// and 11 hours is "11:00" (never "11", eleven minutes): a shot's 10 minutes, or an
+    /// form `TimeParser` reads back as the same count. A bare number up to 14 is hours
+    /// there and 15 or more is minutes, so 10 minutes is "0:10" (never "10", ten hours)
+    /// and 15 hours is "15:00" (never "15", fifteen minutes): a shot's 10 minutes, or an
     /// estimate left by removing the last shot, must survive an untouched Save (#39).
     static func minutesForEditing(_ minutes: Int) -> String {
         let hours = minutes / 60

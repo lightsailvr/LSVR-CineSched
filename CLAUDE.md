@@ -419,6 +419,13 @@ the build inputs outside it, see Working agreements):
   `ProductionTab.ActiveSheet.shotListOptions`), which keeps them as
   `pendingShotListExport` and runs the export from the `.sheet`'s `onDismiss`, so the
   preview or the failure alert never presents over a dismissing sheet.
+- `ShotPage.swift`: the scene editor's shot list pieces (#39): `ShotPage` (a shot's page:
+  the description, focused on appear except in the inspector; the duration with the
+  estimate field's hint; Equipment, Props and SFX as list-mode autocomplete fields, one
+  section each, suggesting `BreakdownSuggestions`; the frame slot), `ShotRow` (number,
+  description, duration, a thumbnail when framed) and `StoryboardFrameSlot` (a frame in a
+  bounded box with Remove Frame; its `sourceControls` is the one place #41 adds the frame
+  sources). Platform-free.
 - `ProjectLaunchBackground.swift`: the launch screen's backdrop (#12), moved out of the
   deleted `MinimalProjectEditor.swift` (#24).
 - `EditorSelection.swift`: the inspector's selection (#17), pure: `EditorSelection` (`.scene(id:)`
@@ -428,7 +435,11 @@ the build inputs outside it, see Working agreements):
   bound by id makes (`replaceScene(_:)`, `removeScene(withID:)`, #28) and
   `knownLocations` (the roster plus every real location in use, sorted: every scene
   editor's suggestions; `knownLocations(shootDays:allScenes:productionInfo:)` for the
-  Stripboard, which holds the pieces) (`EditorSelectionTests`).
+  Stripboard, which holds the pieces) and `breakdownSuggestions` (#39: `BreakdownSuggestions`,
+  every script scene's and shot's equipment — Special Equipment and a shot's `equipment` —
+  props and SFX, once each case-insensitively, sorted; what the shot page suggests;
+  `breakdownSuggestions(shootDays:allScenes:)` for the Stripboard and the calendar)
+  (`EditorSelectionTests`).
 - `EditorPresentation.swift`: the `editorPresentation` environment value (`.sheet` default,
   `.inspector`, set once by the inspector on its content) and `EditorSheetSize`, what an
   editor asks of its sheet, platform-free (the Mac frame's width and height, the iPhone's
@@ -466,7 +477,16 @@ the build inputs outside it, see Working agreements):
   inspector; Previous / Next in the header when supplied; the trash, Cancel and Save
   Changes row, plus a Duplicate Scene button when `onDuplicate` is supplied (#26, the
   phone; nil at every Mac call site); follows an external change to its scene while
-  untouched), `DayDetailSheet` (the day detail: day type and note, the actions as rows,
+  untouched; with #39 the Shots section, the call sheet editor's list pattern: a
+  `NavigationStack(path:)` around the form in a sheet, the page swapped in place in the
+  inspector, whose split view would take the push; rows that push `ShotPage` by id, a
+  Reorder toggle where `PlatformListEditing.reorderingNeedsEditMode`, Move Up / Move Down,
+  Duplicate and Remove in a row's menu, swipe to delete; the page footer Remove, Duplicate
+  Shot, Add Another, Done, with Add Another and Duplicate replacing the page on top; pages
+  write into the draft as typed; the estimate read-only with "From N shots" while there
+  are shots, a "From shots:" line under Props, Special Equipment and SFX, the scene's frame
+  row while shotless; `breakdownSuggestions:` from every call site and `initialRoute:`, a
+  `SceneEditorRoute` (`.shot(id)`, `.newShot`) for #42 and #43), `DayDetailSheet` (the day detail: day type and note, the actions as rows,
   call schedule, events, scenes; Done), `BannerInputSheet` (add, or edit with
   `initialBanner`, #26), `CalendarEventInputSheet`, `SendToDaySheet` (a `Mode`:
   `.send(sceneCount:)`, the calendar's and the phone's, or the phone's `.swap(excluding:)`).
@@ -703,7 +723,9 @@ the build inputs outside it, see Working agreements):
   the phone lists' card style that macOS lacks, #24, and the toolbar's
   `windowSubtitle(_:)` and `withoutSharedToolbarBackground()`, which visionOS lacks), `PlatformListEditing`
   (`listReordering(_:)`, the Day screen's edit mode for its strips' drag handles, and
-  `listSelecting(_:)`, the Boneyard tab's for its selection circles (#27), both via the
+  `listSelecting(_:)`, the Boneyard tab's for its selection circles (#27), and
+  `PlatformListEditing.reorderingNeedsEditMode`, whether the scene editor's Shots section
+  offers its Reorder toggle (#39), all via the
   `editMode` environment key that is `@available(macOS, unavailable)`; nothing on macOS, #25),
   `PlatformTabAccessory`
   (`phoneTabBar(accessory:)`: the iPhone editor's tab bar minimizing on scroll with the
@@ -883,8 +905,10 @@ including how to get a compact iPad window),
 `ProjectData.renameCharacter`, `lockSchedule` and `unlockSchedule` (`ProductionEditsTests`),
 `Scene.bannerFillHex` and `bannerDisplayLabel` (`BannerAppearanceTests`, pinned to the
 Mac row's output before the rules moved),
-`EditorSelection`, `ProjectData.locate(sceneID:)`, the pruning and `knownLocations`
-(`EditorSelectionTests`),
+`EditorSelection`, `ProjectData.locate(sceneID:)`, the pruning, `knownLocations` and
+`breakdownSuggestions` (`EditorSelectionTests`; the scene editor's Shots section and pages
+have no unit seam: learnings.md 2026-09-23 #39 has the Mac accessibility probe and the
+inspector note),
 `ScheduleDragPayload` (round-trip per kind, including multi-scene) and `ScheduleMoves`
 (from the Boneyard, within a day, across days, before a strip or at the end, back to the
 Boneyard; the iPhone's `reorderStrips` from `onMove` offsets, `addScenes` in display
@@ -901,7 +925,12 @@ the sum after each edit and after the last removal, the frame moving onto shot A
 `SceneDraft`, `BannerDraft` (reading an existing banner back, `applied(to:)` keeping its
 id), `CalendarEventDraft`, `NewSceneDraft` and `QuickTimeDraft` (`EditorDraftsTests`: what each reads,
 validation, the value written back, the Custom type's blank-means-none rule, the new
-scene's estimate from its pages and its type from the slugline),
+scene's estimate from its pages and its type from the slugline; with #39 `ShotDraft`
+(what it reads, a duration that does not parse, the value written back), the scene
+draft's shots and frame (an untouched draft equal, the sum written on Save and after each
+shot edit, the last sum kept, the frame onto shot A, the "From shots" items),
+`minutesForEditing` read back by `TimeParser` for every minute of a day, and the
+autocomplete field's list matching and completion),
 `StoryboardFrame` (`StoryboardFrameTests`: images synthesized with a `CGContext`; the
 long-edge cap, landscape and portrait, no upscale, the result read back as JPEG, equal
 bytes twice, no source metadata, alpha flattened onto white, PNG bytes by the same rule,

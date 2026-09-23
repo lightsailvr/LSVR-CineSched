@@ -9,6 +9,46 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-23 — The scene editor's shot pages: a `NavigationStack` in the iPad's inspector pushes onto the split view, `minutesForEditing` never round-tripped, and a Mac sheet can be driven by accessibility alone (#39)
+
+- **A `NavigationStack(path:)` inside the three-column layout's `.inspector` does not push
+  inside the inspector.** The enclosing `NavigationSplitView` takes the destination: the shot
+  page covered the whole window, with none of the editor's chrome (no header, no footer),
+  outside the inspector's environment (`editorPresentation` was `.sheet` there, so the
+  description field took focus and raised the keyboard). The call sheet editor never met
+  this because the inspector opens it as a sheet. `SceneEditSheet` swaps the page in place
+  on the same `path` when `editorPresentation == .inspector` and keeps the stack in sheets.
+  Any list editor that will live in the inspector needs the same.
+- **`SceneDraft.minutesForEditing` wrote strings `TimeParser` read back differently**: a
+  bare number up to 14 is hours to the parser (the decimal rule runs before the integer
+  one), so 10 minutes showed as "10" and an untouched Save wrote 600; 15 hours showed as
+  "15", fifteen minutes. It now writes "0:10" and "15:00" (`minutesForEditingRoundTripsThroughTheParser`
+  checks every minute of a day). It mattered here because a shot's 10 minutes and the last
+  sum left after removing the last shot go through it.
+- **An iOS form row shows a `TextField`'s prompt, not its label**, and the formRow
+  `LocationAutocompleteField` had no accessibility label either: three list fields on the
+  shot page read alike once filled, and XCUITest could not find `textFields["Equipment"]`.
+  One section per list, and `.accessibilityLabel(title)` on the field.
+- **A `ViewThatFits` footer needs `fixedSize()` on its text**: a button label wraps rather
+  than overflow, so the long variant always "fits"; with `Text(…).fixedSize()` the inspector's
+  340 pt column falls through to the icon-only Add Another.
+- **The Mac probe without a mouse**: `CGEvent` scroll and drag posted from an agent shell
+  did nothing to the probe window (and would land in the user's apps if they did), so the
+  Mac sheet was driven through System Events accessibility only: `entire contents of sheet 1
+  of (first window whose name contains "cinesched")` indexes every element; `perform action
+  "AXPress"` presses a button, `set value` types into a text field (and scrolls the form to
+  it, the only way found to scroll), `perform action "AXShowMenu"` opens a row's context menu
+  whose `AXMenuItem`s are then in the same sheet's contents. Menu items need the app
+  `frontmost` first or `click` hits a disabled item. SwiftUI buttons have no AX name, so
+  count indices from the list, which shift as rows come and go. A drag reorder on the Mac's
+  grouped `Form` could not be exercised this way; Move Up / Move Down in the row's menu are
+  the verified path, the drag is on the device checklist.
+- `onMove` rows inside a grouped `Form` on iOS show their handles with `listReordering` (the
+  Day screen's seam) exactly as a `List` does, in the iPhone sheet and in the iPad's
+  inspector; their accessibility labels are "Reorder " plus the row's combined label.
+
+---
+
 ## 2026-09-23 — The Shot List export: the PDF dump needs the entitlements dropped, an export after an options sheet waits for `onDismiss`, and System Events resolves a stored process by name (#40)
 
 - **`CINESCHED_PDF_DUMP_DIR` wrote nothing on the Mac with `ENABLE_APP_SANDBOX=NO` alone**

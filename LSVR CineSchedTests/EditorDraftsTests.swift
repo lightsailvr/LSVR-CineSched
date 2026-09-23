@@ -84,14 +84,14 @@ struct EditorDraftsTests {
         #expect(SceneDraft.minutesForEditing(45)  == "45")
         #expect(SceneDraft.minutesForEditing(120) == "2")
         #expect(SceneDraft.minutesForEditing(125) == "2:05")
-        // A bare integer up to 10 is hours to the parser, 11 or more minutes (#39).
+        // A bare number up to 14 is hours to the parser, 15 or more minutes (#39).
         #expect(SceneDraft.minutesForEditing(10)  == "0:10")
         #expect(SceneDraft.minutesForEditing(15)  == "15")
         #expect(SceneDraft.minutesForEditing(660) == "11:00")
     }
 
     /// Every count the editor shows reads back as itself, so an untouched estimate or
-    /// shot duration survives a Save (5 minutes was "5", five hours, before #39).
+    /// shot duration survives a Save (10 minutes was "10", ten hours, before #39).
     @Test func minutesForEditingRoundTripsThroughTheParser() {
         for minutes in 0...(24 * 60) {
             #expect(TimeParser.parseToMinutes(SceneDraft.minutesForEditing(minutes)) == minutes)
