@@ -1,8 +1,8 @@
 // MonthPDFOptionsSheet.swift
-// Options dialog shown before the month PDF export: which per-scene details the
-// breakdown pages print (#21: one adaptive `Form`, the same on every platform).
+// Options dialog shown before the month PDF export: which month (when the caller lets the
+// sheet choose) and which per-scene details the breakdown pages print (#21: one adaptive `Form`, the same on every platform).
 // Toggles write straight through the bindings (they land in UserDefaults via
-// @AppStorage in CalendarView), so the choice sticks between exports — same pattern
+// @AppStorage in ContentView and the phone's Production tab), so the choice sticks between exports — same pattern
 // as StripboardFieldsSheet, whose field rows it shares. Only the size around the form
 // changes per container (`editorContainer`).
 
@@ -14,6 +14,11 @@ struct MonthPDFOptionsSheet: View {
     @Binding var includeEstimatedTime: Bool
     let onCancel: () -> Void
     let onExport: () -> Void
+    /// Which month to export, when the sheet chooses it (the window toolbar's Share ▸
+    /// Month Calendar…): a picker over `months` heads the form. Nil where the month was
+    /// chosen before the sheet opened (the phone's Production tab).
+    var month: Binding<Date>? = nil
+    var months: [Date] = []
 
     /// The Mac frame: the height the fixed-frame sheet had, 40 pt wider so the five
     /// footer buttons stay one row beside the chrome's padding.
@@ -27,6 +32,15 @@ struct MonthPDFOptionsSheet: View {
             )
         } content: {
             Form {
+                if let month, !months.isEmpty {
+                    Section {
+                        Picker(L("Month"), selection: month) {
+                            ForEach(months, id: \.self) { candidate in
+                                Text(formattedDate(candidate, pattern: "LLLL yyyy")).tag(candidate)
+                            }
+                        }
+                    }
+                }
                 Section {
                     FieldToggleRow(isOn: $includePageCount,
                                    icon: "doc.text",

@@ -106,7 +106,7 @@ enum PDFExport {
         return PDFExportRequest(kind: .scheduleCalendar, fileName: "\(projectStem(project.projectTitle))_Calendar.pdf", data: data)
     }
 
-    /// The calendar's Export Month button, after its options sheet.
+    /// The Share menu's Month Calendar (and the phone's), after its options sheet.
     static func monthCalendar(project: ProjectData, month: Date, options: MonthPDFOptions) throws(PDFExportError) -> PDFExportRequest {
         guard let data = PDFExporter.generateMonthPDF(
             month:          month,

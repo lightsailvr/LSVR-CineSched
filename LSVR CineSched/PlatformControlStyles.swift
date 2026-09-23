@@ -1,7 +1,9 @@
 // PlatformControlStyles.swift
 // Platform seam: the three control styles the Mac UI uses that don't exist in UIKit-land
 // (`.checkbox` toggles, `.radioGroup` pickers, `.borderlessButton` menus), and the one
-// list style the iPhone editor uses that AppKit-land lacks (`.insetGrouped`, #24). Views
+// list style the iPhone editor uses that AppKit-land lacks (`.insetGrouped`, #24), plus
+// the two toolbar touches of the window toolbar redesign that visionOS lacks (a window
+// subtitle, and an item without the bar's shared glass). Views
 // call these helpers instead of the styles directly, so they keep the Mac look on the Mac
 // and fall back to the platform default elsewhere without a conditional at each call site.
 
@@ -43,6 +45,33 @@ extension View {
         listStyle(.inset)
         #else
         listStyle(.insetGrouped)
+        #endif
+    }
+}
+
+extension View {
+    /// `.navigationSubtitle` under the window title (the Mac's statistics line); nothing
+    /// on visionOS, which has no such modifier.
+    func windowSubtitle(_ subtitle: String) -> some View {
+        #if os(visionOS)
+        self
+        #else
+        navigationSubtitle(subtitle)
+        #endif
+    }
+}
+
+extension ToolbarContent {
+    /// The item without the toolbar's shared Liquid Glass capsule, for a control that
+    /// draws its own (the segmented view switcher: inside the capsule it showed as a pill
+    /// within a pill) or a status that should read as text. visionOS has no such capsule
+    /// modifier and leaves the item as it is.
+    @ToolbarContentBuilder
+    func withoutSharedToolbarBackground() -> some ToolbarContent {
+        #if os(visionOS)
+        self
+        #else
+        sharedBackgroundVisibility(.hidden)
         #endif
     }
 }

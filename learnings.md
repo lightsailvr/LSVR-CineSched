@@ -9,6 +9,30 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-23 — Toolbar redesign: a segmented picker in a toolbar group is a pill in a pill, visionOS lacks the fixes, and `screencapture -l` probes a Mac window
+
+- **On iOS 27 a segmented `Picker` in a `ToolbarItemGroup` sits inside the group's shared
+  Liquid Glass capsule**, so it reads as a capsule within a capsule. Give it its own
+  `ToolbarItem` with `.sharedBackgroundVisibility(.hidden)`: then only the control's own
+  capsule shows.
+- **`sharedBackgroundVisibility` and `navigationSubtitle` are unavailable on visionOS 27**
+  (a compile error there, fine on macOS and iOS). They go through `PlatformControlStyles`
+  (`withoutSharedToolbarBackground()`, `windowSubtitle(_:)`).
+- **A custom view in an `HStack` toolbar row with no `fixedSize` gets squeezed vertically**:
+  the old Mac view switcher ended up one character wide, "C a l e n d a r" down the
+  row, once the stats and the search field took the width.
+- **Probing the Mac UI from an agent shell**: `screencapture -x -o -l <windowID>` captures one
+  window even behind others (list the ids with `CGWindowListCopyWindowInfo` in a small
+  `swift` script). Copy the built app and a copy of a project into the scratchpad and
+  `open -n -a Probe.app copy.cinesched` so an instance the user is running from Xcode is
+  left alone. The new window takes key focus, so if the user is typing, their keystrokes
+  land in it. Quit it as soon as the capture is done.
+- **A popover can't anchor to the system's `.searchable` field.** The Mac's scene search
+  results hang from a clear 240×1 view at the schedule's top trailing corner, which puts
+  them just under the toolbar's field.
+
+---
+
 ## 2026-09-23 — Retiring a view's private copy of a rule: pin it with an oracle, and mind fixtures that mint ids (#35)
 
 The Mac's copies (`ContentView`, `CalendarView`, `StripboardView`, the inspector) were private

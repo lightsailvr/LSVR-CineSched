@@ -1,6 +1,6 @@
 // ContentView.swift
 // The editor for one project document: sidebar, toolbar, calendar and stripboard views,
-// laid out for the Mac window (two columns and the toolbar row, `EditorLayout.twoColumn`)
+// laid out for the Mac window (two columns under the window toolbar, `EditorLayout.twoColumn`)
 // or, in regular width on the iPad and Vision Pro (#17), as three columns with a trailing
 // inspector bound to the selected scene or day (`.threeColumn`; the inspector is
 // ContentView+Inspector.swift). One view, one set of state and sheets, two bodies: the
@@ -33,6 +33,13 @@ enum ScheduleViewMode: String, CaseIterable {
     var localizedTitle: String {
         L(rawValue)
     }
+
+    var systemImage: String {
+        switch self {
+        case .calendar:   return "calendar"
+        case .stripboard: return "list.bullet.rectangle"
+        }
+    }
 }
 
 // MARK: - Editor layout
@@ -40,8 +47,9 @@ enum ScheduleViewMode: String, CaseIterable {
 /// Which window the editor is laid out for (#17). The platform's `DocumentGroup` in
 /// CineSchedApp (a seam) chooses; the view itself has no platform conditionals.
 enum EditorLayout {
-    /// The Mac window: sidebar and detail, the toolbar row with the stats, the view
-    /// switcher and the search field inside the detail, and the app's menus for the rest.
+    /// The Mac window: sidebar and detail under the window toolbar (the view switcher,
+    /// Share, the search field; the stats as the title's subtitle), and the app's menus
+    /// for the rest.
     case twoColumn
     /// The iPad and Vision Pro window in regular width: sidebar, the calendar or Stripboard
     /// as the content with a system toolbar, and a trailing inspector showing the selected
@@ -149,6 +157,14 @@ struct ContentView: View {
     @State private var scrollToDate: Date? = nil
     @State private var searchQuery: String = ""
 
+    // Month PDF export options: an app preference (UserDefaults) shared with the phone's
+    // Production tab, so the options sheet remembers the last selection between exports.
+    @AppStorage(MonthPDFOptionSettings.fieldsKey) private var monthPDFFieldsRaw: String = MonthPDFOptionSettings.defaultFieldsRaw
+    @AppStorage(MonthPDFOptionSettings.pagesKey)  private var monthPDFShowPages: Bool = MonthPDFOptions.default.includePageCount
+    @AppStorage(MonthPDFOptionSettings.timeKey)   private var monthPDFShowTime:  Bool = MonthPDFOptions.default.includeEstimatedTime
+    /// The month the options sheet exports, seeded as it opens (`openMonthPDFOptions`).
+    @State private var monthPDFMonth: Date = Date()
+
     // MARK: - Derived state
 
     /// The sorted Boneyard, conflict sets, duplicate numbers and lock drift, computed from
@@ -198,6 +214,10 @@ struct ContentView: View {
         /// views present their own copies of these sheets for their own cells.
         case calendarEvent(dayID: UUID, eventID: UUID?)
         case callSheet(dayID: UUID)
+        /// The month calendar's month and options before its export, from the Share menu's
+        /// Month Calendar… (the calendar's own Export Month button went with the toolbar
+        /// redesign). The month is `monthPDFMonth`.
+        case monthPDFOptions
         var id: Self { self }
     }
     @State var activeSheet: ActiveSheet? = nil
@@ -327,25 +347,26 @@ struct ContentView: View {
         return applyLifecycle(withClipboard)
     }
 
-    /// The content column's toolbar in the three-column layout. The view switcher is the
-    /// Mac toolbar row's; undo and redo are the Edit menu's, for a finger with no keyboard
+    /// The content column's toolbar in the three-column layout. The view switcher and
+    /// the Share menu are the Mac toolbar's; undo and redo are the Edit menu's, for a finger with no keyboard
     /// (the iPad's menu bar carries the same commands with the Mac's shortcuts, #22); the
     /// two menus carry what the Mac's View and Production menus do, on the same command
     /// closures (`projectCommands`).
     @ToolbarContentBuilder
     private var threeColumnToolbar: some ToolbarContent {
         // Leading, not principal: the document infrastructure wraps a principal item in
-        // the document title's menu, whose interaction took the picker's taps.
-        ToolbarItemGroup(placement: .navigation) {
-            Picker(L("Schedule View"), selection: $viewMode) {
-                ForEach(ScheduleViewMode.allCases, id: \.self) { mode in
-                    Text(mode.localizedTitle).tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-            .frame(minWidth: 220)
+        // the document title's menu, whose interaction took the picker's taps. Each item
+        // on its own, without the bar's shared glass: the segmented control draws its own
+        // capsule, and inside the group's capsule it showed as a pill within a pill.
+        ToolbarItem(placement: .navigation) {
+            scheduleViewPicker
+                .frame(minWidth: 220)
+        }
+        .withoutSharedToolbarBackground()
+        ToolbarItem(placement: .navigation) {
             SyncStateIndicator(monitor: syncMonitor)
         }
+        .withoutSharedToolbarBackground()
         ToolbarItemGroup(placement: .primaryAction) {
             Button {
                 undoManager?.undo()
@@ -386,23 +407,8 @@ struct ContentView: View {
                 Label(L("Production"), systemImage: "clapperboard")
             }
 
-            // The Mac's File menu exports, plus the whole shooting schedule (the Stripboard
-            // day header exports one day) and the inspected day's call sheet. Each opens
-            // the preview sheet with Share (#23).
-            Menu {
-                Button(L("Schedule Calendar…"))  { projectCommands.exportSchedulePDF() }
-                Button(L("Strip Schedule…"))     { projectCommands.exportStripboardPDF() }
-                Button(L("Shooting Schedule…"))  { showShootingSchedulePDFSavePanel() }
-                Divider()
-                Button(L("Days Out of Days…"))   { projectCommands.exportDaysOutOfDays() }
-                Button(L("Scene Breakdowns…"))   { projectCommands.exportBreakdowns() }
-                if let day = selectedDay {
-                    Divider()
-                    Button("\(L("Call Sheet for")) \(formattedDate(day.date))…") { showCallSheetPDFSavePanel(for: day) }
-                }
-            } label: {
-                Label(L("Export"), systemImage: "square.and.arrow.up")
-            }
+            // Each export opens the preview sheet with Share here (#23).
+            shareMenu
 
             Button {
                 showInspector.toggle()
@@ -410,6 +416,137 @@ struct ContentView: View {
                 Label(L("Inspector"), systemImage: "sidebar.trailing")
             }
         }
+    }
+
+    // MARK: - Toolbar pieces both layouts share
+
+    /// Calendar or Stripboard: the one control that switches what the window schedules
+    /// in, centred in the Mac's window toolbar and leading in the iPad's.
+    private var scheduleViewPicker: some View {
+        Picker(L("Schedule View"), selection: $viewMode) {
+            ForEach(ScheduleViewMode.allCases, id: \.self) { mode in
+                Label(mode.localizedTitle, systemImage: mode.systemImage)
+                    .labelStyle(.titleAndIcon)
+                    .tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize()
+        .help(L("Switch between the calendar and the Stripboard"))
+    }
+
+    /// Every PDF the project exports, in one Share menu: the Mac's save panel or the
+    /// preview sheet with Share (#23) takes it from there. The month calendar goes through
+    /// its options sheet first, which picks the month among those the shoot spans.
+    private var shareMenu: some View {
+        Menu {
+            Button(L("Schedule Calendar…"))  { projectCommands.exportSchedulePDF() }
+            // One item, not a submenu of months: a submenu's own row does nothing on a
+            // click, which read as broken. The sheet picks the month.
+            Button(L("Month Calendar…"))     { openMonthPDFOptions() }
+                .disabled(shootDays.isEmpty)
+            Button(L("Strip Schedule…"))     { projectCommands.exportStripboardPDF() }
+            Button(L("Shooting Schedule…"))  { showShootingSchedulePDFSavePanel() }
+            Divider()
+            Button(L("Days Out of Days…"))   { projectCommands.exportDaysOutOfDays() }
+            Button(L("Scene Breakdowns…"))   { projectCommands.exportBreakdowns() }
+            if let day = selectedDay {
+                Divider()
+                Button("\(L("Call Sheet for")) \(formattedDate(day.date))…") { showCallSheetPDFSavePanel(for: day) }
+            }
+        } label: {
+            Label(L("Share"), systemImage: "square.and.arrow.up")
+        }
+        .menuIndicator(.hidden)
+        .help(L("Export the schedule, calendars, reports and call sheets as PDFs"))
+    }
+
+    /// Opens the month calendar's sheet on this month when the shoot spans it, else on the
+    /// shoot's first month.
+    private func openMonthPDFOptions() {
+        let months = document.project.productionMonths()
+        let now    = Calendar.current.dateComponents([.year, .month], from: Date())
+        monthPDFMonth = months.first { Calendar.current.dateComponents([.year, .month], from: $0) == now }
+            ?? months.first ?? Date()
+        activeSheet = .monthPDFOptions
+    }
+
+    /// The month calendar's month and options, then its export (Share ▸ Month Calendar…).
+    private var monthPDFOptionsSheet: some View {
+        MonthPDFOptionsSheet(
+            selectedFields:       Binding(
+                get: { StripboardFieldSettings.decode(monthPDFFieldsRaw) },
+                set: { monthPDFFieldsRaw = StripboardFieldSettings.encode($0) }
+            ),
+            includePageCount:     $monthPDFShowPages,
+            includeEstimatedTime: $monthPDFShowTime,
+            onCancel:             { activeSheet = nil },
+            onExport:             {
+                activeSheet = nil
+                exportMonthPDF(month: monthPDFMonth, options: MonthPDFOptions(
+                    fields:               StripboardFieldSettings.decode(monthPDFFieldsRaw),
+                    includePageCount:     monthPDFShowPages,
+                    includeEstimatedTime: monthPDFShowTime
+                ))
+            },
+            month:                $monthPDFMonth,
+            months:               document.project.productionMonths()
+        )
+    }
+
+    // MARK: - Mac window toolbar
+
+    /// The Mac window's toolbar: the view switcher centred, then the sync state, the
+    /// Stripboard's display options (only where they have an effect), Share, and the
+    /// search field the system puts at the trailing end (`.searchable` in `detailView`).
+    /// The statistics are the title's subtitle (`scheduleSummary`), so the bar holds
+    /// controls only.
+    @ToolbarContentBuilder
+    private var macToolbar: some ToolbarContent {
+        ToolbarItem(placement: .principal) {
+            scheduleViewPicker
+        }
+        ToolbarItem(placement: .primaryAction) {
+            SyncStateIndicator(monitor: syncMonitor)
+        }
+        .withoutSharedToolbarBackground()
+        ToolbarItemGroup(placement: .primaryAction) {
+            // Only the Stripboard prints per-field chips and folds empty days, so its
+            // options are absent in calendar mode rather than offering settings with no
+            // visible effect there.
+            if viewMode == .stripboard {
+                Menu {
+                    Button("\(L("Stripboard Fields…")) (\(stripboardFields.wrappedValue.count))") {
+                        activeSheet = .stripboardFields
+                    }
+                    // Off by default: a shoot with blocks months apart would otherwise be
+                    // mostly empty day sections. The calendar always shows every date.
+                    Toggle(L("Show All Days"), isOn: $stripboardShowAllDays)
+                } label: {
+                    Label(L("Display"), systemImage: "line.3.horizontal.decrease.circle")
+                }
+                .menuIndicator(.hidden)
+                .help(L("Choose the fields each strip shows and whether empty days are listed"))
+            }
+            shareMenu
+        }
+    }
+
+    /// The schedule at a glance, under the window title: days, progress, time, Boneyard.
+    private var scheduleSummary: String {
+        // Short enough to sit beside the view switcher and the window's "Edited" in a
+        // 1100-point window without truncating.
+        let days = scheduledDays.count
+        var parts = [
+            "\(days) \(L(days == 1 ? "day" : "days"))",
+            "\(completedScenesCount)/\(totalScenes) \(L("done"))",
+            totalEstTime,
+        ]
+        if unscheduledCount > 0 {
+            parts.append("\(unscheduledCount) \(L("in Boneyard"))")
+        }
+        return parts.joined(separator: " · ")
     }
 
     // MARK: - Modifiers
@@ -492,6 +629,8 @@ struct ContentView: View {
                     inspectorCalendarEventSheet(dayID: dayID, eventID: eventID)
                 case .callSheet(let dayID):
                     inspectorCallSheetSheet(dayID: dayID)
+                case .monthPDFOptions:
+                    monthPDFOptionsSheet
                 }
             }
             .onChange(of: activeSheet) { _, newValue in
@@ -1006,15 +1145,20 @@ struct ContentView: View {
 
     // MARK: - Detail / main area
 
-    /// The Mac's detail column: the toolbar row over the schedule.
+    /// The Mac's detail column: the schedule under the window toolbar (`macToolbar`), the
+    /// statistics as the title's subtitle and the scene search in the toolbar.
     private var detailView: some View {
-        VStack {
-            toolbarRow
-            scheduleContent
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(10)
-        .background(currentTheme.canvasBackground(isDarkMode: isDarkMode))
+        scheduleContent
+            .overlay(alignment: .topTrailing) { searchResultsAnchor }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(10)
+            .background(currentTheme.canvasBackground(isDarkMode: isDarkMode))
+            .windowSubtitle(scheduleSummary)
+            .toolbar { macToolbar }
+            .searchable(text: $searchQuery, placement: .toolbar, prompt: Text(L("Search scenes")))
+            .onSubmit(of: .search) {
+                if let first = scheduleSearchResults.first { selectSearchResult(first) }
+            }
     }
 
     /// The calendar or the Stripboard, whichever `viewMode` says, wired to the funnel and
@@ -1050,9 +1194,6 @@ struct ContentView: View {
                     onSceneChanged: endEditGesture,
                     onCallSheetExport: { day in
                         showCallSheetPDFSavePanel(for: day)
-                    },
-                    onExportMonthPDF: { month, options in
-                        exportMonthPDF(month: month, options: options)
                     },
                     onSelectDay: onSelectDay,
                     selectedDayID: selectedDayID,
@@ -1095,7 +1236,7 @@ struct ContentView: View {
         .dimsWhenInactive(layout == .threeColumn)
     }
 
-    // MARK: - Toolbar row
+    // MARK: - Stripboard fields
 
     /// Live view of the persisted Stripboard field selection. Writes go straight back to
     /// UserDefaults through the @AppStorage string, so the sheet's toggles update the board
@@ -1105,85 +1246,6 @@ struct ContentView: View {
             get: { StripboardFieldSettings.decode(stripboardFieldsRaw) },
             set: { stripboardFieldsRaw = StripboardFieldSettings.encode($0) }
         )
-    }
-
-    private var toolbarRow: some View {
-        HStack {
-            Text(projectTitle.isEmpty ? "Untitled Movie" : projectTitle)
-                .font(.headline).fontWeight(.bold)
-                .lineLimit(1).truncationMode(.tail)
-                .frame(maxWidth: 220)
-
-            // The iCloud sync state (nothing for a local file) and the conflict notice.
-            SyncStateIndicator(monitor: syncMonitor)
-
-            Divider().frame(height: 20)
-
-            HStack(spacing: 15) {
-                statBadge(icon: "calendar", value: "\(scheduledDays.count)", label: "days",   color: .blue)
-                statBadge(icon: "checkmark.circle", value: "\(completedScenesCount)/\(totalScenes)", label: "completed", color: .green)
-                statBadge(icon: "clock",    value: totalEstTime,              label: nil,      color: .purple)
-                if unscheduledCount > 0 {
-                    statBadge(icon: "tray.full", value: "\(unscheduledCount)", label: "unscheduled", color: .orange)
-                }
-            }
-
-            Spacer()
-
-            // Custom View Mode Switcher pill styled with currentTheme.activeTabColor
-            HStack(spacing: 2) {
-                ForEach(ScheduleViewMode.allCases, id: \.self) { mode in
-                    Button {
-                        viewMode = mode
-                    } label: {
-                        Text(mode.localizedTitle)
-                            .font(.caption).fontWeight(.semibold)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 5)
-                            .foregroundColor(viewMode == mode ? .white : .primary)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .fill(viewMode == mode
-                                        ? currentTheme.activeTabColor(isDarkMode: isDarkMode)
-                                        : Color.clear)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(3)
-            .background(Color.gray.opacity(0.18))
-            .cornerRadius(8)
-
-            // Only the Stripboard prints per-field chips, so the picker is hidden in
-            // calendar mode rather than offering a setting with no visible effect there.
-            if viewMode == .stripboard {
-                Button {
-                    activeSheet = .stripboardFields
-                } label: {
-                    Label("\(L("Fields")) (\(stripboardFields.wrappedValue.count))", systemImage: "line.3.horizontal.decrease.circle")
-                        .font(.caption).fontWeight(.semibold)
-                }
-                .controlSize(.small)
-                .help(L("Choose which scene fields (Real Location, Special Equipment, Cast...) each strip shows"))
-
-                // Off by default: a shoot with blocks months apart would otherwise be mostly
-                // empty day sections. The calendar always shows every date regardless.
-                Toggle(L("All days"), isOn: $stripboardShowAllDays)
-                    .checkboxToggleStyle()
-                    .font(.caption).fontWeight(.semibold)
-                    .controlSize(.small)
-                    .help(L("Show every date in the range instead of folding empty days into gap rows"))
-            }
-
-            scheduleSearchField
-        }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(currentTheme.panelBackground(isDarkMode: isDarkMode))
-        )
-        .padding(.bottom, 6)
     }
 
     // MARK: - Schedule search
@@ -1257,24 +1319,16 @@ struct ContentView: View {
         .frame(width: 320, height: searchPopoverHeight)
     }
 
-    private var scheduleSearchField: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "magnifyingglass").foregroundColor(.secondary)
-            TextField("Search title, cast, summary…", text: $searchQuery)
-                .textFieldStyle(.plain)
-                .frame(width: 200)
-            if !searchQuery.isEmpty {
-                Button { searchQuery = "" } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
+    /// Where the results hang: an invisible strip at the top trailing corner of the
+    /// schedule, under the toolbar's search field, since a popover cannot anchor to the
+    /// system's field itself.
+    private var searchResultsAnchor: some View {
+        Color.clear
+            .frame(width: 240, height: 1)
+            .allowsHitTesting(false)
+            .popover(isPresented: searchPopoverIsPresented, arrowEdge: .top) {
+                searchResultsList
             }
-        }
-        .padding(.horizontal, 8).padding(.vertical, 5)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.gray.opacity(0.15)))
-        .popover(isPresented: searchPopoverIsPresented, arrowEdge: .bottom) {
-            searchResultsList
-        }
     }
 
     func statBadge(icon: String, value: String, label: String?, color: Color) -> some View {

@@ -1,6 +1,6 @@
 // ContentView+PDFExports.swift
-// The "generate a PDF, then hand it over" actions behind the File menu, the iPad
-// toolbar's Export menu, the calendar's Export Month button, and the call-sheet /
+// The "generate a PDF, then hand it over" actions behind the File menu, the
+// window toolbar's Share menu (the Mac's and the iPad's, month calendar included), the call-sheet /
 // shooting-schedule buttons on the two schedule views and the day inspector. Every
 // exporter call site in the app lives here, and every one is the same two steps: build
 // the `PDFExportRequest` (PDFExportRequest.swift, the exporter's bytes under the file's
@@ -109,7 +109,7 @@ extension ContentView {
         }
     }
 
-    /// The calendar's Export Month button, after the options sheet has been confirmed.
+    /// The Share menu's Month Calendar, after the options sheet has been confirmed.
     func exportMonthPDF(month: Date, options: MonthPDFOptions) {
         guard let request = try? PDFExport.monthCalendar(project: document.project, month: month, options: options) else { return }
         deliver(request) { request in

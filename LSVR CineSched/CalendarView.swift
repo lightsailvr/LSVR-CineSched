@@ -506,9 +506,6 @@ struct CompactMonthCalendarView: View {
     let onBeforeSceneChange: () -> Void
     let onSceneChanged: () -> Void
     let onCallSheetExport: (ShootDay) -> Void
-    /// Month PDF export, handed the displayed month and the confirmed options; the
-    /// exporter call and the save panel live with the other exports in ContentView.
-    let onExportMonthPDF: (Date, MonthPDFOptions) -> Void
     /// The iPad's inspector (#17): a single tap on a day cell or its date hands the day
     /// here, and the day whose id this is gets the selected outline. The Mac passes
     /// neither; its cells keep the double-tap sheet only.
@@ -558,20 +555,6 @@ struct CompactMonthCalendarView: View {
     // Month navigation state
     @State private var displayedMonth: Date = Date()
 
-    // Month PDF export options — an app preference (UserDefaults), like the Stripboard
-    // fields, so the dialog remembers the last selection between exports.
-    @State private var showingExportOptions = false
-    @AppStorage(MonthPDFOptionSettings.fieldsKey) private var monthPDFFieldsRaw: String = MonthPDFOptionSettings.defaultFieldsRaw
-    @AppStorage(MonthPDFOptionSettings.pagesKey)  private var monthPDFShowPages: Bool = MonthPDFOptions.default.includePageCount
-    @AppStorage(MonthPDFOptionSettings.timeKey)   private var monthPDFShowTime:  Bool = MonthPDFOptions.default.includeEstimatedTime
-
-    private var monthPDFFieldsBinding: Binding<Set<StripboardField>> {
-        Binding(
-            get: { StripboardFieldSettings.decode(monthPDFFieldsRaw) },
-            set: { monthPDFFieldsRaw = StripboardFieldSettings.encode($0) }
-        )
-    }
-
     private var isSpanish: Bool {
         LocalizationManager.shared.currentLanguage == .spanish
     }
@@ -612,8 +595,8 @@ struct CompactMonthCalendarView: View {
         HStack(spacing: 12) {
             // View Mode Switcher
             Picker("", selection: $calendarViewMode) {
-                Text(isSpanish ? "📅 Mes Completo" : "📅 Full Month").tag(CalendarViewMode.monthGrid)
-                Text(isSpanish ? "🎬 Horario Completo" : "🎬 Full Schedule").tag(CalendarViewMode.shootDaysOnly)
+                Text(L("Full Month")).tag(CalendarViewMode.monthGrid)
+                Text(L("Full Schedule")).tag(CalendarViewMode.shootDaysOnly)
             }
             .pickerStyle(.segmented)
             .frame(maxWidth: 260)
@@ -668,18 +651,8 @@ struct CompactMonthCalendarView: View {
                     .foregroundColor(.secondary)
             }
 
+            // The month PDF is in the window's Share menu with every other export.
             Spacer()
-
-            Button {
-                showingExportOptions = true
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.down.doc.fill")
-                    Text(L("Export Month (PDF)"))
-                }
-            }
-            .buttonStyle(.bordered)
-            .help(L("Export Month (PDF)"))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -896,18 +869,6 @@ struct CompactMonthCalendarView: View {
                 }
             )
         }
-        .sheet(isPresented: $showingExportOptions) {
-            MonthPDFOptionsSheet(
-                selectedFields: monthPDFFieldsBinding,
-                includePageCount: $monthPDFShowPages,
-                includeEstimatedTime: $monthPDFShowTime,
-                onCancel: { showingExportOptions = false },
-                onExport: {
-                    showingExportOptions = false
-                    exportMonthPDF()
-                }
-            )
-        }
         .onChange(of: showingEditSheet) { _, isShowing in
             if !isShowing { clearEditingState() }
         }
@@ -1027,15 +988,6 @@ struct CompactMonthCalendarView: View {
         onBeforeSceneChange()
         shootDays[idx].dayNote = clean
         onSceneChanged()
-    }
-
-    private func exportMonthPDF() {
-        let options = MonthPDFOptions(
-            fields: StripboardFieldSettings.decode(monthPDFFieldsRaw),
-            includePageCount: monthPDFShowPages,
-            includeEstimatedTime: monthPDFShowTime
-        )
-        onExportMonthPDF(displayedMonth, options)
     }
 
     // MARK: - Day Cell Component

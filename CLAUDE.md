@@ -515,7 +515,9 @@ the build inputs outside it, see Working agreements):
   vs Stripboard, cast row, times vs pages, all days, grid vs list) seeded from and written back to
   the last-used value; app-wide preferences (Dark Mode, Theme, Stripboard fields) stay `@AppStorage`.
 - `ContentView.swift`: the editor for one document (`ContentView(document:layout:)`): the Mac
-  window (`EditorLayout.twoColumn`, the default: sidebar, the toolbar row, the detail) and
+  window (`EditorLayout.twoColumn`, the default: sidebar, the detail under the window toolbar —
+  the Calendar/Stripboard switcher, the Stripboard's Display menu, Share, `.searchable`, the
+  stats as the title's subtitle) and
   the iPad and Vision Pro window in regular width (`.threeColumn`: the same sidebar, the
   schedule under a system toolbar, `.inspector` bound to `selection`). One set of state,
   bindings, sheets and lifecycle; two bodies, the Mac's untouched by the iPad's. It reads
@@ -635,8 +637,9 @@ the build inputs outside it, see Working agreements):
   run-loop observer; `undoGestures(_:)` installs it with inert actions at the iPhone
   editor's root, `applyClipboard` hands it the manager in the three-column layout only,
   and the Mac side has no undo duty),
-  `PlatformControlStyles` (the Mac-only control styles, and `insetGroupedListStyle()`,
-  the phone lists' card style that macOS lacks, #24), `PlatformListEditing`
+  `PlatformControlStyles` (the Mac-only control styles, `insetGroupedListStyle()`,
+  the phone lists' card style that macOS lacks, #24, and the toolbar's
+  `windowSubtitle(_:)` and `withoutSharedToolbarBackground()`, which visionOS lacks), `PlatformListEditing`
   (`listReordering(_:)`, the Day screen's edit mode for its strips' drag handles, and
   `listSelecting(_:)`, the Boneyard tab's for its selection circles (#27), both via the
   `editMode` environment key that is `@available(macOS, unavailable)`; nothing on macOS, #25),
