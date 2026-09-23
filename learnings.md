@@ -9,6 +9,33 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-23 — The shots review round: two chained `.alert`s lose the inner one on macOS, a first responder under a context menu raises the keyboard, and a window probe runs with the screen locked (#36)
+
+- **Two `.alert(isPresented:)` chained on one view: on macOS 27 only the outer one ever
+  presents.** `ContentView.applyAlerts` had the general alert inside the import-result
+  one, so every export failure, "Schedule locked" and the empty Breakdown Browser's note
+  set `showingAlert` and showed nothing (the #40 report). One alert reading both flags
+  fixes it; an alert beside a `confirmationDialog` on the same view presents fine.
+- **Checking a modifier's presentation without the screen**: a throwaway Swift Testing
+  test in the Mac test host that puts the view in an `NSHostingController` inside an
+  `NSWindow`, runs the run loop a few seconds and reads `window.attachedSheet`
+  (`_NSAlertPanel` when an alert shows) worked with the screen locked. Report the result
+  through `Issue.record` and read it back with `xcresulttool get test-results tests`
+  from a kept `-resultBundlePath` (the issue text is not in the `xcodebuild` log).
+- **The keyboard behind the iPhone's long-press menus was the shake fix's responder**:
+  with `PasteboardResponder.ResponderView` first responder (it reclaims the status every
+  run-loop turn), presenting a context menu raised the software keyboard behind it
+  (`app.keyboards.count` 1 with the day header's menu up; 0 with the reclaim disabled).
+  The reclaim now resigns while UIKit's `_UIContextMenuContainerView` is a direct subview
+  of the window (no public "a menu is presented" query) and takes the status back after.
+  A fresh simulator's first keyboard is the slide-to-type onboarding card, which is what
+  covered the menu's lower items.
+- **A sub-row's text must not be the strip's text colour**: `stripTextColor` is black
+  for every scene, right on the opaque pastel strip, but the sub-rows sit on a 28–35 %
+  tint of it over a board that is dark in dark appearance. `Color.primary` stays.
+
+---
+
 ## 2026-09-23 — Shots on the iPhone: a `List`'s reorder handle is labelled by the row's first element, sub-rows share the strips' `onMove` offsets, and the Boneyard tab never read Stripboard Fields (#43)
 
 - **A row's reorder handle takes its accessibility label from the row's first element.**

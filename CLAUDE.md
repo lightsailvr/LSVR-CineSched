@@ -139,7 +139,8 @@ the build inputs outside it, see Working agreements):
   which puts the same manager `edit` registers with on UIKit's responder chain for shake
   to undo and the three-finger gestures (`PlatformPasteboardResponder`). And the shots'
   expansion (#43): Show Shots as the Mac's `CineSchedShowShots` `@WindowPreference` and the
-  chevrons' exceptions as `@State`, one `ShotExpansion` binding handed to the Days list and
+  chevrons' exceptions as `@State`, one `ShotExpansion` binding (`ShotExpansion.binding`
+  and `showAllBinding`, the same construction as `ContentView`'s) handed to the Days list and
   the Day screen, Show Shots to the Production tab and the menu bar's
   `showShotsOnStripboard`. Platform-free.
 - `ProductionTab.swift`: the Production tab (#28): a grouped `List` (no stack of its own,
@@ -213,8 +214,9 @@ the build inputs outside it, see Working agreements):
   blank query matches every script scene), `filter(_:query:)` (order kept),
   `results(for:in:)` (`SceneSearchResult`: the scene and its `SceneLocation`, scheduled
   first in schedule order then the Boneyard in script order; a blank query finds
-  nothing), `matchingShots(in:query:)` (the shots holding any word of the query, for a
-  result's caption, #37) and `BoneyardSelection.ordered(_:inDisplayOrder:)`, the
+  nothing), `toolbarMatches(_:query:)` (the Mac toolbar's older rule: the query as one
+  phrase in the title, summary or a cast name of any strip, and in any shot's text since
+  #36's review) and `BoneyardSelection.ordered(_:inDisplayOrder:)`, the
   multi-selection in the list's order for Send to Day. With #43 a result carries the
   shot that found it (`matchedShotID`, `matchedShotNumber`: the first shot holding a word
   the scene's own fields do not; nil when they hold every word), the Search tab row's
@@ -353,8 +355,11 @@ the build inputs outside it, see Working agreements):
   when its target is gone.
 - `ShotEdits.swift`: a scene's shot list (#37, `ShotEditsTests`), pure, the counterpart
   of `DayEdits.swift`: `Shot.letter(forIndex:)` (A…Z, AA, AB, …), `Scene.shotNumber(at:)`
-  / `shotNumber(forShotID:)` (the scene number then the letter: 12A, 12AA) and
-  `shotNumberPrefix`; the edits as `mutating` methods on `Scene` (`addShot(_:after:)`,
+  / `shotNumber(forShotID:)` (the scene number then the letter: 12A, 12AA),
+  `shotNumberPrefix` (its title pattern an `NSRegularExpression` built once),
+  `Scene.shotNumber(prefix:index:)` (the one place a number is made) and `shotNumbers`
+  (every shot's number with one prefix lookup: what a list of shot rows reads; the same on
+  `SceneDraft`); the edits as `mutating` methods on `Scene` (`addShot(_:after:)`,
   `updateShot`, `removeShot(withID:)`, `moveShots(fromOffsets:toOffset:)`,
   `moveShot(withID:to:)` with `ShotDropPosition` `.before(id)` / `.end`,
   `duplicateShot(withID:)`; what a scene draft runs) and the same on `ProjectData` by scene
@@ -363,7 +368,8 @@ the build inputs outside it, see Working agreements):
   `moveShot(withID:inSceneID:to:)`, `duplicateShot(withID:inSceneID:)`), each false or nil
   and changing nothing when its scene or shot is gone, each ending with the estimate rule
   (`applyShotEstimate`, `shotEstimate`: the durations' sum into `estimatedTime` while there
-  are shots), `addShot` with the frame rule (the first shot takes the scene's frame);
+  are shots), `addShot` with the frame rule (the first shot takes the scene's frame; a
+  first shot bringing a frame while the scene has one is refused, so no board is lost);
   `refreshShotIDs()` (Duplicate Scene, the calendar's duplicate and a paste); the breakdown
   unions `allProps`, `allSpecialEquipment` (a shot's `equipment`) and `allSFX`, which the
   breakdown sheet and the Stripboard Fields values read (`breakdownUnion`: the scene's
@@ -437,7 +443,8 @@ the build inputs outside it, see Working agreements):
   Export hands the options to the caller (`ContentView.ActiveSheet.shotListOptions`,
   `ProductionTab.ActiveSheet.shotListOptions`), which keeps them as
   `pendingShotListExport` and runs the export from the `.sheet`'s `onDismiss`, so the
-  preview or the failure alert never presents over a dismissing sheet.
+  preview or the failure alert never presents over a dismissing sheet; both callers use
+  the sheet's `init(…pendingExport:dismiss:)` and `runPendingExport(_:_:)` for that.
 - `ShotPage.swift`: the scene editor's shot list pieces (#39): `ShotPage` (a shot's page:
   the description, focused on appear except in the inspector; the duration with the
   estimate field's hint; Equipment, Props and SFX as list-mode autocomplete fields, one
@@ -463,8 +470,10 @@ the build inputs outside it, see Working agreements):
 - `ShotSubRow.swift`: one shot under its strip on the Stripboard (#42), platform-free
   content only (the shot number, the description, the equipment dimmed, the duration
   through `TimeParser.formatMinutes`; never a time, never a thumbnail); the Mac board puts
-  its indent, tint, gestures and drag around it, and the phone's lists (#43,
-  `PhoneShotRow`) theirs.
+  its indent, gestures and drag around it, and the phone's lists (#43,
+  `PhoneShotRow`) theirs; `ShotSubRow.tint(for:palette:colorScheme:)` is the one fill
+  behind the sub-rows on both. The text is `Color.primary`, never the strip's black: the
+  tint is translucent over a board that is dark in dark appearance.
 - `PhoneStripListRows.swift`: a day's strips as the iPhone's two lists show them once shots
   expand (#43, `PhoneStripListRowsTests`), pure: `PhoneStripListRow` (a strip, a shot with
   its number — the prefix computed once per strip — or an expanded shotless scene's "no
@@ -536,9 +545,10 @@ the build inputs outside it, see Working agreements):
   Shot, Add Another, Done, with Add Another and Duplicate replacing the page on top; pages
   write into the draft as typed; the estimate read-only with "From N shots" while there
   are shots, a "From shots:" line under Props, Special Equipment and SFX, the scene's frame
-  row while shotless; `breakdownSuggestions:` and, with #41, `storyboardFrameBytes:` (the
-  project's `storyboardFrameBytes`, for the shot page's caption) from every call site, computed
-  per presentation, and `initialRoute:`, a
+  row while shotless; `context:`, a `SceneEditorContext` (the breakdown suggestions and,
+  #41, the project's storyboard frame bytes for the shot page's caption), from the
+  editor's `DerivedScheduleState.sceneEditor` at every call site (the Stripboard and the
+  calendar are handed it as `sceneEditorContext`), never computed in a body, and `initialRoute:`, a
   `SceneEditorRoute` (`.shot(id)`, `.newShot`) for #42 and #43), `DayDetailSheet` (the day detail: day type and note, the actions as rows,
   call schedule, events, scenes; Done), `BannerInputSheet` (add, or edit with
   `initialBanner`, #26), `CalendarEventInputSheet`, `SendToDaySheet` (a `Mode`:
@@ -582,12 +592,14 @@ the build inputs outside it, see Working agreements):
   as a pure function, which the Stripboard's and the calendar's day drops call too, #35)
   and `adjacentDayID(of:_:in:)` with `DayDirection` (the next or previous
   entry of `shootDays`, what Move to Next / Previous Day lands on). All pure over
-  `[ShootDay]` and the Boneyard (`ScheduleDragTests`). A shot sub-row (#42) drags the kind
-  `.shot(id:sceneID:)` inside `ShotDragPayload`, on its own exported type
+  `[ShootDay]` and the Boneyard (`ScheduleDragTests`). A shot sub-row (#42) drags a
+  `ShotDragPayload` (the shot's and its scene's ids, a `Codable` on `CodableRepresentation`,
+  not a kind of the scene payload since #36's review), on its own exported type
   (`UTType.cineschedShotDragPayload`, Config/Info.plist): a destination is picked by type
   while the drag hovers, so no strip, day, Boneyard or calendar destination is ever offered
-  a shot; `ShotDrop.position(for:onto:)` (a `ShotDropTarget`) is the one rule for where it
-  lands, `.before(shot)` or `.end` in its own scene and nil anywhere else, asked both to
+  a shot; `ShotDrop.position(for:onto:)` (a `ShotDropTarget`: a sub-row or a scene's end)
+  is the one rule for where it lands, `.before(shot)` or `.end` in its own scene and nil
+  for another scene's, asked both to
   light a sub-row's indicator and to apply the drop. The
   calendar, the Stripboard and the Boneyard drag with `.draggable`/`.dropDestination` on this
   type (not the 27 reorder container — it crashes beside a heterogeneous drag container, see
@@ -706,7 +718,9 @@ the build inputs outside it, see Working agreements):
   `frame`); `Scene.shots` and `Scene.frame` are written only when set (a hand-written
   `Scene.encode(to:)`), so a project without shot lists saves the same content.
 - `DerivedScheduleState.swift`: everything `ContentView` shows that is computed from the whole
-  project (sorted Boneyard, conflict sets, duplicate numbers, lock drift), the `BoneyardSort`
+  project (sorted Boneyard, conflict sets, duplicate numbers, lock drift, and since #36's
+  review `knownLocations` and `sceneEditor`, the `SceneEditorContext` every scene editor is
+  handed), the `BoneyardSort`
   enum, and the cache that computes it once per `ProjectDocument.changeCount`. Add new
   whole-project derivations here, not as `@State` recomputed in an `onChange`.
 - `ProductionRange.swift`: `ProjectData.updateProductionRange`, the range regeneration (merge or
@@ -785,7 +799,8 @@ the build inputs outside it, see Working agreements):
   which the iPad engages only for a hardware keyboard, #22 — and on iOS carries the
   document's undo manager for shake to undo and the three-finger gestures, which ask
   the first responder, taking the status whenever nothing else holds it through a
-  run-loop observer; `undoGestures(_:)` installs it with inert actions at the iPhone
+  run-loop observer, and giving it up while a long-press menu is up, which otherwise
+  raised the keyboard behind the menu; `undoGestures(_:)` installs it with inert actions at the iPhone
   editor's root, `applyClipboard` hands it the manager in the three-column layout only,
   and the Mac side has no undo duty),
   `PlatformControlStyles` (the Mac-only control styles, `insetGroupedListStyle()`,
@@ -997,8 +1012,8 @@ encoding, off by default and for a saved selection, "1 shot" / "4 shots" / nothi
 month export's pill in `MonthPDFExporterTests`), the Stripboard's shots themselves have no
 unit seam (learnings.md 2026-09-23 #42 has the iPad drag and hover probe and the Mac
 accessibility one),
-`ScheduleDragPayload` (round-trip per kind, including multi-scene and the shot kind on
-its own type, with the types kept apart; `ShotDrop.position` within and outside the
+`ScheduleDragPayload` (round-trip per kind, including multi-scene, and `ShotDragPayload` on
+its own type, with the types kept apart and neither reading the other's bytes; `ShotDrop.position` within and outside the
 scene and for every other kind, #42) and `ScheduleMoves`
 (from the Boneyard, within a day, across days, before a strip or at the end, back to the
 Boneyard; the iPhone's `reorderStrips` from `onMove` offsets, `addScenes` in display
