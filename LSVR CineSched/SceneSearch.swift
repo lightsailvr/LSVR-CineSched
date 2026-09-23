@@ -12,7 +12,11 @@
 //
 // The search returns each hit with where it is (`SceneLocation`, EditorSelection.swift),
 // scheduled scenes first in schedule order and then the Boneyard in script order, so the
-// Search tab can group them and offer "Show in Days" for a scheduled one. Also here:
+// Search tab can group them and offer "Show in Days" for a scheduled one, and with the
+// shot that found it when the match came from the shot list (#43: `matchedShotID` and
+// `matchedShotNumber`, the first shot, in shot order, holding a word of the query the
+// scene's own fields do not; nil when the scene's own fields hold every word), for the
+// row's "in shot 12B" caption. Also here:
 // the display order the Boneyard tab hands a multi-selection to Send to Day in
 // (`BoneyardSelection.ordered`), because a `Set` has no order and the pure moves honour
 // the order of the ids they are given (learnings 2026-09-20, the M3 review).
@@ -45,7 +49,7 @@ enum SceneSearch {
         var results: [SceneSearchResult] = []
         for (dayIndex, day) in project.shootDays.enumerated() {
             for (sceneIndex, scene) in day.scenes.enumerated() where matches(scene, terms: terms) {
-                results.append(SceneSearchResult(scene: scene, location: .scheduled(dayIndex: dayIndex, sceneIndex: sceneIndex)))
+                results.append(result(scene, at: .scheduled(dayIndex: dayIndex, sceneIndex: sceneIndex), terms: terms))
             }
         }
         let boneyard = project.allScenes.enumerated()
@@ -57,9 +61,25 @@ enum SceneSearch {
                 return a.1 < b.1
             }
         for (index, scene) in boneyard {
-            results.append(SceneSearchResult(scene: scene, location: .boneyard(index: index)))
+            results.append(result(scene, at: .boneyard(index: index), terms: terms))
         }
         return results
+    }
+
+    /// A hit with the shot that found it: the first shot holding a word the scene's own
+    /// fields do not; none when they hold every word.
+    private static func result(_ scene: Scene, at location: SceneLocation, terms: [String]) -> SceneSearchResult {
+        let own       = ownText(scene)
+        let shotTerms = terms.filter { !ownFieldsHold($0, own) }
+        guard !shotTerms.isEmpty, !scene.shots.isEmpty,
+              let index = scene.shots.firstIndex(where: { shot in
+                  let text = shotText(shot)
+                  return shotTerms.contains { term in text.contains { $0.contains(term) } }
+              })
+        else { return SceneSearchResult(scene: scene, location: location) }
+        return SceneSearchResult(scene: scene, location: location,
+                                 matchedShotID: scene.shots[index].id,
+                                 matchedShotNumber: scene.shotNumber(at: index))
     }
 
     /// The shots of `scene` that hold at least one word of `query` in their description,
@@ -86,20 +106,41 @@ enum SceneSearch {
     private static func matches(_ scene: Scene, terms: [String]) -> Bool {
         guard !scene.isBanner, !scene.isCalendarEvent else { return false }
         guard !terms.isEmpty else { return true }
-        let number   = scene.sceneNumber.trimmingCharacters(in: .whitespaces).lowercased()
-        let title    = scene.title.lowercased()
-        let summary  = scene.summary.lowercased()
-        let location = scene.realLocation.lowercased()
-        let cast     = scene.cast.map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
-        let shots    = scene.shots.map { shotText($0) }
+        let own   = ownText(scene)
+        let shots = scene.shots.map { shotText($0) }
         return terms.allSatisfy { term in
-            (!number.isEmpty && number.hasPrefix(term))
-                || title.contains(term)
-                || summary.contains(term)
-                || location.contains(term)
-                || cast.contains { $0.contains(term) }
-                || shots.contains { $0.contains { $0.contains(term) } }
+            ownFieldsHold(term, own) || shots.contains { $0.contains { $0.contains(term) } }
         }
+    }
+
+    /// A scene's own searchable fields, lowercased: its number, slugline, summary, real
+    /// location and cast names.
+    private struct OwnText {
+        let number:   String
+        let title:    String
+        let summary:  String
+        let location: String
+        let cast:     [String]
+    }
+
+    private static func ownText(_ scene: Scene) -> OwnText {
+        OwnText(
+            number:   scene.sceneNumber.trimmingCharacters(in: .whitespaces).lowercased(),
+            title:    scene.title.lowercased(),
+            summary:  scene.summary.lowercased(),
+            location: scene.realLocation.lowercased(),
+            cast:     scene.cast.map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+        )
+    }
+
+    /// Whether the scene's own fields hold `term`: the number exactly or as a prefix, or
+    /// any other field by containment.
+    private static func ownFieldsHold(_ term: String, _ own: OwnText) -> Bool {
+        (!own.number.isEmpty && own.number.hasPrefix(term))
+            || own.title.contains(term)
+            || own.summary.contains(term)
+            || own.location.contains(term)
+            || own.cast.contains { $0.contains(term) }
     }
 
     /// A shot's searchable fields, lowercased.
@@ -113,10 +154,16 @@ enum SceneSearch {
 
 // MARK: - A result
 
-/// One scene the search found and where it lives, identified by the scene.
+/// One scene the search found and where it lives, identified by the scene, with the shot
+/// that found it when the match came from the shot list (#43).
 nonisolated struct SceneSearchResult: Identifiable, Hashable {
     let scene:    Scene
     let location: SceneLocation
+    /// The first shot holding a word of the query the scene's own fields do not; nil when
+    /// they hold every word.
+    var matchedShotID:     UUID?   = nil
+    /// That shot's displayed number ("12B"), for the row's caption.
+    var matchedShotNumber: String? = nil
 
     var id: UUID { scene.id }
 

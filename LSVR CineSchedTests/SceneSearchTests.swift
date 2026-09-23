@@ -127,6 +127,44 @@ struct SceneSearchTests {
         #expect(SceneSearch.matchingShots(in: scene, query: "  ").isEmpty)
     }
 
+    /// A result names the shot that found it (#43): the first shot, in shot order, holding
+    /// a word of the query the scene's own fields do not; nil when the scene's own fields
+    /// hold every word, so a shot is named only when the match came from one.
+    @Test func aResultNamesTheShotThatMatchedWhenOneDid() {
+        var withShots = garage                       // scene 120, no cast, no summary
+        withShots.shots = [
+            Shot(details: "Wide on the workbench"),
+            Shot(details: "Dolly in towards Astrid", equipment: ["Dolly"]),
+            Shot(details: "Insert", sfx: ["Sparks"]),
+        ]
+        var day = ShootDay(date: Date(timeIntervalSince1970: 1_800_000_000))
+        day.scenes = [withShots]
+        let data = ProjectData(allScenes: [kitchen], shootDays: [day], projectTitle: "Shots")
+
+        let dolly = SceneSearch.results(for: "dolly", in: data)
+        #expect(dolly.map(\.scene.id) == [withShots.id])
+        #expect(dolly.first?.matchedShotID     == withShots.shots[1].id)
+        #expect(dolly.first?.matchedShotNumber == "120B")
+
+        // The first shot holding any of the shot-only words: "sparks" is shot C's, but
+        // "dolly" comes first in shot order.
+        let both = SceneSearch.results(for: "sparks dolly", in: data)
+        #expect(both.first?.matchedShotNumber == "120B")
+
+        // A word the slugline holds and one only a shot holds: the shot is named.
+        #expect(SceneSearch.results(for: "garage sparks", in: data).first?.matchedShotNumber == "120C")
+
+        // Found by its own fields, the scene names no shot, even when a shot also says it.
+        let byNumber = SceneSearch.results(for: "120", in: data)
+        #expect(byNumber.first?.matchedShotID == nil)
+        #expect(byNumber.first?.matchedShotNumber == nil)
+        #expect(SceneSearch.results(for: "workbench garage", in: data).first?.matchedShotNumber == "120A")
+        #expect(SceneSearch.results(for: "night", in: data).allSatisfy { $0.matchedShotNumber == nil })
+
+        // A shotless scene in the Boneyard: no shot, whatever matched.
+        #expect(SceneSearch.results(for: "kitchen", in: data).first?.matchedShotNumber == nil)
+    }
+
     @Test func bannersAutoMealsAndEventsNeverMatch() {
         // Each carries a word the query names; none is a scene.
         #expect(!SceneSearch.matches(banner, query: "kitchen"))
