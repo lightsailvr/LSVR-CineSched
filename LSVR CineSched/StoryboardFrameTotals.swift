@@ -19,6 +19,11 @@ import Foundation
 extension Scene {
     /// The bytes of this scene's own frame plus every one of its shots' frames.
     nonisolated var storyboardFrameBytes: Int {
+        Self.storyboardFrameBytes(frame: frame, shots: shots)
+    }
+
+    /// The same over the two fields, for the scene editor's draft, which holds them.
+    nonisolated static func storyboardFrameBytes(frame: Data?, shots: [Shot]) -> Int {
         shots.reduce(frame?.count ?? 0) { $0 + ($1.frame?.count ?? 0) }
     }
 }
@@ -65,7 +70,7 @@ enum StoryboardFrameTotals {
 extension SceneDraft {
     /// The bytes of the frames this draft holds: the scene's frame and every shot's.
     var storyboardFrameBytes: Int {
-        shots.reduce(frame?.count ?? 0) { $0 + ($1.frame?.count ?? 0) }
+        Scene.storyboardFrameBytes(frame: frame, shots: shots)
     }
 }
 
