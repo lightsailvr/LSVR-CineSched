@@ -19,8 +19,11 @@
 //   reading `estimatedTime` and learn nothing about shots. A scene whose last shot is
 //   removed keeps the last sum, editable again; a scene with no shots is never touched.
 // - **The frame rule.** A scene with no shots can carry a storyboard frame of its own; the
-//   first shot added takes it (unless that shot brings its own) and the scene's is cleared,
-//   so a scene with shots never carries a frame and a board is never shown twice.
+//   first shot added takes it and the scene's is cleared, so a scene with shots never
+//   carries a frame and a board is never shown twice. A first shot that brings a frame of
+//   its own while the scene has one is refused (nothing changes): one of the two boards
+//   would have nowhere to go, and the spec says a board is never lost (no UI adds such a
+//   shot; the rule is for the next caller that might).
 //
 // The breakdown's Props, Special Equipment and SFX read the union of the scene's items and
 // every shot's (`allProps`, `allSpecialEquipment` — fed by a shot's `equipment` — and
@@ -133,10 +136,12 @@ extension Scene {
 
     /// Adds `shot` at the end, or right after the shot with id `previousID`. The first shot
     /// of a scene takes the scene's frame (the frame rule). False, changing nothing, for a
-    /// notice strip, an anchor the scene does not have, or a shot id it already has.
+    /// notice strip, an anchor the scene does not have, a shot id it already has, or a
+    /// first shot carrying a frame while the scene carries one (either board would be lost).
     @discardableResult
     mutating func addShot(_ shot: Shot, after previousID: UUID? = nil) -> Bool {
         guard !isBanner, !isCalendarEvent, !shots.contains(where: { $0.id == shot.id }) else { return false }
+        guard !(shots.isEmpty && frame != nil && shot.frame != nil) else { return false }
         var insertAt = shots.endIndex
         if let previousID {
             guard let anchor = shots.firstIndex(where: { $0.id == previousID }) else { return false }
@@ -144,8 +149,8 @@ extension Scene {
         }
         var added = shot
         if shots.isEmpty {
-            if added.frame == nil { added.frame = frame }
-            frame = nil
+            added.frame = added.frame ?? frame
+            frame       = nil
         }
         shots.insert(added, at: insertAt)
         applyShotEstimate()

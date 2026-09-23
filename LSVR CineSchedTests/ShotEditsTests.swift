@@ -160,12 +160,32 @@ struct ShotEditsTests {
         #expect(again.estimatedTime == 45)
     }
 
-    @Test func aFirstShotWithAFrameOfItsOwnKeepsItAndTheSceneFrameIsCleared() throws {
+    /// The board is never lost (spec #36): a first shot bringing a frame of its own while
+    /// the scene has one would leave one of the two boards nowhere, so it is refused.
+    @Test func aFirstShotWithAFrameOfItsOwnIsRefusedWhileTheSceneHasOne() throws {
         var (data, _, kitchenID) = project()
-        let step1 = data.addShot(Shot(frame: otherFrame), toSceneID: kitchenID, after: nil)
-        #expect(step1)
+        let before = data
+        let step1  = data.addShot(Shot(frame: otherFrame), toSceneID: kitchenID, after: nil)
+        #expect(!step1)
+        #expect(data == before)
         let scene = try #require(data.scene(withID: kitchenID))
-        #expect(scene.shots.first?.frame == otherFrame)
+        #expect(scene.frame == frameBytes)
+        #expect(scene.shots.isEmpty)
+    }
+
+    /// Without a scene frame the first shot keeps its own, and a later shot's frame is
+    /// never refused.
+    @Test func aFirstShotWithAFrameOfItsOwnIsAddedWhenTheSceneHasNone() throws {
+        var (data, _, kitchenID) = project()
+        var unframed = try #require(data.scene(withID: kitchenID))
+        unframed.frame = nil
+        let cleared = data.replaceScene(unframed)
+        #expect(cleared)
+        let step1 = data.addShot(Shot(frame: otherFrame), toSceneID: kitchenID, after: nil)
+        let step2 = data.addShot(Shot(frame: frameBytes), toSceneID: kitchenID, after: nil)
+        #expect(step1 && step2)
+        let scene = try #require(data.scene(withID: kitchenID))
+        #expect(scene.shots.map(\.frame) == [otherFrame, frameBytes])
         #expect(scene.frame == nil)
     }
 
