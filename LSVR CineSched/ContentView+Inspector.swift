@@ -10,8 +10,26 @@
 //
 // The editors read `editorPresentation == .inspector` to skip the sheet sizing and the
 // scene editor's auto-focus.
+//
+// A shot sub-row's single tap on the Stripboard (#42) selects its scene with an
+// `InspectorRoute`, and the scene editor opens on that shot's page (`initialRoute`).
 
 import SwiftUI
+
+/// The page the inspector's scene editor opens on, asked for by the board (#42). `token`
+/// is new for every tap, so a second tap (another shot of the same scene, or the same
+/// shot again after going Back) makes a fresh editor that applies it.
+struct InspectorRoute: Equatable {
+    var sceneID: UUID
+    var route:   SceneEditorRoute
+    var token = UUID()
+}
+
+/// The inspector's scene editor identity: the scene, and the board's route while one applies.
+private struct InspectorEditorID: Hashable {
+    var sceneID:    UUID
+    var routeToken: UUID?
+}
 
 extension ContentView {
 
@@ -24,8 +42,10 @@ extension ContentView {
             case .scene(let id):
                 sceneInspector(id: id)
                     // A new id is a new editor: its fields repopulate and its own state
-                    // (the expanded breakdown, the focused field) starts over.
-                    .id(id)
+                    // (the expanded breakdown, the focused field) starts over. So is a new
+                    // shot tapped on the board (#42): the route applies once, as the editor
+                    // appears, so another shot of the same scene needs a fresh editor.
+                    .id(InspectorEditorID(sceneID: id, routeToken: route(for: id)?.token))
             case .day(let id):
                 dayInspector(id: id)
                     // Likewise; and the old day detail's disappearance commits its note.
@@ -71,9 +91,15 @@ extension ContentView {
                 onSave:      { inspectorKeepsSelection = true },
                 onDelete:    { deleteInspectedScene(id: id) },
                 knownLocations: document.project.knownLocations,
-                breakdownSuggestions: document.project.breakdownSuggestions
+                breakdownSuggestions: document.project.breakdownSuggestions,
+                initialRoute: route(for: id)?.route
             )
         }
+    }
+
+    /// The board's route into the inspector for the scene with `id` (#42), if it asked for one.
+    private func route(for id: UUID) -> InspectorRoute? {
+        inspectorRoute?.sceneID == id ? inspectorRoute : nil
     }
 
     /// The selected scene by id, wherever it is. The setter opens the edit gesture on its

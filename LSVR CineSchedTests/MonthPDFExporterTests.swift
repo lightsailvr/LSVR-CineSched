@@ -136,6 +136,23 @@ struct MonthPDFExporterTests {
         #expect(customText.contains(formattedTime(90)))
     }
 
+    /// The Shots field (#42) prints as a pill like any other field, only when chosen and
+    /// only for a scene that has shots.
+    @Test func theShotsFieldPrintsAsAPill() {
+        var shotted = makeScene(1)
+        shotted.shots = [Shot(details: "Wide"), Shot(details: "Close"), Shot(details: "Insert"), Shot(details: "Over")]
+        shotted.applyShotEstimate()
+        let shotless = makeScene(2)
+        let day = [ShootDay(date: novemberDate(day: 5), scenes: [shotted, shotless])]
+
+        #expect(!breakdownText(render(day)).contains("4 shots"))
+        let withShots = MonthPDFOptions(fields: [.shots], includePageCount: false, includeEstimatedTime: false)
+        let text = breakdownText(render(day, options: withShots))
+        #expect(text.contains("4 shots"))
+        #expect(!text.contains("0 shots"))
+        #expect(text.components(separatedBy: "shots").count == 2)
+    }
+
     @Test func longSceneLinesWrapWithoutTruncatingContent() {
         var scene = makeScene(1)
         // Too wide for a single pill row: becomes a full-width pill with wrapped

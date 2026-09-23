@@ -151,6 +151,12 @@ struct ContentView: View {
     @WindowPreference("CineSchedShowEstTimeOnCards") var showEstTimeOnCards: Bool = false
     /// Stripboard only: draw every date, or fold runs of empty days into one gap row each.
     @WindowPreference("CineSchedStripboardShowAllDays") private var stripboardShowAllDays: Bool = false
+    /// Stripboard only (#42): Show Shots, every strip's shots under it. Collapsed by default.
+    @WindowPreference("CineSchedShowShots") private var showShots: Bool = false
+    /// The strips whose chevron was flipped against Show Shots (`ShotExpansion`). Plain
+    /// state, not a window preference: they are this project's scene ids and would mean
+    /// nothing to the next window. Never in the file either way.
+    @State private var shotExpansionExceptions: Set<UUID> = []
 
     // Production Setup & Conflict states
     @State private var conflictReportResults: [ScheduleConflict] = []
@@ -249,6 +255,10 @@ struct ContentView: View {
     /// `onSave` sets this so the next close keeps the selection (see
     /// `inspectorEditorPresented`).
     @State var inspectorKeepsSelection = false
+    /// The page the inspector's scene editor opens on (#42): a shot sub-row's single tap in
+    /// the three-column layout selects its scene with this set. Cleared when the selection
+    /// moves off that scene (`applyLifecycle`).
+    @State var inspectorRoute: InspectorRoute?
 
     private var isPresentedUnscheduledEdit: Binding<Bool> {
         Binding(get: { activeSheet == .unscheduledEdit }, set: { if !$0 { activeSheet = nil } })
@@ -394,6 +404,7 @@ struct ContentView: View {
                 Toggle(L("Show Estimated Time Instead of Page Count"), isOn: $showEstTimeOnCards)
                 Divider()
                 Toggle(L("Show All Days on Stripboard"), isOn: $stripboardShowAllDays)
+                Toggle(L("Show Shots on Stripboard"), isOn: showShotsBinding)
                 Button(L("Stripboard Fields…")) { projectCommands.showStripboardFields() }
                 Divider()
                 Button(L("Color Legend…")) { projectCommands.showColorLegend() }
@@ -555,11 +566,13 @@ struct ContentView: View {
                     // Off by default: a shoot with blocks months apart would otherwise be
                     // mostly empty day sections. The calendar always shows every date.
                     Toggle(L("Show All Days"), isOn: $stripboardShowAllDays)
+                    // The View menu's Show Shots on Stripboard (#42), the same binding.
+                    Toggle(L("Show Shots"), isOn: showShotsBinding)
                 } label: {
                     Label(L("Display"), systemImage: "line.3.horizontal.decrease.circle")
                 }
                 .menuIndicator(.hidden)
-                .help(L("Choose the fields each strip shows and whether empty days are listed"))
+                .help(L("Choose the fields each strip shows, whether empty days are listed and whether shots are shown"))
             }
             shareMenu
         }
@@ -756,6 +769,10 @@ struct ContentView: View {
             .onChange(of: titleFieldFocused) { _, focused in
                 if !focused { titleGesture = EditGesture() }
             }
+            // A shot's page in the inspector (#42) belongs to the scene it was asked for.
+            .onChange(of: selection) { _, new in
+                if let route = inspectorRoute, new != .scene(id: route.sceneID) { inspectorRoute = nil }
+            }
     }
 
     /// The menu commands this window answers (see ProjectCommands.swift).
@@ -787,7 +804,8 @@ struct ContentView: View {
             viewMode:               $viewMode,
             showCastOnCards:        $showCastOnCards,
             showEstTimeOnCards:     $showEstTimeOnCards,
-            stripboardShowAllDays:  $stripboardShowAllDays
+            stripboardShowAllDays:  $stripboardShowAllDays,
+            showShotsOnStripboard:  showShotsBinding
         )
     }
 
@@ -1261,7 +1279,10 @@ struct ContentView: View {
                         showShootingSchedulePDFSavePanel(for: days)
                     },
                     onSelectDay: onSelectDay,
-                    selectedDayID: selectedDayID
+                    selectedDayID: selectedDayID,
+                    shotExpansion: shotExpansionBinding,
+                    onMoveShot: moveShot,
+                    onSelectShot: onSelectShot
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -1270,6 +1291,52 @@ struct ContentView: View {
         // plain which one the keyboard and the pasteboard act on; not on the Mac, whose
         // board the spec leaves as it was.
         .dimsWhenInactive(layout == .threeColumn)
+    }
+
+    // MARK: - Shots on the Stripboard (#42)
+
+    /// Which strips show their shots: this window's Show Shots and the chevrons' exceptions.
+    private var shotExpansionBinding: Binding<ShotExpansion> {
+        Binding(
+            get: { ShotExpansion(showAll: showShots, exceptions: shotExpansionExceptions) },
+            set: { new in
+                if new.showAll != showShots { showShots = new.showAll }
+                shotExpansionExceptions = new.exceptions
+            }
+        )
+    }
+
+    /// Show Shots, for the View menu, the toolbar's menus and `projectCommands`: every strip
+    /// at once, the chevrons' exceptions dropped.
+    private var showShotsBinding: Binding<Bool> {
+        Binding(
+            get: { showShots },
+            set: { on in
+                var expansion = shotExpansionBinding.wrappedValue
+                expansion.setShowAll(on)
+                shotExpansionBinding.wrappedValue = expansion
+            }
+        )
+    }
+
+    /// A shot dropped among its scene's sub-rows: one edit, one undo step, the letters
+    /// following the new order and the estimate (the strip's time) unchanged.
+    private func moveShot(_ shotID: UUID, inSceneID sceneID: UUID, to position: ShotDropPosition) {
+        edit(L("Move Shot")) { $0.moveShot(withID: shotID, inSceneID: sceneID, to: position) }
+    }
+
+    /// What a single tap on a shot sub-row does in the three-column layout: the scene
+    /// becomes the selection and the inspector opens on the shot's page. Nil on the Mac,
+    /// which has no inspector (a click selects the strip; a double-click opens the sheet).
+    private var onSelectShot: ((UUID, UUID) -> Void)? {
+        guard layout == .threeColumn else { return nil }
+        return { sceneID, shotID in
+            selectedSceneIDs    = [sceneID]
+            lastSelectedSceneID = sceneID
+            inspectorRoute      = InspectorRoute(sceneID: sceneID, route: .shot(shotID))
+            selection           = .scene(id: sceneID)
+            focusEditor()
+        }
     }
 
     // MARK: - Stripboard fields

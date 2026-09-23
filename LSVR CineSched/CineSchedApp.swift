@@ -290,6 +290,8 @@ struct CineSchedApp: App {
             .disabled(commands == nil)
             Toggle(L("Show All Days on Stripboard", lang: appLanguage), isOn: commands?.stripboardShowAllDays ?? .constant(false))
                 .disabled(commands == nil)
+            Toggle(L("Show Shots on Stripboard", lang: appLanguage), isOn: commands?.showShotsOnStripboard ?? .constant(false))
+                .disabled(commands == nil)
         }
     }
 }

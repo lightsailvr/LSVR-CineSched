@@ -42,6 +42,8 @@ struct ProjectCommands {
     var showCastOnCards:        Binding<Bool>
     var showEstTimeOnCards:     Binding<Bool>
     var stripboardShowAllDays:  Binding<Bool>
+    /// Show Shots on Stripboard (#42): every strip's shots under it, this window's.
+    var showShotsOnStripboard:  Binding<Bool>
 }
 
 extension FocusedValues {

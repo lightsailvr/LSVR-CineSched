@@ -289,7 +289,9 @@ struct PhoneEditor: View {
             viewMode:               .constant(.stripboard),
             showCastOnCards:        .constant(false),
             showEstTimeOnCards:     .constant(false),
-            stripboardShowAllDays:  .constant(false)
+            stripboardShowAllDays:  .constant(false),
+            // The phone's own Show Shots is a Production tab row (#43).
+            showShotsOnStripboard:  .constant(false)
         )
     }
 

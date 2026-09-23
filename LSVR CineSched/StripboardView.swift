@@ -13,11 +13,22 @@
 // (`DropTargetTracking`, `DragSessionTracking`, `DropIndicatorView`) is shared
 // with the calendar, which the same header note explains is not on the reorder
 // container (it crashed at lift beside the heterogeneous drag container).
+//
+// Shots (#42): every script scene's strip has a chevron, and an expanded strip is
+// followed by a `ShotSubRow` per shot (`ShotExpansion`, the window's Show Shots and the
+// chevrons' exceptions, held by ContentView). A sub-row drags a `ShotDragPayload`, a type
+// of its own, so no strip zone, day section or Boneyard is ever offered it; only the
+// sub-rows of the same scene and the thin zone under its last one light up and take the
+// drop, both through `ShotDrop.position`, and the move is `onMoveShot`, one edit. A
+// double-click on a sub-row opens the scene editor on that shot's page (`initialRoute`),
+// Add Shot… on the strip's menu on a new shot's, and in the three-column layout a single
+// tap selects the scene into the inspector with the page pushed (`onSelectShot`).
 
 import SwiftUI
 
 struct StripboardView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.scenePalette) private var palette
     @AppStorage("CineSchedTheme") private var currentTheme: AppTheme = .blue
     @Binding var shootDays: [ShootDay]
     @Binding var allScenes: [Scene]
@@ -46,11 +57,23 @@ struct StripboardView: View {
     /// the day whose id this is gets the selected outline. The Mac passes neither.
     var onSelectDay: ((ShootDay) -> Void)? = nil
     var selectedDayID: UUID? = nil
+    /// Which strips show their shots (#42): Show Shots and the chevrons' exceptions, this
+    /// window's (ContentView holds them; never in the file).
+    @Binding var shotExpansion: ShotExpansion
+    /// A shot dropped among its own scene's sub-rows (#42): one edit through
+    /// `ProjectData.moveShot(withID:inSceneID:to:)`, which ContentView wires.
+    let onMoveShot: (_ shotID: UUID, _ sceneID: UUID, _ position: ShotDropPosition) -> Void
+    /// The three-column layout (#42): a single tap on a shot sub-row selects its scene into
+    /// the inspector with that shot's page pushed. The Mac passes nil: a click there
+    /// selects the strip, and a double-click opens the editor on the page.
+    var onSelectShot: ((_ sceneID: UUID, _ shotID: UUID) -> Void)? = nil
 
     // Editing state — mirrors CompactMonthCalendarView's
     @State private var editingDayId:      UUID?
     @State private var editingDayIndex:   Int?
     @State private var editingSceneIndex: Int?
+    /// The page the editor opens on (#42): a shot's from a sub-row, a new shot's from Add Shot….
+    @State private var editingRoute:      SceneEditorRoute?
     @State private var showingEditSheet = false
     @State private var callSheetDay: ShootDay? = nil
     @State private var addingBannerForDayId: UUID? = nil
@@ -67,6 +90,12 @@ struct StripboardView: View {
     // Day rearrange drag/drop state
     @State private var draggingDayId:   UUID? = nil
     @State private var dayDropTargetId: UUID? = nil
+
+    // Shot drag/drop state (#42): the shot being lifted (set as its drag begins, cleared
+    // when it ends) and the sub-row zone it hovers, which is lit only where
+    // `ShotDrop.position` says the drop would land, so another scene's sub-rows stay dark.
+    @State private var draggingShot:   ScheduleDragPayload? = nil
+    @State private var shotDropTarget: ShotDropTarget? = nil
 
     // Quick Time Edit state
     @State private var quickEditingScene: Scene? = nil
@@ -123,7 +152,10 @@ struct StripboardView: View {
         // a same-day drop) and would otherwise keep the lifted look.
         .onDragSessionUpdated { session in
             switch session.phase {
-            case .ended, .dataTransferCompleted: interactingSceneId = nil
+            case .ended, .dataTransferCompleted:
+                interactingSceneId = nil
+                draggingShot       = nil
+                shotDropTarget     = nil
             default: break
             }
         }
@@ -136,6 +168,8 @@ struct StripboardView: View {
             dayDropTargetId = nil
             draggingDayId = nil
             interactingSceneId = nil
+            draggingShot = nil
+            shotDropTarget = nil
         }
         .sheet(isPresented: $showingEditSheet) { editSheetContent() }
         .sheet(item: $callSheetDay) { day in callSheetEditorContent(for: day) }
@@ -292,54 +326,81 @@ struct StripboardView: View {
         VStack(spacing: 1) {
             ForEach(Array(visibleScenes.enumerated()), id: \.element.id) { sceneIndex, scene in
                 VStack(spacing: 0) {
-                    if dropTargetDayId == day.id && dropTargetPosition == sceneIndex {
-                        DropIndicatorView()
+                    VStack(spacing: 0) {
+                        if dropTargetDayId == day.id && dropTargetPosition == sceneIndex {
+                            DropIndicatorView()
+                        }
+                        if scene.isBanner {
+                            BannerStripRow(
+                                scene: scene,
+                                timeDisplay: timeline[scene.id]?.timeDisplay ?? (scene.customStartTime.isEmpty ? "" : scene.customStartTime),
+                                interactingSceneId: $interactingSceneId,
+                                isSelected: selectedSceneIDs.contains(scene.id),
+                                onQuickTimeEdit: {
+                                    quickEditingScene = scene
+                                    quickEditingDayId = day.id
+                                },
+                                onRemove: { removeFromDay(scene, dayId: day.id) },
+                                dragPayload: { sceneDragPayload(for: scene) }
+                            )
+                        } else {
+                            SceneStripRow(
+                                scene: scene,
+                                timeDisplay: timeline[scene.id]?.timeDisplay ?? (scene.customStartTime.isEmpty ? "" : scene.customStartTime),
+                                visibleFields: visibleFields,
+                                interactingSceneId: $interactingSceneId,
+                                isSelected: selectedSceneIDs.contains(scene.id),
+                                selectionCount: selectedSceneIDs.count,
+                                hasConflict: conflictSceneIDs.contains(scene.id),
+                                hasDuplicateSceneNumber: duplicateSceneNumberIDs.contains(scene.id),
+                                onQuickTimeEdit: {
+                                    quickEditingScene = scene
+                                    quickEditingDayId = day.id
+                                },
+                                onEdit:      { editScene(dayIndex: dayIndex, sceneIndex: sceneIndex, dayId: day.id) },
+                                onRemove:    { removeFromDay(scene, dayId: day.id) },
+                                onDuplicate: { duplicateScene(scene) },
+                                onToggleCompleted: { toggleSceneCompleted(scene, dayId: day.id) },
+                                onSelect:    { selectScene(scene, dayId: day.id) },
+                                dragPayload: { sceneDragPayload(for: scene) },
+                                shotsExpanded: shotExpansion.isExpanded(scene.id),
+                                onToggleShots: {
+                                    withAnimation(.easeInOut(duration: 0.15)) { shotExpansion.toggle(scene.id) }
+                                },
+                                onAddShot:   { editScene(scene, dayId: day.id, route: .newShot) }
+                            )
+                        }
                     }
-                    if scene.isBanner {
-                        BannerStripRow(
-                            scene: scene,
-                            timeDisplay: timeline[scene.id]?.timeDisplay ?? (scene.customStartTime.isEmpty ? "" : scene.customStartTime),
-                            interactingSceneId: $interactingSceneId,
-                            isSelected: selectedSceneIDs.contains(scene.id),
-                            onQuickTimeEdit: {
-                                quickEditingScene = scene
-                                quickEditingDayId = day.id
-                            },
-                            onRemove: { removeFromDay(scene, dayId: day.id) },
-                            dragPayload: { sceneDragPayload(for: scene) }
-                        )
-                    } else {
-                        SceneStripRow(
-                            scene: scene,
-                            timeDisplay: timeline[scene.id]?.timeDisplay ?? (scene.customStartTime.isEmpty ? "" : scene.customStartTime),
-                            visibleFields: visibleFields,
-                            interactingSceneId: $interactingSceneId,
-                            isSelected: selectedSceneIDs.contains(scene.id),
-                            selectionCount: selectedSceneIDs.count,
-                            hasConflict: conflictSceneIDs.contains(scene.id),
-                            hasDuplicateSceneNumber: duplicateSceneNumberIDs.contains(scene.id),
-                            onQuickTimeEdit: {
-                                quickEditingScene = scene
-                                quickEditingDayId = day.id
-                            },
-                            onEdit:      { editScene(dayIndex: dayIndex, sceneIndex: sceneIndex, dayId: day.id) },
-                            onRemove:    { removeFromDay(scene, dayId: day.id) },
-                            onDuplicate: { duplicateScene(scene) },
-                            onToggleCompleted: { toggleSceneCompleted(scene, dayId: day.id) },
-                            onSelect:    { selectScene(scene, dayId: day.id) },
-                            dragPayload: { sceneDragPayload(for: scene) }
-                        )
+                    .dropDestination(for: ScheduleDragPayload.self) { items, _ in
+                        handleDrop(items, onDayID: day.id, position: .before(scene.id))
+                        return true
+                    } isTargeted: { targeted in
+                        if targeted {
+                            dropTargetDayId = day.id
+                            dropTargetPosition = sceneIndex
+                        } else if dropTargetDayId == day.id && dropTargetPosition == sceneIndex {
+                            dropTargetPosition = nil
+                        }
                     }
-                }
-                .dropDestination(for: ScheduleDragPayload.self) { items, _ in
-                    handleDrop(items, onDayID: day.id, position: .before(scene.id))
-                    return true
-                } isTargeted: { targeted in
-                    if targeted {
-                        dropTargetDayId = day.id
-                        dropTargetPosition = sceneIndex
-                    } else if dropTargetDayId == day.id && dropTargetPosition == sceneIndex {
-                        dropTargetPosition = nil
+
+                    if !scene.isBanner && shotExpansion.isExpanded(scene.id) {
+                        // A scene dragged over the sub-rows lands after this scene, before
+                        // the next strip (or at the end), and lights that strip's indicator.
+                        let next: SceneDropDestination.Position = sceneIndex + 1 < visibleScenes.count
+                            ? .before(visibleScenes[sceneIndex + 1].id)
+                            : .end
+                        shotList(for: scene, dayId: day.id)
+                            .dropDestination(for: ScheduleDragPayload.self) { items, _ in
+                                handleDrop(items, onDayID: day.id, position: next)
+                                return true
+                            } isTargeted: { targeted in
+                                if targeted {
+                                    dropTargetDayId = day.id
+                                    dropTargetPosition = sceneIndex + 1
+                                } else if dropTargetDayId == day.id && dropTargetPosition == sceneIndex + 1 {
+                                    dropTargetPosition = nil
+                                }
+                            }
                     }
                 }
             }
@@ -353,6 +414,115 @@ struct StripboardView: View {
         }
         .padding(.horizontal, 4)
         .background(Color.gray.opacity(colorScheme == .dark ? 0.22 : 0.12))
+    }
+
+    // MARK: - Shots (#42)
+
+    /// An expanded strip's shots: a `ShotSubRow` per shot, each a drop zone that lands a
+    /// shot of the same scene before it, then a thin zone for the end of the list (or, for
+    /// a scene with none yet, a line that offers Add Shot…). Indented under the strip, on
+    /// a tint of its color, so the sub-rows read as the strip's.
+    @ViewBuilder
+    private func shotList(for scene: Scene, dayId: UUID) -> some View {
+        let tint   = scene.stripColor(in: palette).opacity(colorScheme == .dark ? 0.35 : 0.28)
+        // Once per strip: the prefix can fall back to a pattern match on the slugline.
+        let prefix = scene.shotNumberPrefix
+        VStack(spacing: 0) {
+            ForEach(Array(scene.shots.enumerated()), id: \.element.id) { index, shot in
+                let target = ShotDropTarget.shot(id: shot.id, sceneID: scene.id)
+                VStack(spacing: 0) {
+                    if shotDropTarget == target {
+                        DropIndicatorView()
+                    }
+                    ShotSubRow(number: prefix + Shot.letter(forIndex: index), shot: shot)
+                        .padding(.leading, 30).padding(.trailing, 12).padding(.vertical, 3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(tint)
+                        .contentShape(Rectangle())
+                        .simultaneousGesture(TapGesture(count: 2).onEnded {
+                            editScene(scene, dayId: dayId, route: .shot(shot.id))
+                        })
+                        .simultaneousGesture(TapGesture(count: 1).onEnded {
+                            if let onSelectShot {
+                                onSelectShot(scene.id, shot.id)
+                            } else {
+                                selectScene(scene, dayId: dayId)
+                            }
+                        })
+                        .draggable(shotDragPayload(shot, in: scene))
+                        .contextMenu {
+                            Button(L("Edit Shot")) { editScene(scene, dayId: dayId, route: .shot(shot.id)) }
+                            Button(L("Add Shot…")) { editScene(scene, dayId: dayId, route: .newShot) }
+                        }
+                }
+                .dropDestination(for: ShotDragPayload.self) { items, _ in
+                    dropShots(items, onto: target)
+                } isTargeted: { targeted in
+                    trackShotTarget(target, targeted: targeted)
+                }
+            }
+
+            if scene.shots.isEmpty {
+                HStack(spacing: 8) {
+                    Text(L("No shots"))
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                    Button(L("Add Shot…")) { editScene(scene, dayId: dayId, route: .newShot) }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.accentColor)
+                    Spacer()
+                }
+                .padding(.leading, 30).padding(.trailing, 12).padding(.vertical, 4)
+                .background(tint)
+            } else {
+                let end = ShotDropTarget.sceneEnd(sceneID: scene.id)
+                VStack(spacing: 0) {
+                    if shotDropTarget == end {
+                        DropIndicatorView()
+                    }
+                    tint.frame(height: 8)
+                }
+                .dropDestination(for: ShotDragPayload.self) { items, _ in
+                    dropShots(items, onto: end)
+                } isTargeted: { targeted in
+                    trackShotTarget(end, targeted: targeted)
+                }
+            }
+        }
+    }
+
+    /// What a sub-row carries when it lifts: the shot and its scene, on the shot's own type.
+    /// Remembered for the drag's length so the zones can tell their own scene's shot.
+    private func shotDragPayload(_ shot: Shot, in scene: Scene) -> ShotDragPayload {
+        let item = ShotDragPayload(shotID: shot.id, sceneID: scene.id)
+        draggingShot = item.payload
+        return item
+    }
+
+    /// Lights `target` while a shot that would land there hovers it, and nothing else.
+    private func trackShotTarget(_ target: ShotDropTarget, targeted: Bool) {
+        if targeted, let shot = draggingShot, ShotDrop.position(for: shot, onto: target) != nil {
+            shotDropTarget = target
+        } else if shotDropTarget == target {
+            shotDropTarget = nil
+        }
+    }
+
+    /// A shot dropped on a sub-row zone: moved where `ShotDrop` says, in one edit; refused
+    /// (and nothing changes) for a shot of another scene.
+    private func dropShots(_ items: [ShotDragPayload], onto target: ShotDropTarget) -> Bool {
+        shotDropTarget = nil
+        draggingShot   = nil
+        var moved = false
+        for item in items {
+            guard case .shot(let shotID, let sceneID) = item.payload.kind,
+                  let position = ShotDrop.position(for: item.payload, onto: target)
+            else { continue }
+            onMoveShot(shotID, sceneID, position)
+            moved = true
+        }
+        return moved
     }
 
     @ViewBuilder
@@ -646,7 +816,8 @@ struct StripboardView: View {
                 onNext: { editingSceneIndex = sceneIndex + 1 },
                 positionLabel: "Scene \(sceneIndex + 1) of \(shootDays[dayIndex].scenes.count)",
                 knownLocations: allProjectLocations,
-                breakdownSuggestions: ProjectData.breakdownSuggestions(shootDays: shootDays, allScenes: allScenes)
+                breakdownSuggestions: ProjectData.breakdownSuggestions(shootDays: shootDays, allScenes: allScenes),
+                initialRoute: editingRoute
             )
         } else {
             VStack(spacing: 20) {
@@ -668,13 +839,29 @@ struct StripboardView: View {
         editingDayIndex   = dayIndex
         editingSceneIndex = sceneIndex
         editingDayId      = dayId
+        editingRoute      = nil
         showingEditSheet  = true
+    }
+
+    /// The editor on a page (#42): a shot's, or a new shot's. The scene is found by id in
+    /// its day, so a calendar event before it on the day cannot shift the index.
+    private func editScene(_ scene: Scene, dayId: UUID, route: SceneEditorRoute) {
+        guard let dayIndex   = shootDays.firstIndex(where: { $0.id == dayId }),
+              let sceneIndex = shootDays[dayIndex].scenes.firstIndex(where: { $0.id == scene.id })
+        else { return }
+        interactingSceneId = nil
+        editingDayIndex    = dayIndex
+        editingSceneIndex  = sceneIndex
+        editingDayId       = dayId
+        editingRoute       = route
+        showingEditSheet   = true
     }
 
     private func clearEditingState() {
         editingDayId      = nil
         editingDayIndex   = nil
         editingSceneIndex = nil
+        editingRoute      = nil
     }
 
     /// The editor's location suggestions: `ProjectData.knownLocations` (EditorSelection.swift)
@@ -909,6 +1096,10 @@ struct SceneStripRow: View {
     let onToggleCompleted: () -> Void
     let onSelect:    () -> Void
     let dragPayload: () -> ScheduleDragPayload
+    /// The chevron (#42): whether the strip shows its shots, the flip, and Add Shot….
+    let shotsExpanded: Bool
+    let onToggleShots: () -> Void
+    let onAddShot:     () -> Void
 
     @Environment(\.scenePalette) private var palette
 
@@ -933,6 +1124,19 @@ struct SceneStripRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
+            // Outside the tap gestures below, so the chevron neither selects nor opens.
+            Button(action: onToggleShots) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(scene.stripTextColor.opacity(scene.shots.isEmpty ? 0.35 : 0.75))
+                    .rotationEffect(.degrees(shotsExpanded ? 90 : 0))
+                    .frame(width: 14, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(shotsExpanded ? L("Hide Shots") : L("Show Shots"))
+            .accessibilityLabel(shotsExpanded ? L("Hide Shots") : L("Show Shots"))
+
             if !timeDisplay.isEmpty {
                 Button {
                     onQuickTimeEdit()
@@ -1030,6 +1234,7 @@ struct SceneStripRow: View {
             Button("Set Time...") { interactingSceneId = nil; onQuickTimeEdit() }
             Divider()
             Button(L("Edit Scene")) { interactingSceneId = nil; onEdit() }
+            Button(L("Add Shot…")) { interactingSceneId = nil; onAddShot() }
             Button(isMultiSelected ? "\(L("Remove")) \(selectionCount) \(L("scenes"))" : L("Remove from Day")) {
                 interactingSceneId = nil; onRemove()
             }
