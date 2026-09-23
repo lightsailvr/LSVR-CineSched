@@ -311,6 +311,34 @@ final class PDFCanvas {
         context.restoreGState()
     }
 
+    // MARK: Images
+
+    /// Draws `image` as large as fits inside `rect` with its aspect ratio kept, centered,
+    /// never cropped (the Shot List's storyboard frames, #40), and returns where it landed.
+    /// The canvas is unflipped (PDF coordinates, y up), which is the space
+    /// `CGContext.draw(_:in:)` draws an image upright in, so no transform is needed. The
+    /// pixels go into the PDF as they are; the viewer scales them.
+    @discardableResult
+    func drawImage(_ image: CGImage, aspectFitIn rect: CGRect) -> CGRect {
+        let target = Self.aspectFitRect(for: CGSize(width: image.width, height: image.height), in: rect)
+        guard !target.isEmpty else { return target }
+        context.saveGState()
+        context.interpolationQuality = .high
+        context.draw(image, in: target)
+        context.restoreGState()
+        return target
+    }
+
+    /// The largest rect of `size`'s aspect ratio that fits inside `rect`, centered in it:
+    /// margins on the short side only. Empty for an empty size or rect.
+    static func aspectFitRect(for size: CGSize, in rect: CGRect) -> CGRect {
+        guard size.width > 0, size.height > 0, rect.width > 0, rect.height > 0 else { return .zero }
+        let scale  = min(rect.width / size.width, rect.height / size.height)
+        let width  = size.width * scale
+        let height = size.height * scale
+        return CGRect(x: rect.midX - width / 2, y: rect.midY - height / 2, width: width, height: height)
+    }
+
     // MARK: Text measurement
 
     func width(of text: String, font: PDFFont) -> CGFloat {

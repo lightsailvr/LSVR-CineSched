@@ -216,6 +216,80 @@ struct PDFCanvasTests {
         #expect(canvas.width(of: oneMore, font: font) > 120)
     }
 
+    // MARK: - Images (#40)
+
+    /// A `width` × `height` image of one opaque sRGB color.
+    private func solidImage(width: Int, height: Int, red: CGFloat, green: CGFloat, blue: CGFloat) -> CGImage {
+        let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+        context.setFillColor(CGColor(srgbRed: red, green: green, blue: blue, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        return context.makeImage()!
+    }
+
+    /// The RGB of page 0's pixel at PDF point (`x`, `y`), rasterized at 1 pt a pixel on white.
+    private func pixel(_ data: Data, x: Int, y: Int) -> [Int]? {
+        guard let page = PDFDocument(data: data)?.page(at: 0)?.pageRef else { return nil }
+        let (width, height) = (612, 792)
+        guard let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else { return nil }
+        context.setFillColor(CGColor(gray: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        context.drawPDFPage(page)
+        guard let pixels = context.data?.assumingMemoryBound(to: UInt8.self) else { return nil }
+        let i = ((height - 1 - y) * width + x) * 4   // rows run top-down in memory
+        return [Int(pixels[i]), Int(pixels[i + 1]), Int(pixels[i + 2])]
+    }
+
+    @Test func aspectFitLeavesMarginsOnTheShortSideOnly() {
+        let box = CGRect(x: 100, y: 100, width: 100, height: 100)
+        // Landscape 2:1 in a square: full width, centred vertically.
+        #expect(PDFCanvas.aspectFitRect(for: CGSize(width: 200, height: 100), in: box) == CGRect(x: 100, y: 125, width: 100, height: 50))
+        // Portrait 1:4: full height, centred horizontally.
+        #expect(PDFCanvas.aspectFitRect(for: CGSize(width: 50, height: 200), in: box) == CGRect(x: 137.5, y: 100, width: 25, height: 100))
+        // A small image grows to fit: aspect-fit, not "at most its own size".
+        #expect(PDFCanvas.aspectFitRect(for: CGSize(width: 10, height: 10), in: box) == box)
+        #expect(PDFCanvas.aspectFitRect(for: .zero, in: box) == .zero)
+    }
+
+    @Test func anImageDrawnIntoARectChangesThePageAndLandsAspectFit() throws {
+        func page(drawing image: CGImage?) -> (Data, CGRect?) {
+            let canvas = PDFCanvas(pageSize: CGSize(width: 612, height: 792))!
+            canvas.beginPage()
+            canvas.stroke(CGRect(x: 100, y: 100, width: 200, height: 200), color: .pdfBlack, lineWidth: 0.5)
+            let drawn = image.map { canvas.drawImage($0, aspectFitIn: CGRect(x: 100, y: 100, width: 200, height: 200)) }
+            return (canvas.finish(), drawn)
+        }
+        let (blank, _) = page(drawing: nil)
+        let (framed, drawn) = page(drawing: solidImage(width: 400, height: 200, red: 1, green: 0, blue: 0))
+        #expect(framed.count > blank.count)
+        #expect(drawn == CGRect(x: 100, y: 150, width: 200, height: 100))
+
+        // Inside the fitted rect, red; above and below it (the short side), the white page.
+        let center = try #require(pixel(framed, x: 200, y: 200))
+        #expect(center[0] > 240 && center[1] < 15 && center[2] < 15)
+        let above = try #require(pixel(framed, x: 200, y: 280))
+        #expect(above == [255, 255, 255])
+        let below = try #require(pixel(framed, x: 200, y: 120))
+        #expect(below == [255, 255, 255])
+        // Upright, not flipped: a band drawn at the image's top lands at the rect's top.
+        let banded = CGContext(
+            data: nil, width: 100, height: 100, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+        banded.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1))
+        banded.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+        banded.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
+        banded.fill(CGRect(x: 0, y: 75, width: 100, height: 25))   // the top quarter, in CG's y-up space
+        let (bandedPage, _) = page(drawing: banded.makeImage()!)
+        let top = try #require(pixel(bandedPage, x: 200, y: 280))
+        #expect(top[0] > 240 && top[2] < 15)
+        let bottom = try #require(pixel(bandedPage, x: 200, y: 120))
+        #expect(bottom[2] > 240 && bottom[0] < 15)
+    }
+
     @Test func producesAReadablePDFWithOnePageEachBeginPage() {
         let canvas = PDFCanvas(pageSize: CGSize(width: 612, height: 792))!
         for n in 1...3 {

@@ -141,6 +141,38 @@ struct PDFExportRequestTests {
         #expect(pdfFullText(PDFDocument(data: request.data)!).contains("CALL SHEET # 03"))
     }
 
+    @Test func shotListIsTheShotListExportersOutputForEitherScope() throws {
+        let project = PDFFixture.projectWithShots
+        let day     = project.shootDays[3]
+        for frames in [true, false] {
+            let whole = try PDFExport.shotList(project: project, scope: .project, includeFrames: frames)
+            #expect(whole.kind == .shotList)
+            #expect(whole.fileName == "The_Long_Way_Home_ShotList.pdf")
+            expectSameBytes(whole, as: ShotListExporter.generatePDF(
+                shootDays: project.shootDays, boneyard: project.allScenes, projectTitle: project.projectTitle,
+                scope: .project, includeFrames: frames))
+
+            let oneDay = try PDFExport.shotList(project: project, scope: .day(day.id), includeFrames: frames)
+            // Day 3 of the five: the production day number, not the index.
+            #expect(oneDay.fileName == "The_Long_Way_Home_ShotList_Day3.pdf")
+            expectSameBytes(oneDay, as: ShotListExporter.generatePDF(
+                shootDays: project.shootDays, boneyard: project.allScenes, projectTitle: project.projectTitle,
+                scope: .day(day.id), includeFrames: frames))
+        }
+        // The frames option reaches the exporter.
+        let on  = try PDFExport.shotList(project: project, scope: .project, includeFrames: true)
+        let off = try PDFExport.shotList(project: project, scope: .project, includeFrames: false)
+        #expect(masked(on.data) != masked(off.data))
+    }
+
+    @Test func aShotListOfADayWithoutANumberIsNamedByItsDate() throws {
+        var project = PDFFixture.projectWithShots
+        project.shootDays[2].dayType = .travel   // scenes on a travel day: flagged, not numbered
+        let day = project.shootDays[2]
+        let request = try PDFExport.shotList(project: project, scope: .day(day.id), includeFrames: false)
+        #expect(request.fileName == "The_Long_Way_Home_ShotList_\(formattedDate(day.date).replacingOccurrences(of: " ", with: "_")).pdf")
+    }
+
     // MARK: - File names
 
     @Test func projectWideNamesReplaceTheCharactersFilesRefuses() throws {
@@ -148,6 +180,7 @@ struct PDFExportRequestTests {
         project.projectTitle = "Long Way: Home/Part 2?"
         #expect(try PDFExport.stripSchedule(project: project).fileName == "Long_Way__Home_Part_2__StripSchedule.pdf")
         #expect(try PDFExport.breakdowns(project: project).fileName == "Long_Way__Home_Part_2__Breakdowns.pdf")
+        #expect(try PDFExport.shotList(project: project, scope: .project, includeFrames: false).fileName == "Long_Way__Home_Part_2__ShotList.pdf")
         #expect(try PDFExport.daysOutOfDays(project: project, includeHold: true).fileName == "Long_Way__Home_Part_2__DOoD.pdf")
         #expect(try PDFExport.scheduleCalendar(project: project, startDate: range.0, endDate: range.1).fileName == "Long_Way__Home_Part_2__Calendar.pdf")
     }
@@ -177,6 +210,20 @@ struct PDFExportRequestTests {
         let noCast = ProjectData(allScenes: [], shootDays: [ShootDay(date: PDFFixture.novemberDate(day: 2), scenes: [scene])], projectTitle: "No cast")
         #expect(throws: PDFExportError(message: "Couldn't generate a Days Out of Days report — add cast to your scenes and Production Setup first.")) {
             try PDFExport.daysOutOfDays(project: noCast, includeHold: true)
+        }
+    }
+
+    @Test func aShotListOfAGoneDayOrOfNothingFailsWithAMessage() {
+        let project = PDFFixture.projectWithShots
+        #expect(throws: PDFExportError(message: "Couldn't generate a shot list — that day is no longer in the schedule.")) {
+            try PDFExport.shotList(project: project, scope: .day(UUID()), includeFrames: true)
+        }
+        #expect(throws: PDFExportError(message: "Couldn't generate a shot list — that day has no scenes.")) {
+            try PDFExport.shotList(project: project, scope: .day(project.shootDays[0].id), includeFrames: true)
+        }
+        let empty = ProjectData(allScenes: [], shootDays: [ShootDay(date: PDFFixture.novemberDate(day: 2))], projectTitle: "Empty")
+        #expect(throws: PDFExportError(message: "Couldn't generate a shot list — add some scenes first.")) {
+            try PDFExport.shotList(project: empty, scope: .project, includeFrames: false)
         }
     }
 

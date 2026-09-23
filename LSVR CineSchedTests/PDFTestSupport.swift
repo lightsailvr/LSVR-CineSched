@@ -130,6 +130,67 @@ enum PDFFixture {
     }
 }
 
+// MARK: - The fixture with shots (#40)
+
+extension PDFFixture {
+
+    /// Real stored frame bytes: a `width` × `height` image of one sRGB color (the tests
+    /// look for it in the rendered page) with a dark band across its top, through
+    /// `StoryboardFrame.encode`, the rule every frame source uses.
+    static func frameJPEG(red: CGFloat, green: CGFloat, blue: CGFloat, width: Int = 320, height: Int = 180) -> Data {
+        let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+        context.setFillColor(CGColor(srgbRed: red, green: green, blue: blue, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        context.setFillColor(CGColor(srgbRed: 0.1, green: 0.1, blue: 0.1, alpha: 1))
+        context.fill(CGRect(x: 0, y: height - height / 6, width: width, height: height / 6))
+        return StoryboardFrame.encode(context.makeImage()!)!
+    }
+
+    /// `days` with shot lists on the first shoot day: scene 101 has four shots, each with a
+    /// frame (two pages' worth at three a page with the scene's other entries), scene 102
+    /// two shots without frames; every other scene is shotless and frameless.
+    static var daysWithShots: [ShootDay] {
+        var days = days
+        var scenes = days[1].scenes
+        let red = frameJPEG(red: 0.85, green: 0.1, blue: 0.1)
+        scenes[0].shots = [
+            Shot(details: "Wide on the backlot as the crew regroups", durationMinutes: 20, equipment: ["Technocrane"], props: ["Clipboard"], sfx: ["Wind"], frame: red),
+            Shot(details: "Push in on Alex", durationMinutes: 15, equipment: ["Dolly"], frame: red),
+            Shot(details: "Sam's reaction, handheld", durationMinutes: 10, frame: frameJPEG(red: 0.1, green: 0.2, blue: 0.85, width: 180, height: 320)),
+            Shot(details: "Insert: the map", durationMinutes: 5, props: ["Map"], frame: red),
+        ]
+        scenes[0].applyShotEstimate()
+        scenes[1].shots = [
+            Shot(details: "Two-shot, locked off", durationMinutes: 25, equipment: ["Sticks"]),
+            Shot(details: "Overs", durationMinutes: 30, sfx: ["Rain"]),
+        ]
+        scenes[1].applyShotEstimate()
+        days[1].scenes = scenes
+        return days
+    }
+
+    /// A Boneyard scene with no shots and a frame of its own (a green one), and one with
+    /// neither, out of script order so the Boneyard's sort shows.
+    static var boneyardWithFrame: [Scene] {
+        var framed = makeScene(900)
+        framed.frame = frameJPEG(red: 0.1, green: 0.7, blue: 0.2)
+        framed.props = ["Lantern"]
+        return [makeScene(901, dayNight: .night), framed]
+    }
+
+    static var projectWithShots: ProjectData {
+        ProjectData(
+            allScenes:      boneyardWithFrame,
+            shootDays:      daysWithShots,
+            projectTitle:   title,
+            productionInfo: productionInfo
+        )
+    }
+}
+
 // MARK: - Helpers
 
 /// Parses `data` through PDFKit (and, given a `name`, dumps it under CINESCHED_PDF_DUMP_DIR

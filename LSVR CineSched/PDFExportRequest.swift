@@ -21,8 +21,9 @@ import Foundation
 /// the file off the main actor.
 nonisolated struct PDFExportRequest: Identifiable, Sendable {
 
-    /// The six documents (the month calendar counts twice: the whole-range calendar the
-    /// Mac's File menu exports and the single month the calendar's own button exports).
+    /// The seven documents (the month calendar counts twice: the whole-range calendar the
+    /// Mac's File menu exports and the single month the Share menu exports; the Shot
+    /// List is #40's).
     enum Kind: String, CaseIterable {
         case scheduleCalendar
         case monthCalendar
@@ -31,6 +32,7 @@ nonisolated struct PDFExportRequest: Identifiable, Sendable {
         case daysOutOfDays
         case breakdowns
         case callSheet
+        case shotList
 
         /// The document's name for the preview's title.
         @MainActor var title: String {
@@ -42,6 +44,7 @@ nonisolated struct PDFExportRequest: Identifiable, Sendable {
             case .daysOutOfDays:    return L("Days Out of Days")
             case .breakdowns:       return L("Scene Breakdowns")
             case .callSheet:        return L("Call Sheet")
+            case .shotList:         return L("Shot List")
             }
         }
     }
@@ -185,5 +188,36 @@ enum PDFExport {
             throw PDFExportError(message: "Failed to generate call sheet PDF.")
         }
         return PDFExportRequest(kind: .callSheet, fileName: "\(sanitizeFilename("CallSheet_\(formattedDate(day.date))")).pdf", data: data)
+    }
+
+    /// File ▸ Export Shot List… (and the phone's row), after its options sheet: the whole
+    /// project or one shoot day, with or without the storyboard frames (#40). A day's file
+    /// carries its production day number, or its date for a day without one.
+    static func shotList(project: ProjectData, scope: ShotListScope, includeFrames: Bool) throws(PDFExportError) -> PDFExportRequest {
+        let stem = "\(projectStem(project.projectTitle))_ShotList"
+        let fileName: String
+        switch scope {
+        case .project:
+            fileName = "\(stem).pdf"
+        case .day(let id):
+            guard let day = project.shootDays.first(where: { $0.id == id }) else {
+                throw PDFExportError(message: "Couldn't generate a shot list — that day is no longer in the schedule.")
+            }
+            let suffix = productionDayNumbers(for: project.shootDays)[id].map { "Day\($0)" }
+                ?? sanitizeFilename(formattedDate(day.date))
+            fileName = "\(stem)_\(suffix).pdf"
+        }
+        guard let data = ShotListExporter.generatePDF(
+            shootDays:     project.shootDays,
+            boneyard:      project.allScenes,
+            projectTitle:  project.projectTitle,
+            scope:         scope,
+            includeFrames: includeFrames
+        ) else {
+            throw PDFExportError(message: scope == .project
+                ? "Couldn't generate a shot list — add some scenes first."
+                : "Couldn't generate a shot list — that day has no scenes.")
+        }
+        return PDFExportRequest(kind: .shotList, fileName: fileName, data: data)
     }
 }
