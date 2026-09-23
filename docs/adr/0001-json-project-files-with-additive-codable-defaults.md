@@ -1,7 +1,9 @@
 # 0001 — Project files are plain JSON, evolved by additive optional fields
 
 Status: Accepted (inherited, recorded 2026-09-02). Amended by 0005 (2026-09-16): the format
-stands; the "no custom UTI" clause is reversed by the native `.cinesched` type.
+stands; the "no custom UTI" clause is reversed by the native `.cinesched` type. Amended by
+0007 (2026-09-23): storyboard frames are stored in the file as base64 JPEG strings, the one
+exception to "no binary encoding", and the file is written with sorted keys.
 
 ## Context
 

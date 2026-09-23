@@ -201,12 +201,14 @@ the build inputs outside it, see Working agreements):
 - `SceneSearch.swift`: the filter and the search (#27, `SceneSearchTests`), pure:
   `SceneSearch.matches(_:query:)` (a script scene every whitespace-separated word of the
   trimmed, lowercased query appears in: number exactly or as a prefix, slugline, a cast
-  name trimmed, summary, real location; a banner, an auto-meal or an event never; a
+  name trimmed, summary, real location, any shot's description, equipment, props or
+  SFX (#37); a banner, an auto-meal or an event never; a
   blank query matches every script scene), `filter(_:query:)` (order kept),
   `results(for:in:)` (`SceneSearchResult`: the scene and its `SceneLocation`, scheduled
   first in schedule order then the Boneyard in script order; a blank query finds
-  nothing) and `BoneyardSelection.ordered(_:inDisplayOrder:)`, the multi-selection in
-  the list's order for Send to Day.
+  nothing), `matchingShots(in:query:)` (the shots holding any word of the query, for a
+  result's caption, #37) and `BoneyardSelection.ordered(_:inDisplayOrder:)`, the
+  multi-selection in the list's order for Send to Day.
 - `NewSceneSheet.swift`: the New Scene form (#27), an adaptive editor over `NewSceneDraft`
   (EditorDrafts.swift): number, slugline (focused on appear), real location with the
   autocomplete field, pages and estimate with the scene editor's hints, and the type
@@ -328,6 +330,23 @@ the build inputs outside it, see Working agreements):
   the auto-meal sync in the same edit), `saveCallSheet` (the day replaced by id and
   synced) and `duplicateScene(withID:)`. Each returns false or nil and changes nothing
   when its target is gone.
+- `ShotEdits.swift`: a scene's shot list (#37, `ShotEditsTests`), pure, the counterpart
+  of `DayEdits.swift`: `Shot.letter(forIndex:)` (A…Z, AA, AB, …), `Scene.shotNumber(at:)`
+  / `shotNumber(forShotID:)` (the scene number then the letter: 12A, 12AA) and
+  `shotNumberPrefix`; the edits as `mutating` methods on `Scene` (`addShot(_:after:)`,
+  `updateShot`, `removeShot(withID:)`, `moveShots(fromOffsets:toOffset:)`,
+  `moveShot(withID:to:)` with `ShotDropPosition` `.before(id)` / `.end`,
+  `duplicateShot(withID:)`; what a scene draft runs) and the same on `ProjectData` by scene
+  id and shot id (`addShot(_:toSceneID:after:)`, `updateShot(_:inSceneID:)`,
+  `removeShot(withID:fromSceneID:)`, `moveShots(inSceneID:fromOffsets:toOffset:)`,
+  `moveShot(withID:inSceneID:to:)`, `duplicateShot(withID:inSceneID:)`), each false or nil
+  and changing nothing when its scene or shot is gone, each ending with the estimate rule
+  (`applyShotEstimate`, `shotEstimate`: the durations' sum into `estimatedTime` while there
+  are shots), `addShot` with the frame rule (the first shot takes the scene's frame);
+  `refreshShotIDs()` (Duplicate Scene, the calendar's duplicate and a paste); the breakdown
+  unions `allProps`, `allSpecialEquipment` (a shot's `equipment`) and `allSFX`, which the
+  breakdown sheet and the Stripboard Fields values read (`breakdownUnion`: the scene's
+  items then the shots', trimmed, first spelling kept case-insensitively).
 - `QuickTimeEditSheet.swift`: Set Time (#26), the Stripboard's "Set Time…" rebuilt as an
   adaptive form on a `QuickTimeDraft` (`EditorDrafts.swift`): automatic cascade or a
   fixed start, the estimate as two steppers, the old sheet's preview line; Save is
@@ -559,8 +578,9 @@ the build inputs outside it, see Working agreements):
   `ShareLink`), the request's `Transferable` conformance (a file under the export name, written
   on demand into the temporary directory) and the `pdfExportPresentation(_:)` modifier
   `ContentView` hangs off its root on every platform. Platform-free; the Mac never presents it.
-- `ProjectCodec.swift`: the one encoder/decoder for project files (pretty JSON, ISO dates, legacy
-  shapes). Every save and load path uses it; nothing else constructs a `JSONEncoder` for a project.
+- `ProjectCodec.swift`: the one encoder/decoder for project files (pretty JSON with sorted
+  keys since #37, so an unchanged project saves to identical bytes; ISO dates, legacy
+  shapes; storyboard frames as base64, ADR 0007). Every save and load path uses it; nothing else constructs a `JSONEncoder` for a project.
 - `ProjectDocument.swift`: the project document (ADR 0004) on the 27 `Document` protocol, its URL
   reader/writer, the `perform` undo funnel, `ProjectData.newProject` (the File ▸ New template),
   `UTType.cineschedProject` (ADR 0005) and the palette adoption every project entering a
@@ -576,6 +596,9 @@ the build inputs outside it, see Working agreements):
   optional field of the file), `SceneColorSettings.deviceOverrides` (the pre-#11 per-device keys,
   read only for adoption) and the `scenePalette` environment key.
 - `Models.swift`: all value types. `Scene` doubles as banner, auto-meal, and calendar event via flags.
+  `Shot` (#37) is a scene's setup (`details`, `durationMinutes`, `equipment`, `props`, `sfx`,
+  `frame`); `Scene.shots` and `Scene.frame` are written only when set (a hand-written
+  `Scene.encode(to:)`), so a project without shot lists saves the same content.
 - `DerivedScheduleState.swift`: everything `ContentView` shows that is computed from the whole
   project (sorted Boneyard, conflict sets, duplicate numbers, lock drift), the `BoneyardSort`
   enum, and the cache that computes it once per `ProjectDocument.changeCount`. Add new
@@ -844,7 +867,12 @@ order, `swapDays` and its inverse, `adjacentDayID`, #25) in `ScheduleDragTests`,
 `Scene.duplicated()` and the `ProjectData` day edits (`DayEditsTests`: the Mac's copy
 pinned field by field, the type and note, Clear Day Type inside and outside the range, a
 notice strip added, replaced and deleted, Set Time with the lunch rule, the call sheet
-save with its sync, each refusing a gone target),
+save with its sync, each refusing a gone target; the copy's shots under fresh ids and its
+frame),
+`Shot.letter`, `Scene.shotNumber`, the shot edits on `Scene` and `ProjectData`, the
+estimate and frame rules and the breakdown unions (`ShotEditsTests`: letters past Z, the
+number for 12 and 12A, every edit on a Boneyard and a scheduled scene and its refusals,
+the sum after each edit and after the last removal, the frame moving onto shot A only),
 `SceneDraft`, `BannerDraft` (reading an existing banner back, `applied(to:)` keeping its
 id), `CalendarEventDraft`, `NewSceneDraft` and `QuickTimeDraft` (`EditorDraftsTests`: what each reads,
 validation, the value written back, the Custom type's blank-means-none rule, the new
@@ -854,7 +882,8 @@ long-edge cap, landscape and portrait, no upscale, the result read back as JPEG,
 bytes twice, no source metadata, alpha flattened onto white, PNG bytes by the same rule,
 an EXIF-rotated JPEG upright, the decode cache by content; the view has no unit seam:
 learnings.md 2026-09-23 #38 renders it with `ImageRenderer` in a throwaway test),
-`SceneSearch` and `BoneyardSelection` (`SceneSearchTests`: the blank query, every field,
+`SceneSearch` and `BoneyardSelection` (`SceneSearchTests`: the blank query, every field
+and every shot field,
 the number's exact-or-prefix rule, cast trimmed and case-insensitive, notice strips never,
 the results' order and locations, the selection's display order; the tabs themselves have
 no unit seam: learnings.md 2026-09-21 #27 has the probe),

@@ -9,6 +9,33 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-23 — Shots in the model: the codec was never byte-stable, `JSONEncoder` escapes base64's slashes, and the Mac probe cannot autosave into the scratchpad (#37)
+
+- **`ProjectCodec` never wrote the same project to the same bytes twice.** Without
+  `.sortedKeys`, `JSONEncoder` orders each keyed container's keys by a hash that differs
+  per object, not only per process: an encode → decode → encode of the fixture project
+  differed at the first `CrewMember` (`"phone"` first in one, `"role"` first in the
+  other), same length. A single small struct encodes the same every time in a throwaway
+  script, which is why the #11 entry read it as a fixed "hash order". The codec now sets
+  `[.prettyPrinted, .sortedKeys]` (ADR 0007); no reader or test depended on the order.
+- **Base64 in the file has escaped slashes**: `Data` encodes as a base64 string and the
+  encoder writes `/` as `\/` (`"\/9j\/2Q=="` for `FF D8 FF D9`), so a test pinning the
+  text must pin the escaped form. The decoder reads either.
+- **A mutating call inside `#expect` does not compile** (the #35 note again): the shot
+  edit tests bind every `data.addShot(…)` to a `let stepN` first.
+- **`scene.shots.map(shotText)` in a main-actor enum is a new warning** ("call to main
+  actor-isolated static method in a synchronous nonisolated context"): an unapplied
+  method reference is a nonisolated closure. Write `map { shotText($0) }`.
+- **The Mac probe cannot save a project in the scratchpad**: the app opened a `.cinesched`
+  from `/private/tmp/…/scratchpad` fine, but autosave and File ▸ Save failed ("The document
+  could not be autosaved", nothing in the unified log). The same file copied under the
+  worktree (`~/Documents/repos/…`) saved at once. Open the copy from under the home
+  folder when the probe must save, and delete it before committing. The first Stripboard
+  appearance's auto-meal sync (a General Call strip) is the edit that makes the window
+  "Edited" without driving the UI.
+
+---
+
 ## 2026-09-23 — Storyboard frame bytes: ImageIO's JPEG is deterministic but always carries a small Exif block, the thumbnail call is not the size rule, and an `ImageRenderer` probe reports through test attachments (#38)
 
 - **`CGImageDestination` JPEG output is byte-for-byte deterministic** for the same pixels
