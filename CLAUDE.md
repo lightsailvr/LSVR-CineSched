@@ -426,6 +426,15 @@ the build inputs outside it, see Working agreements):
   description, duration, a thumbnail when framed) and `StoryboardFrameSlot` (a frame in a
   bounded box with Remove Frame; its `sourceControls` is the one place #41 adds the frame
   sources). Platform-free.
+- `ShotSubRow.swift`: one shot under its strip on the Stripboard (#42), platform-free
+  content only (the shot number, the description, the equipment dimmed, the duration
+  through `TimeParser.formatMinutes`; never a time, never a thumbnail); the Mac board puts
+  its indent, tint, gestures and drag around it, and #43's phone lists will too.
+- `ShotExpansion.swift`: which strips show their shots (#42, `ShotExpansionTests`), pure:
+  Show Shots plus the strips whose chevron flipped against it (`isExpanded`, `toggle`,
+  `setShowAll`, which clears the exceptions). `ContentView` holds the switch as the
+  `CineSchedShowShots` `@WindowPreference` and the exceptions as `@State` (scene ids mean
+  nothing to the next window); nothing reaches the file.
 - `ProjectLaunchBackground.swift`: the launch screen's backdrop (#12), moved out of the
   deleted `MinimalProjectEditor.swift` (#24).
 - `EditorSelection.swift`: the inspector's selection (#17), pure: `EditorSelection` (`.scene(id:)`
@@ -529,7 +538,13 @@ the build inputs outside it, see Working agreements):
   as a pure function, which the Stripboard's and the calendar's day drops call too, #35)
   and `adjacentDayID(of:_:in:)` with `DayDirection` (the next or previous
   entry of `shootDays`, what Move to Next / Previous Day lands on). All pure over
-  `[ShootDay]` and the Boneyard (`ScheduleDragTests`). The
+  `[ShootDay]` and the Boneyard (`ScheduleDragTests`). A shot sub-row (#42) drags the kind
+  `.shot(id:sceneID:)` inside `ShotDragPayload`, on its own exported type
+  (`UTType.cineschedShotDragPayload`, Config/Info.plist): a destination is picked by type
+  while the drag hovers, so no strip, day, Boneyard or calendar destination is ever offered
+  a shot; `ShotDrop.position(for:onto:)` (a `ShotDropTarget`) is the one rule for where it
+  lands, `.before(shot)` or `.end` in its own scene and nil anywhere else, asked both to
+  light a sub-row's indicator and to apply the drop. The
   calendar, the Stripboard and the Boneyard drag with `.draggable`/`.dropDestination` on this
   type (not the 27 reorder container — it crashes beside a heterogeneous drag container, see
   CalendarView's header and learnings.md 2026-09-20); `CalendarView` holds the shared
@@ -570,7 +585,10 @@ the build inputs outside it, see Working agreements):
   statistics when nothing is selected, `SceneEditSheet` bound to the selected scene by id
   (Save is one gesture, Cancel and Delete clear the selection), `DayDetailSheet` for the
   selected day with its edits (day type, note, clear, remove or delete an item) and the
-  two sheets it opens (`ActiveSheet.calendarEvent`, `.callSheet`).
+  two sheets it opens (`ActiveSheet.calendarEvent`, `.callSheet`). A shot sub-row's tap
+  (#42) selects its scene with an `InspectorRoute` (`ContentView.inspectorRoute`, cleared
+  when the selection leaves that scene): the editor opens on the shot's page, and the
+  route's token is part of the editor's identity, so every tap makes a fresh editor.
 - `LaunchImportFlow.swift`: the launch screen's imports (#13). `LaunchImportKind` (script or
   legacy project, with the picker's types), `LaunchImport` (the pure steps: parse a script,
   build the new project from the result, read a legacy `.json` through `ProjectCodec`;
@@ -588,7 +606,7 @@ the build inputs outside it, see Working agreements):
   iCloud entitlement (ADR 0006); `MacAppDelegate` seeds the Open/Save panels' last directory
   with that path once the folder exists.
 - `ProjectCommands.swift`: the closure slots (and View-menu bindings) a `ContentView` publishes
-  for those menus. `WindowPreference.swift`: `@WindowPreference`, per-window view state (Calendar
+  for those menus (with #42 `showShotsOnStripboard`, the phone's a constant until #43). `WindowPreference.swift`: `@WindowPreference`, per-window view state (Calendar
   vs Stripboard, cast row, times vs pages, all days, grid vs list) seeded from and written back to
   the last-used value; app-wide preferences (Dark Mode, Theme, Stripboard fields) stay `@AppStorage`.
 - `ContentView.swift`: the editor for one document (`ContentView(document:layout:)`): the Mac
@@ -698,7 +716,14 @@ the build inputs outside it, see Working agreements):
   sheet resolves the versions. The header says which path fires where.
 - `SyncStateIndicator.swift`: the symbol-and-caption view beside the title (nothing for nil
   state) and `ConflictNoticeView`, the popover with Restore Other Version and Dismiss.
-- `CalendarView.swift`, `StripboardView.swift`: the two schedule views.
+- `CalendarView.swift`, `StripboardView.swift`: the two schedule views. The Stripboard's
+  shots (#42): a chevron on every script scene's strip, `ShotSubRow`s under an expanded one
+  (a `ShotExpansion` binding), a sub-row zone per shot and one under the last for the
+  shot drag (`onMoveShot`, which `ContentView` wires to one `edit("Move Shot")`), a scene
+  dragged over the sub-rows landing before the next strip, Add Shot… in the strip's menu and
+  a double-click on a sub-row opening the editor through `initialRoute`, and
+  `onSelectShot`, the three-column layout's single tap (nil on the Mac, where a click
+  selects the strip).
 - `*Sheet.swift`: modal editors. `*Exporter.swift`: PDF generators; every call site is in
   `ContentView+PDFExports.swift` or `PhoneExports.swift`. `PDFCanvas.swift` is the shared drawing helper (CoreGraphics +
   CoreText, no AppKit); all seven exporters (`StripboardPDFExporter`, `ShootingSchedulePDFExporter`,
@@ -909,7 +934,15 @@ Mac row's output before the rules moved),
 `breakdownSuggestions` (`EditorSelectionTests`; the scene editor's Shots section and pages
 have no unit seam: learnings.md 2026-09-23 #39 has the Mac accessibility probe and the
 inspector note),
-`ScheduleDragPayload` (round-trip per kind, including multi-scene) and `ScheduleMoves`
+`ShotExpansion` (`ShotExpansionTests`: collapsed by default, a chevron, Show Shots and
+its reset of the chevrons), the Shots field (`StripboardFieldSettingsTests`: label, icon,
+encoding, off by default and for a saved selection, "1 shot" / "4 shots" / nothing; the
+month export's pill in `MonthPDFExporterTests`), the Stripboard's shots themselves have no
+unit seam (learnings.md 2026-09-23 #42 has the iPad drag and hover probe and the Mac
+accessibility one),
+`ScheduleDragPayload` (round-trip per kind, including multi-scene and the shot kind on
+its own type, with the types kept apart; `ShotDrop.position` within and outside the
+scene and for every other kind, #42) and `ScheduleMoves`
 (from the Boneyard, within a day, across days, before a strip or at the end, back to the
 Boneyard; the iPhone's `reorderStrips` from `onMove` offsets, `addScenes` in display
 order, `swapDays` and its inverse, `adjacentDayID`, #25) in `ScheduleDragTests`,

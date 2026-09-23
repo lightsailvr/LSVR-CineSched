@@ -9,6 +9,51 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-23 — Shots on the Stripboard: a destination is chosen by type before the drop decodes, `exported(as:)` ignores `exportingCondition`, the iPad's portrait inspector closes on a board tap, and a 200-strip board kills the simulator's backboardd (#42)
+
+- **A drag's hover never sees the payload, only its types.** `isTargeted` fires on any
+  destination whose `for:` type the drag carries, before anything is decoded, so a shot
+  riding in `ScheduleDragPayload` would have lit every strip zone, day section and the
+  Boneyard, whatever the drop then refused. The shot travels in its own `Transferable`
+  (`ShotDragPayload`, its own exported UTI in Config/Info.plist), and the iPad probe shows
+  the system's "not allowed" badge over another strip and the day header, with no red
+  border and no insertion line. Among the sub-rows, which all take that type, the view
+  remembers the lifted shot (set in the `.draggable` autoclosure, cleared on the drag
+  session's end) and lights a zone only where `ShotDrop.position` says it would land.
+- **A per-value `exportingCondition` did not stop `exported(as:)`**: with two
+  representations on one type, each conditioned on the kind, exporting a shot as the
+  scene type succeeded in a test (and so did the reverse). Whether the drag's item
+  provider honours it could not be tested; a separate type needs no such trust.
+- **Nested drop destinations of different types**: a sub-row's `ShotDragPayload` zone
+  sits inside the sub-row group's `ScheduleDragPayload` zone (a scene dragged over the
+  sub-rows lands before the next strip). The shot drops found their own zones; a scene
+  dropped onto the sub-rows was not probed (it is on the device checklist).
+- **On an iPad in portrait the three-column inspector is an overlay the system closes on
+  any tap in the board** (a strip's as much as a sub-row's; `showInspector` stays true).
+  Probe the inspector in landscape: `XCUIDevice.shared.orientation = .landscapeLeft` in the
+  XCUITest (iOS only: the Mac build of the UI test target fails on it, so move the probe
+  file out before a Mac `test`).
+- **Seeing a drag's hover from a probe**: `press(forDuration: 0.5, thenDragTo:, withVelocity:
+  .slow, thenHoldForDuration: 3)` in the XCUITest while the shell loops `simctl io …
+  screenshot` every 0.5 s; the frames whose PNG size differs are the ones mid-drag.
+- **A 200-strip Stripboard crashes the iPad simulator's backboardd** (SIGABRT in
+  `MTLSimDevice newTextureWithDescriptor:` under `CA::OGL::FlattenNode::retain_surface`: a
+  flattened layer taller than the simulator's texture limit), on the base commit as well,
+  shots or not; the app dies with it. Expanded shots make a board taller, so the limit comes
+  sooner. Not seen on a device; on the device checklist.
+- **Mac probe**: the toolbar's Display menu (an `AXMenuButton`) and a strip's chevron
+  answer `AXPress` without the probe being frontmost; the View menu's items need it
+  frontmost (the #40 polling recipe). Count buttons in `entire contents` carefully: a
+  banner's trash is an unlabelled `AXButton` too, and pressing the wrong index deleted the
+  General Call strip. Undo was then disabled because the sidebar's title field held focus
+  (its field editor's undo stack is empty), so restore the file instead. When the user's
+  screen is locked or on another Space, AX lists no windows and `screencapture -l` fails.
+- **No render-timing seam for the board**: `ImageRenderer` draws a
+  `ScrollView` as nothing on macOS, so a whole-board render timing measures bitmap size,
+  not the board. Not a usable perf seam.
+
+---
+
 ## 2026-09-23 — The scene editor's shot pages: a `NavigationStack` in the iPad's inspector pushes onto the split view, `minutesForEditing` never round-tripped, and a Mac sheet can be driven by accessibility alone (#39)
 
 - **A `NavigationStack(path:)` inside the three-column layout's `.inspector` does not push
