@@ -851,6 +851,12 @@ the build inputs outside it, see Working agreements):
   the header is `EditorStackTitle` (Back and the page's title while a page is up), the
   footer switches to Remove and Done, every page gets `editorStackPage()`, and an Add row
   appends a blank entry and pushes its page, with the draft dropping rows left blank.
+  A list editor the inspector shows (#39, `SceneEditSheet`'s shot pages) keeps the stack in
+  its sheets only: when `editorPresentation == .inspector` it swaps the page in place on
+  the same `path` (the form or the page, no `NavigationStack`), because a
+  `NavigationStack` inside the three-column layout's `.inspector` pushes onto the
+  enclosing `NavigationSplitView` (the page covers the window, without the editor's chrome
+  or the inspector's environment; learnings 2026-09-23 #39).
   No `.toolbar`, `.navigationTitle` or `navigationBarTitleDisplayMode` in an editor.
 - **Mutating schedule state from a child view**: call `onBeforeSceneChange()` first (opens the edit
   gesture), mutate through the binding, then `onSceneChanged()` (closes it). The binding's setter is
