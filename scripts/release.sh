@@ -25,7 +25,9 @@ git rev-parse "v${VERSION}" >/dev/null 2>&1 && { echo "error: tag v${VERSION} al
 
 # Release notes = everything under [Unreleased]; refuse to release nothing.
 NOTES="$(awk '/^## \[Unreleased\]/{flag=1; next} /^## \[/{flag=0} flag' "$CHANGELOG")"
-[[ -n "${NOTES//[[:space:]]/}" ]] || { echo "error: [Unreleased] section of the changelog is empty" >&2; exit 1; }
+# (grep, not ${NOTES//[[:space:]]/}: bash 3.2's pattern substitution is pathologically
+# slow on large strings and hung on 4.7.0's 47 KB of notes.)
+grep -q '[^[:space:]]' <<<"$NOTES" || { echo "error: [Unreleased] section of the changelog is empty" >&2; exit 1; }
 
 # --- Version bump ---
 BUILD_NUM="$(sed -nE 's/.*CURRENT_PROJECT_VERSION = ([0-9]+);.*/\1/p' "$PBXPROJ" | head -1)"

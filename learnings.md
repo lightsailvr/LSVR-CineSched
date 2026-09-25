@@ -9,6 +9,14 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-25 — `release.sh` hung for hours on bash 3.2's `${var//pattern/}` over 47 KB of notes
+
+Cutting 4.7.0, the script sat at 100% CPU before the version bump, with no child process.
+The blank-notes check `${NOTES//[[:space:]]/}` is pathologically slow in macOS's
+`/bin/bash` 3.2 on a large string (4.7.0's `[Unreleased]` was 47 KB). The check is now
+`grep -q '[^[:space:]]' <<<"$NOTES"`. In these scripts, never run pattern substitution over
+a file-sized string.
+
 ## 2026-09-23 — Integrating the shot lists: a build-setting warning hides from a `file:line:` count, and eight agents' docs drift in the same bullets (#36)
 
 - **The warning count the tickets reported missed one line.** Every ticket counted distinct
