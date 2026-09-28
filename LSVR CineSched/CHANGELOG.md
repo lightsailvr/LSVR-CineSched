@@ -3,6 +3,8 @@
 All notable changes to CineSched are documented here.
 
 ## [Unreleased]
+
+## [4.8.0] - 2026-09-28
 ### Added
 - **Director's Notes on every shot.** A shot's page in the scene editor has a Director's Notes field under the description, a growing text box for the reminders a director wants on set ("Hold on her hands before the turn; keep the crane slow so the reveal lands with the music"). The Shot List's options have a new Include Director's Notes switch, remembered like the others and on by default: on, each shot's notes print under its description in italics, labelled, in the storyboard layout (the description keeps at least 40% of the room when both run long) and as a full-width line under the shot's row in the table; off, they are left out of the printout entirely. Search finds a scene by its shots' notes too. A shot without notes saves exactly as before, and older builds open a project with notes (ignoring them).
 
