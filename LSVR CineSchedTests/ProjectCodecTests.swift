@@ -260,6 +260,21 @@ struct ProjectCodecTests {
         #expect(shot.frame == nil)
     }
 
+    /// A shot's director's notes round-trip, and a shot without them writes no key, so a
+    /// project saved before they existed saves the same bytes.
+    @Test func directorsNotesRoundTripAndAreWrittenOnlyWhenSet() throws {
+        let noted = Shot(details: "Wide", directorNotes: "Let the silence sit.\nThen cut on her look.")
+        let data  = try JSONEncoder().encode(noted)
+        #expect(try JSONDecoder().decode(Shot.self, from: data) == noted)
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["directorNotes"] as? String == "Let the silence sit.\nThen cut on her look.")
+
+        let plain       = try JSONEncoder().encode(Shot(details: "Wide"))
+        let plainObject = try #require(try JSONSerialization.jsonObject(with: plain) as? [String: Any])
+        #expect(Set(plainObject.keys) == ["id", "details", "durationMinutes", "equipment", "props", "sfx"])
+        #expect(try JSONDecoder().decode(Shot.self, from: plain).directorNotes == "")
+    }
+
     @Test func garbageThrows() {
         #expect(throws: (any Error).self) {
             try ProjectCodec.decode(Data("not a project".utf8))

@@ -287,6 +287,7 @@ struct ShotDraft: Equatable {
     var props:     String
     var sfx:       String
     var frame:     Data?
+    var directorNotes: String
 
     init(shot: Shot) {
         shotID    = shot.id
@@ -296,6 +297,7 @@ struct ShotDraft: Equatable {
         props     = shot.props.joined(separator: ", ")
         sfx       = shot.sfx.joined(separator: ", ")
         frame     = shot.frame
+        directorNotes = shot.directorNotes
     }
 
     var parsedMinutes: Int? { TimeParser.parseToMinutes(duration) }
@@ -305,7 +307,8 @@ struct ShotDraft: Equatable {
 
     /// `shot` with the page's fields: the description trimmed, the duration in minutes
     /// (the shot's own kept while the text does not parse), the lists split and trimmed
-    /// with blanks dropped, the frame as the page holds it. The id is `shot`'s.
+    /// with blanks dropped, the frame as the page holds it, the director's notes trimmed.
+    /// The id is `shot`'s.
     func applied(to shot: Shot) -> Shot {
         var saved = shot
         saved.details   = details.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -314,6 +317,7 @@ struct ShotDraft: Equatable {
         saved.props     = SceneDraft.commaList(props)
         saved.sfx       = SceneDraft.commaList(sfx)
         saved.frame     = frame
+        saved.directorNotes = directorNotes.trimmingCharacters(in: .whitespacesAndNewlines)
         return saved
     }
 }

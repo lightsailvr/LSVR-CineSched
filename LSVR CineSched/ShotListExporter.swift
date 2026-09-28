@@ -14,6 +14,12 @@
 //   props, SFX), with the day bars and scene lines between; the column heads repeat on
 //   every page and a scene line is never left alone at the foot of one.
 //
+// Director's notes print when the export asks for them (`includeDirectorNotes`): in a slot,
+// under the description and above the lists, labelled and in italics, the description
+// keeping at least 40% of the room they share when both run long (whole lines only, so a
+// clipped block never ends on half a line); in the table, as a line spanning every column
+// after the number, under the shot's row. A shotless scene has none.
+//
 // What prints: the project scope is every shoot day in schedule order (a day with no
 // scenes prints nothing), then the Boneyard in script order under "Boneyard"; the day
 // scope is that day alone. Banners, auto-meals, calendar events and the legacy notice
@@ -54,6 +60,8 @@ struct ShotListExporter {
         let props:           [String]
         let sfx:             [String]
         let frame:           Data?
+        /// Trimmed; empty for a shotless scene.
+        let directorNotes:   String
     }
 
     /// A scene and what prints for it.
@@ -85,7 +93,8 @@ struct ShotListExporter {
                 equipment:       scene.allSpecialEquipment,
                 props:           scene.allProps,
                 sfx:             scene.allSFX,
-                frame:           scene.frame
+                frame:           scene.frame,
+                directorNotes:   ""
             )]
         }
         return scene.shots.enumerated().map { index, shot in
@@ -96,7 +105,8 @@ struct ShotListExporter {
                 equipment:       Scene.breakdownUnion(shot.equipment, []),
                 props:           Scene.breakdownUnion(shot.props, []),
                 sfx:             Scene.breakdownUnion(shot.sfx, []),
-                frame:           shot.frame
+                frame:           shot.frame,
+                directorNotes:   shot.directorNotes.trimmingCharacters(in: .whitespacesAndNewlines)
             )
         }
     }
@@ -131,7 +141,8 @@ struct ShotListExporter {
         boneyard:      [Scene],
         projectTitle:  String,
         scope:         ShotListScope,
-        includeFrames: Bool
+        includeFrames: Bool,
+        includeDirectorNotes: Bool = true
     ) -> Data? {
         guard let sections = sections(shootDays: shootDays, boneyard: boneyard, scope: scope), !sections.isEmpty,
               let canvas = PDFCanvas(pageSize: CGSize(width: pageWidth, height: pageHeight)) else { return nil }
@@ -144,9 +155,9 @@ struct ShotListExporter {
         var page = Page(canvas: canvas, projectTitle: projectTitle.isEmpty ? L("Untitled Movie") : projectTitle, scopeTitle: scopeTitle)
 
         if includeFrames {
-            drawSlots(sections, on: &page)
+            drawSlots(sections, notes: includeDirectorNotes, on: &page)
         } else {
-            drawTable(sections, on: &page)
+            drawTable(sections, notes: includeDirectorNotes, on: &page)
         }
         page.finishPage()
         return canvas.finish()
@@ -182,6 +193,7 @@ struct ShotListExporter {
     private static let fontDetails     = PDFFont.system(size: 10)
     private static let fontListLabel   = PDFFont.boldSystem(size: 8.5)
     private static let fontList        = PDFFont.system(size: 8.5)
+    private static let fontNotes       = PDFFont.italicSystem(size: 9)
     private static let fontTableHead   = PDFFont.boldSystem(size: 7.5)
     private static let fontTable       = PDFFont.system(size: 8.5)
     private static let fontTableNumber = PDFFont.boldSystem(size: 8.5)
@@ -275,7 +287,7 @@ struct ShotListExporter {
 
     // MARK: - Frames on: three slots a page
 
-    private static func drawSlots(_ sections: [Section], on page: inout Page) {
+    private static func drawSlots(_ sections: [Section], notes: Bool, on page: inout Page) {
         let canvas = page.canvas
         var slotIndex = 0
         for section in sections {
@@ -297,7 +309,7 @@ struct ShotListExporter {
                     let bandBottom = top - bandHeight
                     canvas.line(from: CGPoint(x: margin, y: bandBottom + 4), to: CGPoint(x: pageWidth - margin, y: bandBottom + 4), color: colorRule, lineWidth: 0.5)
 
-                    drawSlotBody(entry, top: bandBottom - 4, bottom: top - slotHeight + 8, canvas: canvas)
+                    drawSlotBody(entry, notes: notes, top: bandBottom - 4, bottom: top - slotHeight + 8, canvas: canvas)
                     slotIndex += 1
                 }
             }
@@ -305,7 +317,7 @@ struct ShotListExporter {
     }
 
     /// The frame box on the left, the shot's text on the right, between `top` and `bottom`.
-    private static func drawSlotBody(_ entry: Entry, top: CGFloat, bottom: CGFloat, canvas: PDFCanvas) {
+    private static func drawSlotBody(_ entry: Entry, notes includeNotes: Bool, top: CGFloat, bottom: CGFloat, canvas: PDFCanvas) {
         let box = CGRect(x: margin, y: bottom, width: frameBoxWidth, height: top - bottom)
         canvas.stroke(box, color: colorFrameBox, lineWidth: 0.5)
         if let frame = entry.frame, let image = StoryboardFrame.decode(frame) {
@@ -335,9 +347,34 @@ struct ShotListExporter {
         let listsHeight = listHeights.reduce(0) { $0 + $1 + 3 }
 
         let details = entry.details.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !details.isEmpty {
-            let detailsRect = CGRect(x: textX, y: bottom + listsHeight + 4, width: textWidth, height: max(y - bottom - listsHeight - 4, 0))
-            canvas.draw(details, in: detailsRect, font: fontDetails, color: colorText, lineSpacing: 1.5)
+        let notes   = includeNotes ? entry.directorNotes : ""
+        let textBottom = bottom + listsHeight + 4
+        let room       = max(y - textBottom, 0)
+        if notes.isEmpty {
+            if !details.isEmpty {
+                canvas.draw(details, in: CGRect(x: textX, y: textBottom, width: textWidth, height: room), font: fontDetails, color: colorText, lineSpacing: 1.5)
+            }
+        } else {
+            // The description first, then the notes under their label; when the two do not
+            // both fit, the description keeps at least 40% of the room and the notes the rest.
+            let gap: CGFloat   = details.isEmpty ? 0 : 6
+            let labelHeight    = fontListLabel.lineHeight + 2
+            let detailsNatural = canvas.height(of: details, font: fontDetails, width: textWidth, lineSpacing: 1.5)
+            let notesNatural   = labelHeight + canvas.height(of: notes, font: fontNotes, width: textWidth, lineSpacing: 1)
+            let detailsBudget  = min(detailsNatural, max(room - gap - notesNatural, room * 0.4))
+            let detailsHeight  = wholeLines(detailsBudget, font: fontDetails, lineSpacing: 1.5)
+            if !details.isEmpty {
+                canvas.draw(details, in: CGRect(x: textX, y: y - detailsHeight, width: textWidth, height: detailsHeight),
+                            font: fontDetails, color: colorText, lineSpacing: 1.5)
+            }
+            let notesTop = y - detailsHeight - gap
+            if notesTop - labelHeight - fontNotes.lineHeight >= textBottom - 0.5 {
+                canvas.draw("\(L("Director's Notes")):", in: CGRect(x: textX, y: notesTop - fontListLabel.lineHeight, width: textWidth, height: fontListLabel.lineHeight),
+                            font: fontListLabel, color: colorText, lineBreak: .truncateTail)
+                let notesHeight = wholeLines(notesTop - labelHeight - textBottom, font: fontNotes, lineSpacing: 1)
+                canvas.draw(notes, in: CGRect(x: textX, y: notesTop - labelHeight - notesHeight, width: textWidth, height: notesHeight),
+                            font: fontNotes, color: colorText, lineSpacing: 1)
+            }
         }
 
         var listTop = bottom + listsHeight
@@ -347,6 +384,14 @@ struct ShotListExporter {
             canvas.draw(items, in: CGRect(x: textX + labelWidth, y: listTop - height, width: itemsWidth, height: height), font: fontList, color: colorText)
             listTop -= height + 3
         }
+    }
+
+    /// `height` cut down to the whole lines of `font` it holds, so a clipped block never
+    /// ends on half a line.
+    private static func wholeLines(_ height: CGFloat, font: PDFFont, lineSpacing: CGFloat) -> CGFloat {
+        guard height >= font.lineHeight else { return 0 }
+        let count = floor((height + lineSpacing) / (font.lineHeight + lineSpacing))
+        return count * font.lineHeight + (count - 1) * lineSpacing
     }
 
     // MARK: - Frames off: the table
@@ -375,17 +420,31 @@ struct ShotListExporter {
     /// Where the first thing under a page's column heads starts.
     private static let pageTopY:        CGFloat = contentTop - tableHeadHeight - 4
 
-    private static func drawTable(_ sections: [Section], on page: inout Page) {
+    private static func drawTable(_ sections: [Section], notes includeNotes: Bool, on page: inout Page) {
         let canvas  = page.canvas
         let columns = columns
         var y: CGFloat = 0
 
-        func rowHeight(_ entry: Entry) -> CGFloat {
+        // The notes line spans every column after the number, its label leading.
+        let notesX          = margin + columns[0].width + cellPadding
+        let notesLabel      = "\(L("Director's Notes")):"
+        let notesLabelWidth = canvas.width(of: notesLabel, font: fontListLabel) + 6
+        let notesWidth      = pageWidth - margin - cellPadding - notesX - notesLabelWidth
+
+        func cellsHeight(_ entry: Entry) -> CGFloat {
             let tallest = columns.map { column in
                 canvas.height(of: column.text(entry), font: fontTable, width: column.width - 2 * cellPadding)
             }.max() ?? 0
             return max(tallest, fontTable.lineHeight) + 2 * cellPadding
         }
+
+        /// The notes line's height under the cells, bottom padding included; 0 without notes.
+        func notesHeight(_ entry: Entry) -> CGFloat {
+            guard includeNotes, !entry.directorNotes.isEmpty else { return 0 }
+            return max(canvas.height(of: entry.directorNotes, font: fontNotes, width: notesWidth, lineSpacing: 1), fontListLabel.lineHeight) + cellPadding
+        }
+
+        func rowHeight(_ entry: Entry) -> CGFloat { cellsHeight(entry) + notesHeight(entry) }
 
         func newPage() {
             page.startPage()
@@ -425,11 +484,20 @@ struct ShotListExporter {
                         drawSceneLine(block.scene, continued: entryIndex > 0, baseline: y - 13, canvas: canvas)
                         y -= sceneLineHeight
                     }
+                    let cells = cellsHeight(entry)
                     var x = margin
                     for (index, column) in columns.enumerated() {
-                        let rect = CGRect(x: x + cellPadding, y: y - height + cellPadding, width: column.width - 2 * cellPadding, height: height - 2 * cellPadding)
+                        let rect = CGRect(x: x + cellPadding, y: y - cells + cellPadding, width: column.width - 2 * cellPadding, height: cells - 2 * cellPadding)
                         canvas.draw(column.text(entry), in: rect, font: index == 0 ? fontTableNumber : fontTable, color: colorText)
                         x += column.width
+                    }
+                    let notesBlock = height - cells
+                    if notesBlock > 0 {
+                        let top = y - cells
+                        canvas.draw(notesLabel, in: CGRect(x: notesX, y: top - fontListLabel.lineHeight, width: notesLabelWidth, height: fontListLabel.lineHeight),
+                                    font: fontListLabel, color: colorText, lineBreak: .truncateTail)
+                        canvas.draw(entry.directorNotes, in: CGRect(x: notesX + notesLabelWidth, y: top - (notesBlock - cellPadding), width: notesWidth, height: notesBlock - cellPadding),
+                                    font: fontNotes, color: colorText, lineSpacing: 1)
                     }
                     y -= height
                     canvas.line(from: CGPoint(x: margin, y: y), to: CGPoint(x: pageWidth - margin, y: y), color: colorRule, lineWidth: 0.4)

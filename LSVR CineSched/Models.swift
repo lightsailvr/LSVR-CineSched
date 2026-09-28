@@ -640,6 +640,9 @@ struct Shot: Identifiable, nonisolated Codable, nonisolated Hashable {
     var props:           [String]
     var sfx:             [String]
     var frame:           Data?
+    /// The director's own reminders for the set ("Hold on her hands before the turn").
+    /// Prints on the Shot List only when its export asks for it.
+    var directorNotes:   String
 
     nonisolated init(
         id:              UUID     = UUID(),
@@ -648,7 +651,8 @@ struct Shot: Identifiable, nonisolated Codable, nonisolated Hashable {
         equipment:       [String] = [],
         props:           [String] = [],
         sfx:             [String] = [],
-        frame:           Data?    = nil
+        frame:           Data?    = nil,
+        directorNotes:   String   = ""
     ) {
         self.id              = id
         self.details         = details
@@ -657,10 +661,11 @@ struct Shot: Identifiable, nonisolated Codable, nonisolated Hashable {
         self.props           = props
         self.sfx             = sfx
         self.frame           = frame
+        self.directorNotes   = directorNotes
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, details, durationMinutes, equipment, props, sfx, frame
+        case id, details, durationMinutes, equipment, props, sfx, frame, directorNotes
     }
 
     /// Every field is optional in the file, so a hand-edited shot with only a description
@@ -674,6 +679,7 @@ struct Shot: Identifiable, nonisolated Codable, nonisolated Hashable {
         props           = try c.decodeIfPresent([String].self, forKey: .props) ?? []
         sfx             = try c.decodeIfPresent([String].self, forKey: .sfx) ?? []
         frame           = try c.decodeIfPresent(Data.self,     forKey: .frame)
+        directorNotes   = try c.decodeIfPresent(String.self,   forKey: .directorNotes) ?? ""
     }
 
     nonisolated func encode(to encoder: Encoder) throws {
@@ -685,6 +691,8 @@ struct Shot: Identifiable, nonisolated Codable, nonisolated Hashable {
         try c.encode(props,           forKey: .props)
         try c.encode(sfx,             forKey: .sfx)
         try c.encodeIfPresent(frame,  forKey: .frame)
+        // Written only when there are notes, so a shot without them saves the bytes it did.
+        if !directorNotes.isEmpty { try c.encode(directorNotes, forKey: .directorNotes) }
     }
 }
 

@@ -5,8 +5,8 @@
 // every word must appear somewhere in the scene: as its number (exactly or as a prefix,
 // so "12" finds 12, 12A and 120 the way a scene list reads), in its slugline, in a cast
 // name (the character name join's terms: case-insensitive, trimmed), in its summary or
-// in its real location, or in any of its shots' descriptions, equipment, props or SFX
-// (#37: "dolly" finds every scene with a dolly shot). Only script scenes match: a banner, an auto-meal or a calendar
+// in its real location, or in any of its shots' descriptions, equipment, props, SFX or
+// director's notes (#37: "dolly" finds every scene with a dolly shot). Only script scenes match: a banner, an auto-meal or a calendar
 // event is not something a scheduler looks up by name, and none has a place in the
 // Boneyard.
 //
@@ -87,9 +87,9 @@ enum SceneSearch {
 
     /// The Mac toolbar's search (ContentView's results popover): the trimmed query,
     /// lowercased, as one phrase contained in the scene's title, summary or a cast name, or
-    /// in any shot's description, equipment, props or SFX. Any strip, banners included, as
-    /// it always did; the shot text is what #36 adds ("search finds scenes by what their
-    /// shots say"). A blank query matches nothing.
+    /// in any shot's description, equipment, props, SFX or director's notes. Any strip,
+    /// banners included, as it always did; the shot text is what #36 adds ("search finds
+    /// scenes by what their shots say"). A blank query matches nothing.
     static func toolbarMatches(_ scene: Scene, query: String) -> Bool {
         let phrase = query.trimmingCharacters(in: .whitespaces).lowercased()
         guard !phrase.isEmpty else { return false }
@@ -154,6 +154,7 @@ enum SceneSearch {
             + shot.equipment.map { $0.lowercased() }
             + shot.props.map { $0.lowercased() }
             + shot.sfx.map { $0.lowercased() }
+            + [shot.directorNotes.lowercased()]
     }
 
     /// Whether a shot's fields (`shotText`) hold `term`, by containment: the one rule the

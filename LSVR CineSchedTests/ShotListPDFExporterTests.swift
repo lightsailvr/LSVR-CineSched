@@ -76,6 +76,16 @@ struct ShotListPDFExporterTests {
         #expect(ShotListExporter.generatePDF(shootDays: project.shootDays, boneyard: [], projectTitle: "", scope: .day(project.shootDays[0].id), includeFrames: true) == nil)
     }
 
+    @Test func aShotCarriesItsDirectorsNotesTrimmedAndAShotlessSceneNone() {
+        var scene = firstShootDay.scenes[0]
+        var shot  = scene.shots[1]
+        shot.directorNotes = "  Keep it quiet. \n"
+        scene.updateShot(shot)
+        let entries = ShotListExporter.entries(for: scene)
+        #expect(entries.map(\.directorNotes) == ["", "Keep it quiet.", "", ""])
+        #expect(ShotListExporter.entries(for: project.allScenes[1]).map(\.directorNotes) == [""])
+    }
+
     // MARK: - The pages
 
     @Test func framesOnPrintThreeEntriesAPage() {
@@ -118,6 +128,35 @@ struct ShotListPDFExporterTests {
             #expect(!text.contains("900A"))
             // The summary stands in for the description.
             #expect(text.contains("Scene 103: the crew regroups"))
+        }
+    }
+
+    /// Director's notes print under their label when the export asks for them, in both
+    /// layouts, and not at all when it does not; long notes keep the page count of a slot.
+    @Test func directorsNotesPrintOnlyWhenIncluded() throws {
+        let notes = "Hold on her hands before the turn. Keep the crane move slow so the reveal lands with the music. Remind Dana the limp is on the left."
+        var noted = project
+        var scene = noted.shootDays[1].scenes[0]
+        let shot  = try #require(scene.shots.first)
+        var edited = shot
+        edited.directorNotes = notes
+        let updated = scene.updateShot(edited)
+        #expect(updated)
+        noted.shootDays[1].scenes[0] = scene
+
+        for frames in [true, false] {
+            for include in [true, false] {
+                let pdf = pdfDocument(
+                    from: ShotListExporter.generatePDF(
+                        shootDays: noted.shootDays, boneyard: noted.allScenes, projectTitle: noted.projectTitle,
+                        scope: .day(firstShootDay.id), includeFrames: frames, includeDirectorNotes: include),
+                    dumpAs: include ? "ShotList-Day-\(frames ? "Frames" : "Table")-Notes.pdf" : nil)
+                let text = pdfFullText(pdf).replacingOccurrences(of: "\n", with: " ")
+                #expect(text.contains("Director's Notes") == include, "frames \(frames), include \(include)")
+                #expect(text.contains("Hold on her hands") == include, "frames \(frames), include \(include)")
+                #expect(text.contains("limp is on the left") == include, "frames \(frames), include \(include)")
+                if frames { #expect(pdf.pageCount == 4, "three slots a page, notes or not") }
+            }
         }
     }
 

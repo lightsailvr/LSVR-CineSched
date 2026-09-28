@@ -776,6 +776,17 @@ struct EditorDraftsTests {
         #expect(ShotDraft(shot: Shot()).duration == "15", "a new shot reads 15 minutes")
     }
 
+    @Test func shotDraftReadsAndWritesBackTheDirectorsNotesTrimmed() {
+        let original = Shot(details: "Wide", directorNotes: "Let the silence sit.")
+        var draft = ShotDraft(shot: original)
+        #expect(draft.directorNotes == "Let the silence sit.")
+        draft.directorNotes = "  Hold on her hands before the turn.\nKeep it quiet. \n"
+        #expect(draft.applied(to: original).directorNotes == "Hold on her hands before the turn.\nKeep it quiet.")
+        draft.directorNotes = "   "
+        #expect(draft.applied(to: original).directorNotes == "", "blank clears them")
+        #expect(ShotDraft(shot: Shot()).directorNotes == "")
+    }
+
     @Test func shotDraftRejectsADurationThatDoesNotParse() {
         var draft = ShotDraft(shot: Shot())
         for bad in ["", "  ", "soon", "1:75"] {

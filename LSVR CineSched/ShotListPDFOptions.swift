@@ -1,6 +1,7 @@
 // ShotListPDFOptions.swift
 // What the Shot List export (#40) asks before it runs: the scope (the whole project or one
-// shoot day) and whether the storyboard frames print. Both are remembered app-wide in
+// shoot day), whether the storyboard frames print and whether the shots' director's notes
+// do. All three are remembered app-wide in
 // UserDefaults through `@AppStorage` (the month export's pattern, MonthPDFOptions.swift),
 // never in the project file, so the sheet opens on the last choice in every project.
 //
@@ -14,9 +15,11 @@ import Foundation
 struct ShotListPDFOptions: Equatable {
     var scope:         ShotListScope
     var includeFrames: Bool
+    /// The director's own reminders under each shot that has them.
+    var includeDirectorNotes: Bool = true
 
-    /// The first export: the whole project, frames printed.
-    static let `default` = ShotListPDFOptions(scope: .project, includeFrames: true)
+    /// The first export: the whole project, frames and director's notes printed.
+    static let `default` = ShotListPDFOptions(scope: .project, includeFrames: true, includeDirectorNotes: true)
 
     /// The days the sheet's day picker offers: the shoot days with a scene that prints, in
     /// schedule order (an empty or events-only day would export nothing).
@@ -29,6 +32,7 @@ struct ShotListPDFOptions: Equatable {
 enum ShotListPDFOptionSettings {
     static let scopeKey         = "CineSchedShotListScope"
     static let includeFramesKey = "CineSchedShotListIncludeFrames"
+    static let includeDirectorNotesKey = "CineSchedShotListIncludeDirectorNotes"
 
     static let projectRaw = "project"
     private static let dayPrefix = "day:"

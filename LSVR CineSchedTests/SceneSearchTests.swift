@@ -124,6 +124,16 @@ struct SceneSearchTests {
         #expect(!SceneSearch.matches(garage, query: "dolly"))
     }
 
+    /// A shot's director's notes are searched as its other text is: a result names that shot.
+    @Test func matchesAShotsDirectorsNotes() {
+        var scene = garage
+        scene.shots = [Shot(details: "Wide"), Shot(details: "Close", directorNotes: "Remind Dana about the limp")]
+        #expect(SceneSearch.matches(scene, query: "limp"))
+        #expect(SceneSearch.toolbarMatches(scene, query: "about the limp"))
+        let result = SceneSearch.results(for: "limp", in: ProjectData(allScenes: [scene], shootDays: [], projectTitle: "Notes")).first
+        #expect(result?.matchedShotID == scene.shots[1].id)
+    }
+
     /// A result names the shot that found it (#43): the first shot, in shot order, holding
     /// a word of the query the scene's own fields do not; nil when the scene's own fields
     /// hold every word, so a shot is named only when the match came from one.

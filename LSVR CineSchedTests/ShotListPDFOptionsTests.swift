@@ -39,7 +39,7 @@ struct ShotListPDFOptionsTests {
         #expect(picked.map(\.id) == days[1...5].map(\.id))
     }
 
-    @Test func theFirstExportIsTheWholeProjectWithFrames() {
-        #expect(ShotListPDFOptions.default == ShotListPDFOptions(scope: .project, includeFrames: true))
+    @Test func theFirstExportIsTheWholeProjectWithFramesAndDirectorsNotes() {
+        #expect(ShotListPDFOptions.default == ShotListPDFOptions(scope: .project, includeFrames: true, includeDirectorNotes: true))
     }
 }

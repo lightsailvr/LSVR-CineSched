@@ -53,7 +53,10 @@ struct PhoneExports {
 
     /// The Shot List, after its options sheet (#40).
     func shotList(options: ShotListPDFOptions) {
-        deliver { try PDFExport.shotList(project: project(), scope: options.scope, includeFrames: options.includeFrames) }
+        deliver {
+            try PDFExport.shotList(project: project(), scope: options.scope, includeFrames: options.includeFrames,
+                                   includeDirectorNotes: options.includeDirectorNotes)
+        }
     }
 
     /// The call sheet of `day` (the Day screen's row, the call sheet editor's Export PDF).

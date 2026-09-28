@@ -91,7 +91,8 @@ extension ContentView {
     /// File ▸ Export Shot List… and the Share menu's Shot List…, after the options sheet (#40).
     func exportShotList(options: ShotListPDFOptions) {
         do {
-            deliver(try PDFExport.shotList(project: document.project, scope: options.scope, includeFrames: options.includeFrames), savePanel: showPDFSavePanel)
+            deliver(try PDFExport.shotList(project: document.project, scope: options.scope, includeFrames: options.includeFrames,
+                                           includeDirectorNotes: options.includeDirectorNotes), savePanel: showPDFSavePanel)
         } catch {
             report(error)
         }

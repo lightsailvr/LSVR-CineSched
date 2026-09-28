@@ -191,9 +191,11 @@ enum PDFExport {
     }
 
     /// File ▸ Export Shot List… (and the phone's row), after its options sheet: the whole
-    /// project or one shoot day, with or without the storyboard frames (#40). A day's file
+    /// project or one shoot day, with or without the storyboard frames (#40) and the shots'
+    /// director's notes (on unless the options sheet turned them off). A day's file
     /// carries its production day number, or its date for a day without one.
-    static func shotList(project: ProjectData, scope: ShotListScope, includeFrames: Bool) throws(PDFExportError) -> PDFExportRequest {
+    static func shotList(project: ProjectData, scope: ShotListScope, includeFrames: Bool,
+                         includeDirectorNotes: Bool = true) throws(PDFExportError) -> PDFExportRequest {
         let stem = "\(projectStem(project.projectTitle))_ShotList"
         let fileName: String
         switch scope {
@@ -212,7 +214,8 @@ enum PDFExport {
             boneyard:      project.allScenes,
             projectTitle:  project.projectTitle,
             scope:         scope,
-            includeFrames: includeFrames
+            includeFrames: includeFrames,
+            includeDirectorNotes: includeDirectorNotes
         ) else {
             throw PDFExportError(message: scope == .project
                 ? "Couldn't generate a shot list — add some scenes first."

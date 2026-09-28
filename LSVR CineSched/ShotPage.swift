@@ -34,6 +34,18 @@ struct ShotPage: View {
                     .accessibilityLabel(L("Description"))
             }
 
+            // Several sentences for the set, so the field grows with them.
+            Section {
+                TextField(L("Director's Notes"), text: $draft.directorNotes,
+                          prompt: Text(L("e.g. Hold on her hands before the turn; keep it quiet")), axis: .vertical)
+                    .lineLimit(3...12)
+                    .accessibilityLabel(L("Director's Notes"))
+            } header: {
+                Text(L("Director's Notes"))
+            } footer: {
+                Text(L("Printed on the Shot List when Include Director's Notes is on"))
+            }
+
             Section {
                 LabeledContent(L("Duration")) {
                     TextField(TimeParser.placeholderText, text: $draft.duration)

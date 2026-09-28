@@ -173,6 +173,7 @@ struct ContentView: View {
     // The Shot List's options (#40), app-wide like the month's and shared with the phone.
     @AppStorage(ShotListPDFOptionSettings.scopeKey)         private var shotListScopeRaw: String = ShotListPDFOptionSettings.projectRaw
     @AppStorage(ShotListPDFOptionSettings.includeFramesKey) private var shotListIncludeFrames: Bool = ShotListPDFOptions.default.includeFrames
+    @AppStorage(ShotListPDFOptionSettings.includeDirectorNotesKey) private var shotListIncludeDirectorNotes: Bool = ShotListPDFOptions.default.includeDirectorNotes
     /// The options sheet's Export, run as the sheet finishes dismissing (`runPendingShotListExport`).
     @State private var pendingShotListExport: ShotListPDFOptions? = nil
 
@@ -522,6 +523,7 @@ struct ContentView: View {
             shootDays:     shootDays,
             scopeRaw:      $shotListScopeRaw,
             includeFrames: $shotListIncludeFrames,
+            includeDirectorNotes: $shotListIncludeDirectorNotes,
             pendingExport: $pendingShotListExport,
             dismiss:       { activeSheet = nil }
         )

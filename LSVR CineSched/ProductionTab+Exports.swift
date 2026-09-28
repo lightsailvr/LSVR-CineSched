@@ -56,10 +56,14 @@ extension ProductionTab {
 
     /// The remembered choice, so the row says what Export will do before the sheet opens.
     private var shotListDetail: String {
+        var parts: [String]
         switch ShotListPDFOptionSettings.scope(fromRaw: shotListScopeRaw, in: shootDays) {
-        case .project: return shotListIncludeFrames ? L("Project · Frames") : L("Project")
-        case .day:     return shotListIncludeFrames ? L("One day · Frames") : L("One day")
+        case .project: parts = [L("Project")]
+        case .day:     parts = [L("One day")]
         }
+        if shotListIncludeFrames        { parts.append(L("Frames")) }
+        if shotListIncludeDirectorNotes { parts.append(L("Notes")) }
+        return parts.joined(separator: " · ")
     }
 
     /// The Shot List's scope and frames (the Mac's sheet), then its export (#40).
@@ -68,6 +72,7 @@ extension ProductionTab {
             shootDays:     shootDays,
             scopeRaw:      $shotListScopeRaw,
             includeFrames: $shotListIncludeFrames,
+            includeDirectorNotes: $shotListIncludeDirectorNotes,
             pendingExport: $pendingShotListExport,
             dismiss:       { activeSheet = nil }
         )

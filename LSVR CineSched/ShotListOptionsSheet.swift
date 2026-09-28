@@ -1,7 +1,7 @@
 // ShotListOptionsSheet.swift
 // The Shot List's options before its export (#40): the scope (the whole project, or one
 // shoot day from a picker of the days that have scenes, each named the way the phone names
-// a day, `DaySummary.label`) and Include Storyboard Frames. The month export's shape
+// a day, `DaySummary.label`), Include Storyboard Frames and Include Director's Notes. The month export's shape
 // (MonthPDFOptionsSheet, #21): one adaptive form, the same on every platform, whose
 // controls write straight through bindings to the app-wide `@AppStorage` keys
 // (ShotListPDFOptions.swift), so the choice is remembered whether the user exports or
@@ -16,11 +16,12 @@ struct ShotListOptionsSheet: View {
     /// The remembered scope, `ShotListPDFOptionSettings.raw(for:)`.
     @Binding var scopeRaw: String
     @Binding var includeFrames: Bool
+    @Binding var includeDirectorNotes: Bool
     let onCancel: () -> Void
     let onExport: (ShotListPDFOptions) -> Void
 
     /// A short form: the Mac frame fits its two sections, the iPhone opens at medium.
-    static let sheetSize = EditorSheetSize(width: 480, height: 400, compactDetents: [.medium, .large], fitsHeight: true)
+    static let sheetSize = EditorSheetSize(width: 480, height: 460, compactDetents: [.medium, .large], fitsHeight: true)
 
     private var days: [ShootDay] { ShotListPDFOptions.pickableDays(in: shootDays) }
     private var scope: ShotListScope { ShotListPDFOptionSettings.scope(fromRaw: scopeRaw, in: shootDays) }
@@ -59,6 +60,10 @@ struct ShotListOptionsSheet: View {
                                    icon: "photo",
                                    label: L("Include Storyboard Frames"),
                                    detail: L("Three shots a page with their frames; off prints a table, one line per shot"))
+                    FieldToggleRow(isOn: $includeDirectorNotes,
+                                   icon: "text.bubble",
+                                   label: L("Include Director's Notes"),
+                                   detail: L("Each shot's notes under its description; off leaves them out of the printout"))
                 }
             }
             .formStyle(.grouped)
@@ -67,7 +72,7 @@ struct ShotListOptionsSheet: View {
                 Spacer()
                 Button(L("Cancel")) { onCancel() }
                 Button(L("Export…")) {
-                    onExport(ShotListPDFOptions(scope: scope, includeFrames: includeFrames))
+                    onExport(ShotListPDFOptions(scope: scope, includeFrames: includeFrames, includeDirectorNotes: includeDirectorNotes))
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
@@ -115,6 +120,7 @@ extension ShotListOptionsSheet {
         shootDays:     [ShootDay],
         scopeRaw:      Binding<String>,
         includeFrames: Binding<Bool>,
+        includeDirectorNotes: Binding<Bool>,
         pendingExport: Binding<ShotListPDFOptions?>,
         dismiss:       @escaping () -> Void
     ) {
@@ -122,6 +128,7 @@ extension ShotListOptionsSheet {
             shootDays:     shootDays,
             scopeRaw:      scopeRaw,
             includeFrames: includeFrames,
+            includeDirectorNotes: includeDirectorNotes,
             onCancel:      dismiss,
             onExport:      { options in
                 pendingExport.wrappedValue = options

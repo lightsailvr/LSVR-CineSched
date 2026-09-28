@@ -464,7 +464,8 @@ the build inputs outside it, see Working agreements):
   `caption(forBytes:)` ("Storyboard frames: 24 MB" past `captionThreshold`, 20,000,000
   bytes; nil at or below; its `ByteCountFormatter` built once).
 - `ShotPage.swift`: the scene editor's shot list pieces (#39): `ShotPage` (a shot's page:
-  the description, focused on appear except in the inspector; the duration with the
+  the description, focused on appear except in the inspector; Director's Notes, a growing
+  multi-line field; the duration with the
   estimate field's hint; Equipment, Props and SFX as `LocationAutocompleteField`s in list
   mode (`icon:` the category's, `completesListItems:` matching and completing the item
   after the last comma), one section each, suggesting `BreakdownSuggestions`; the frame
@@ -494,14 +495,17 @@ the build inputs outside it, see Working agreements):
   projectTitle:scope:includeFrames:)`: frames on, three equal slots a page, each a
   reserved header band (day bar, scene line, "continued" at a page top) over a 238 pt
   frame box drawn with `drawImage(_:aspectFitIn:)` and the text; frames off, a table
-  with repeating column heads. Nil when nothing in scope prints.
-- `ShotListPDFOptions.swift`: `ShotListPDFOptions` (scope, include frames, `default`,
+  with repeating column heads. `includeDirectorNotes` prints each shot's director's notes
+  (a labelled italic block above the lists in a slot, a spanning line under the row in
+  the table). Nil when nothing in scope prints.
+- `ShotListPDFOptions.swift`: `ShotListPDFOptions` (scope, include frames, include
+  director's notes, `default`,
   `pickableDays(in:)`: the days with a scene that prints) and
-  `ShotListPDFOptionSettings` (the two `@AppStorage` keys and the scope's string form,
+  `ShotListPDFOptionSettings` (the three `@AppStorage` keys and the scope's string form,
   `"project"` or `"day:<uuid>"`; `scope(fromRaw:in:)` falls back to the project for a
   day that is gone or empty), pure (`ShotListPDFOptionsTests`). `ShotListOptionsSheet.swift`:
   the adaptive options form (a segmented scope, a day `Picker`, Include Storyboard
-  Frames as a `FieldToggleRow`), writing through to the keys like the month sheet; its
+  Frames and Include Director's Notes as `FieldToggleRow`s), writing through to the keys like the month sheet; its
   Export hands the options to the caller (`ContentView.ActiveSheet.shotListOptions`,
   `ProductionTab.ActiveSheet.shotListOptions`), which keeps them as
   `pendingShotListExport` and runs the export from the `.sheet`'s `onDismiss`, so the
@@ -762,7 +766,7 @@ the build inputs outside it, see Working agreements):
   read only for adoption) and the `scenePalette` environment key.
 - `Models.swift`: all value types. `Scene` doubles as banner, auto-meal, and calendar event via flags.
   `Shot` (#37) is a scene's setup (`details`, `durationMinutes`, `equipment`, `props`, `sfx`,
-  `frame`); `Scene.shots` and `Scene.frame` are written only when set (a hand-written
+  `frame`, and `directorNotes`, written only when non-empty); `Scene.shots` and `Scene.frame` are written only when set (a hand-written
   `Scene.encode(to:)`), so a project without shot lists saves the same content.
 - `DerivedScheduleState.swift`: everything `ContentView` shows that is computed from the whole
   project (sorted Boneyard, conflict sets, duplicate numbers, lock drift, and since #36's

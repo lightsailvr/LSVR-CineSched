@@ -115,6 +115,7 @@ struct ProductionTab: View {
     @AppStorage(MonthPDFOptionSettings.timeKey)   var monthPDFShowTime:  Bool = MonthPDFOptions.default.includeEstimatedTime
     @AppStorage(ShotListPDFOptionSettings.scopeKey)         var shotListScopeRaw: String = ShotListPDFOptionSettings.projectRaw
     @AppStorage(ShotListPDFOptionSettings.includeFramesKey) var shotListIncludeFrames: Bool = ShotListPDFOptions.default.includeFrames
+    @AppStorage(ShotListPDFOptionSettings.includeDirectorNotesKey) var shotListIncludeDirectorNotes: Bool = ShotListPDFOptions.default.includeDirectorNotes
 
     var project:        ProjectData    { document.project }
     var shootDays:      [ShootDay]     { project.shootDays }
