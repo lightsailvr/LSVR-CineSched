@@ -174,8 +174,15 @@ struct ContentView: View {
     @AppStorage(ShotListPDFOptionSettings.scopeKey)         private var shotListScopeRaw: String = ShotListPDFOptionSettings.projectRaw
     @AppStorage(ShotListPDFOptionSettings.includeFramesKey) private var shotListIncludeFrames: Bool = ShotListPDFOptions.default.includeFrames
     @AppStorage(ShotListPDFOptionSettings.includeDirectorNotesKey) private var shotListIncludeDirectorNotes: Bool = ShotListPDFOptions.default.includeDirectorNotes
-    /// The options sheet's Export, run as the sheet finishes dismissing (`runPendingShotListExport`).
+    /// The options sheet's Export, run as the sheet finishes dismissing (`runPendingOptionsExport`).
     @State private var pendingShotListExport: ShotListPDFOptions? = nil
+    // The Shooting Schedule's options, app-wide like the Shot List's and shared with the phone.
+    @AppStorage(ShootingSchedulePDFOptionSettings.includeShotCountKey)   private var shootingScheduleIncludeShotCount: Bool = ShootingSchedulePDFOptions.default.includeShotCount
+    @AppStorage(ShootingSchedulePDFOptionSettings.includeDescriptionKey) private var shootingScheduleIncludeDescription: Bool = ShootingSchedulePDFOptions.default.includeDescription
+    /// The days the options sheet exports (the Stripboard header's one day, nil for the
+    /// whole schedule), set as it opens (`openShootingScheduleOptions`).
+    @State private var shootingScheduleDayIDs: Set<UUID>? = nil
+    @State private var pendingShootingScheduleExport: ShootingSchedulePDFOptions? = nil
 
     // MARK: - Derived state
 
@@ -233,6 +240,10 @@ struct ContentView: View {
         /// The Shot List's scope and frames before its export (#40), from File ▸ Export
         /// Shot List… and the Share menu.
         case shotListOptions
+        /// The Shooting Schedule's row options before its export, from Share ▸ Shooting
+        /// Schedule… and a Stripboard day header's export button. The days are
+        /// `shootingScheduleDayIDs`.
+        case shootingScheduleOptions
         var id: Self { self }
     }
     @State var activeSheet: ActiveSheet? = nil
@@ -467,7 +478,7 @@ struct ContentView: View {
             Button(L("Month Calendar…"))     { openMonthPDFOptions() }
                 .disabled(shootDays.isEmpty)
             Button(L("Strip Schedule…"))     { projectCommands.exportStripboardPDF() }
-            Button(L("Shooting Schedule…"))  { showShootingSchedulePDFSavePanel() }
+            Button(L("Shooting Schedule…"))  { openShootingScheduleOptions(for: nil) }
             Divider()
             Button(L("Days Out of Days…"))   { projectCommands.exportDaysOutOfDays() }
             Button(L("Scene Breakdowns…"))   { projectCommands.exportBreakdowns() }
@@ -529,9 +540,32 @@ struct ContentView: View {
         )
     }
 
-    /// The `.sheet`'s `onDismiss`: the export the options sheet asked for, once it is gone.
-    private func runPendingShotListExport() {
+    /// The `.sheet`'s `onDismiss`: the export an options sheet asked for, once it is gone.
+    private func runPendingOptionsExport() {
         ShotListOptionsSheet.runPendingExport($pendingShotListExport) { exportShotList(options: $0) }
+        let dayIDs = shootingScheduleDayIDs
+        ShootingScheduleOptionsSheet.runPendingExport($pendingShootingScheduleExport) {
+            exportShootingSchedule(dayIDs: dayIDs, options: $0)
+        }
+    }
+
+    /// Opens the Shooting Schedule's options for these days (nil: the whole schedule).
+    private func openShootingScheduleOptions(for days: [ShootDay]?) {
+        shootingScheduleDayIDs = days.map { Set($0.map(\.id)) }
+        activeSheet = .shootingScheduleOptions
+    }
+
+    /// The Shooting Schedule's row options, then its export.
+    private var shootingScheduleOptionsSheet: some View {
+        let day = shootingScheduleDayIDs.flatMap { ids in shootDays.first { ids.contains($0.id) } }
+        let dayLabel = day.map { DaySummary.label(dayNumber: productionDayNumbers(for: shootDays)[$0.id], date: $0.date) }
+        return ShootingScheduleOptionsSheet(
+            includeShotCount:   $shootingScheduleIncludeShotCount,
+            includeDescription: $shootingScheduleIncludeDescription,
+            dayLabel:           dayLabel,
+            pendingExport:      $pendingShootingScheduleExport,
+            dismiss:            { activeSheet = nil }
+        )
     }
 
     // MARK: - Mac window toolbar
@@ -639,7 +673,7 @@ struct ContentView: View {
                     ImportSummaryView(result: result, onDismiss: { showingImportSummary = false })
                 }
             }
-            .sheet(item: $activeSheet, onDismiss: runPendingShotListExport) { sheet in
+            .sheet(item: $activeSheet, onDismiss: runPendingOptionsExport) { sheet in
                 switch sheet {
                 case .unscheduledEdit:
                     unscheduledEditSheet
@@ -689,6 +723,8 @@ struct ContentView: View {
                     monthPDFOptionsSheet
                 case .shotListOptions:
                     shotListOptionsSheet
+                case .shootingScheduleOptions:
+                    shootingScheduleOptionsSheet
                 }
             }
             .onChange(of: activeSheet) { _, newValue in
@@ -1288,7 +1324,7 @@ struct ContentView: View {
                         showCallSheetPDFSavePanel(for: day)
                     },
                     onShootingScheduleExport: { days in
-                        showShootingSchedulePDFSavePanel(for: days)
+                        openShootingScheduleOptions(for: days)
                     },
                     onSelectDay: onSelectDay,
                     selectedDayID: selectedDayID,

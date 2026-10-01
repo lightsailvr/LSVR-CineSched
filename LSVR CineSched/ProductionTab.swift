@@ -67,6 +67,7 @@ struct ProductionTab: View {
         case colorLegend, sceneColorSettings, stripboardFields
         case monthOptions(month: Date)
         case shotListOptions
+        case shootingScheduleOptions
         case importSummary
         var id: Self { self }
     }
@@ -103,9 +104,13 @@ struct ProductionTab: View {
     @State var pendingImport: FountainImportResult?
     @State var alertMessage: String?
     /// The Shot List options sheet's Export, run once the sheet has gone
-    /// (`runPendingShotListExport`), so the preview or the failure alert is not
+    /// (`runPendingOptionsExport`), so the preview or the failure alert is not
     /// presented over a sheet that is still dismissing.
     @State var pendingShotListExport: ShotListPDFOptions?
+    /// The Shooting Schedule options sheet's Export, run the same way.
+    @State var pendingShootingScheduleExport: ShootingSchedulePDFOptions?
+    @AppStorage(ShootingSchedulePDFOptionSettings.includeShotCountKey)   var shootingScheduleIncludeShotCount: Bool = ShootingSchedulePDFOptions.default.includeShotCount
+    @AppStorage(ShootingSchedulePDFOptionSettings.includeDescriptionKey) var shootingScheduleIncludeDescription: Bool = ShootingSchedulePDFOptions.default.includeDescription
 
     // App-wide preferences the exports and the fields picker read (the Mac's keys).
     @AppStorage("CineSchedIncludeHoldInDOOD") var includeHoldInDOOD: Bool = true
@@ -143,7 +148,7 @@ struct ProductionTab: View {
             importSection
         }))
         .insetGroupedListStyle()
-        .sheet(item: $activeSheet, onDismiss: runPendingShotListExport) { sheet in
+        .sheet(item: $activeSheet, onDismiss: runPendingOptionsExport) { sheet in
             sheetContent(sheet)
         }
         .onChange(of: activeSheet) { _, newValue in
@@ -305,6 +310,8 @@ struct ProductionTab: View {
             monthOptionsSheet(month)
         case .shotListOptions:
             shotListOptionsSheet
+        case .shootingScheduleOptions:
+            shootingScheduleOptionsSheet
         case .importSummary:
             importSummarySheet
         }

@@ -2,7 +2,8 @@
 // The Production tab's Export section (#28): the six documents as rows — Schedule
 // Calendar, Month Calendar (a `Menu` of the months the shoot spans, then the calendar's
 // `MonthPDFOptionsSheet` on its `@AppStorage` keys), Strip Schedule, Shooting Schedule,
-// Days Out of Days with the Include Hold toggle beside it, Scene Breakdowns, the Shot List
+// Days Out of Days with the Include Hold toggle beside it, the Shooting Schedule after its
+// `ShootingScheduleOptionsSheet` (the Mac's `@AppStorage` keys), Scene Breakdowns, the Shot List
 // (#40: its `ShotListOptionsSheet` first, on the Mac's `@AppStorage` keys) — each a call
 // into `PhoneExports` (PhoneExports.swift, the phone's one export call site, which builds
 // the request and hands it to the editor's preview sheet or its alert). Nothing here
@@ -32,8 +33,8 @@ extension ProductionTab {
             actionRow(L("Strip Schedule"), systemImage: "rectangle.split.3x1") {
                 exports.stripSchedule()
             }
-            actionRow(L("Shooting Schedule"), systemImage: "doc.text") {
-                exports.shootingSchedule()
+            actionRow(L("Shooting Schedule"), systemImage: "doc.text", detail: shootingScheduleDetail) {
+                activeSheet = .shootingScheduleOptions
             }
             actionRow(L("Days Out of Days"), systemImage: "tablecells") {
                 exports.daysOutOfDays(includeHold: includeHoldInDOOD)
@@ -78,9 +79,31 @@ extension ProductionTab {
         )
     }
 
-    /// The `.sheet`'s `onDismiss`: the export the options sheet asked for, once it is gone.
-    func runPendingShotListExport() {
+    /// The `.sheet`'s `onDismiss`: the export an options sheet asked for, once it is gone.
+    func runPendingOptionsExport() {
         ShotListOptionsSheet.runPendingExport($pendingShotListExport) { exports.shotList(options: $0) }
+        ShootingScheduleOptionsSheet.runPendingExport($pendingShootingScheduleExport) { exports.shootingSchedule(options: $0) }
+    }
+
+    // MARK: - The Shooting Schedule
+
+    /// The remembered extras, so the row says what Export will add; nil when none.
+    private var shootingScheduleDetail: String? {
+        var parts: [String] = []
+        if shootingScheduleIncludeShotCount   { parts.append(L("Shots")) }
+        if shootingScheduleIncludeDescription { parts.append(L("Descriptions")) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// The Shooting Schedule's row options (the Mac's sheet), then its export.
+    var shootingScheduleOptionsSheet: some View {
+        ShootingScheduleOptionsSheet(
+            includeShotCount:   $shootingScheduleIncludeShotCount,
+            includeDescription: $shootingScheduleIncludeDescription,
+            dayLabel:           nil,
+            pendingExport:      $pendingShootingScheduleExport,
+            dismiss:            { activeSheet = nil }
+        )
     }
 
     // MARK: - The month calendar

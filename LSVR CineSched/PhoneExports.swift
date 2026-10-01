@@ -39,8 +39,8 @@ struct PhoneExports {
         deliver { try PDFExport.stripSchedule(project: project()) }
     }
 
-    func shootingSchedule() {
-        deliver { PDFExport.shootingSchedule(project: project()) }
+    func shootingSchedule(options: ShootingSchedulePDFOptions) {
+        deliver { PDFExport.shootingSchedule(project: project(), options: options) }
     }
 
     func daysOutOfDays(includeHold: Bool) {

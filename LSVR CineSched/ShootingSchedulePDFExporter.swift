@@ -62,11 +62,21 @@ struct ShootingSchedulePDFExporter {
         return clean
     }
 
+    /// `shootDays` is the whole schedule, so the day numbers are the production's own;
+    /// `printingDayIDs` narrows what prints (the Stripboard's per-day export), nil prints
+    /// every day. Every strip's time comes from `dayTimeline`, the cascade the Stripboard
+    /// and the phone show, so the printed times cannot drift from the board's: this file
+    /// once had its own cascade that gave a zero-length banner 30 minutes, which put
+    /// every slot after a synced day's General Call and Ready to Shoot strips an hour late.
+    /// The rows are the board's strips and nothing else: the call sheet's times show in
+    /// the day's header bar, never as rows the board does not have.
     static func generatePDF(
         shootDays: [ShootDay],
+        printingDayIDs: Set<UUID>? = nil,
         projectTitle: String,
         productionInfo: ProductionInfo,
-        palette: ScenePalette
+        palette: ScenePalette,
+        options: ShootingSchedulePDFOptions = .default
     ) -> Data {
         let isSpanish = LocalizationManager.shared.currentLanguage == .spanish
         let pageRect = CGRect(x: 0, y: 0, width: 612, height: 792) // Standard US Letter Portrait (612 x 792 pt)
@@ -98,32 +108,25 @@ struct ShootingSchedulePDFExporter {
         startNewPage()
 
         let productionNumbers = productionDayNumbers(for: shootDays)
-        var cumulativeEighths = 0
 
         for dayIndex in 0..<shootDays.count {
             let day = shootDays[dayIndex]
+            if let printingDayIDs, !printingDayIDs.contains(day.id) { continue }
             let dayNum = productionNumbers[day.id]
 
             if yPosition < margin + 90 {
                 startNewPage()
             }
 
-            // Find actual calculated lunch time from scheduled scenes if available
-            var calculatedLunchTime: String = day.callSheet.lunchTime
-            var currentTimeMinutes: Int = parseTimeToMinutes(day.callSheet.readyToShootTime.isEmpty ? (day.callSheet.generalCallTime.isEmpty ? "07:30 AM" : day.callSheet.generalCallTime) : day.callSheet.readyToShootTime) ?? (7 * 60 + 30)
+            // Calendar events are appointments, never work in the cascade (DayTimeline.swift).
+            let strips   = day.scenes.filter { !$0.isCalendarEvent }
+            let timeline = dayTimeline(for: day, scenes: strips)
 
-            var runningMin = currentTimeMinutes
-            for s in day.scenes.filter({ !$0.isCalendarEvent }) {
-                if !s.customStartTime.isEmpty, let customMin = parseTimeToMinutes(s.customStartTime) {
-                    runningMin = customMin
-                }
-                let isMeal = s.title.lowercased().contains("almuerzo") || s.title.lowercased().contains("lunch") || s.isAutoMeal
-                if isMeal {
-                    calculatedLunchTime = formatMinutesToClock(runningMin)
-                }
-                let dur = s.estimatedTime > 0 ? s.estimatedTime : (s.isBanner ? 30 : 15)
-                runningMin += dur
-            }
+            // The lunch: the call sheet's lunch strip where it starts on the board, else the
+            // first lunch banner of the day's own, else the call sheet's time as typed.
+            let lunchStrip = strips.first { $0.isAutoMeal && $0.mealKind == .lunch }
+                ?? strips.first { !$0.isAutoMeal && isLunchTitle($0.title) }
+            let calculatedLunchTime = lunchStrip.flatMap { timeline[$0.id]?.startStr } ?? day.callSheet.lunchTime
 
             drawDayHeaderBar(
                 canvas: canvas,
@@ -136,66 +139,23 @@ struct ShootingSchedulePDFExporter {
                 yPosition: &yPosition
             )
 
-            // Render CallSheet Milestones if present
-            if !day.callSheet.generalCallTime.isEmpty {
-                let callTime = day.callSheet.generalCallTime
-                let title = isSpanish ? "LLEGADA DEL EQUIPO" : "CREW CALL"
-                let crewCallScene = Scene.createBanner(type: .notice, title: title, note: callTime, estimatedTime: "0:15", colorHex: "3B82F6")
-                drawBannerRow(
-                    canvas: canvas,
-                    margin: margin,
-                    width: printableWidth,
-                    scene: crewCallScene,
-                    timeRange: callTime,
-                    isSpanish: isSpanish,
-                    yPosition: &yPosition
-                )
-            }
-            if !day.callSheet.readyToShootTime.isEmpty {
-                let setTime = day.callSheet.readyToShootTime
-                let title = isSpanish ? "INICIO DE RODAJE" : "SET CALL"
-                let readyScene = Scene.createBanner(type: .notice, title: title, note: setTime, estimatedTime: "0:15", colorHex: "10B981")
-                drawBannerRow(
-                    canvas: canvas,
-                    margin: margin,
-                    width: printableWidth,
-                    scene: readyScene,
-                    timeRange: setTime,
-                    isSpanish: isSpanish,
-                    yPosition: &yPosition
-                )
-            }
-
-            for scene in day.scenes.filter({ !$0.isCalendarEvent }) {
-                let rowH: CGFloat = 24
+            for scene in strips {
+                let rowH = scene.isBanner ? bannerRowHeight : SceneRowLines(scene: scene, options: options).height
                 if yPosition - rowH < margin + 30 {
                     startNewPage()
                 }
 
-                if !scene.customStartTime.isEmpty, let customMin = parseTimeToMinutes(scene.customStartTime) {
-                    currentTimeMinutes = customMin
-                }
-
-                let startClock = formatMinutesToClock(currentTimeMinutes)
-                let durMinutes = scene.estimatedTime > 0 ? scene.estimatedTime : (scene.isBanner ? 30 : 15)
-                let endClock = formatMinutesToClock(currentTimeMinutes + durMinutes)
-                let timeRange = "\(startClock) – \(endClock)"
-
-                // Estimated script page calculation
-                let scriptPageNum = max(1, (cumulativeEighths / 8) + 1)
-                cumulativeEighths += scene.duration
-
+                let entry = timeline[scene.id]
                 if scene.isBanner {
                     drawBannerRow(
                         canvas: canvas,
                         margin: margin,
                         width: printableWidth,
                         scene: scene,
-                        timeRange: timeRange,
+                        timeRange: entry?.timeDisplay ?? "",
                         isSpanish: isSpanish,
                         yPosition: &yPosition
                     )
-                    currentTimeMinutes += durMinutes
                 } else {
                     drawSceneRow(
                         canvas: canvas,
@@ -203,12 +163,12 @@ struct ShootingSchedulePDFExporter {
                         width: printableWidth,
                         scene: scene,
                         palette: palette,
-                        timeRange: timeRange,
-                        scriptPageNumber: scriptPageNum,
+                        timeRange: entry?.timeDisplay ?? "",
+                        estimate: entry?.durStr ?? "",
+                        options: options,
                         isSpanish: isSpanish,
                         yPosition: &yPosition
                     )
-                    currentTimeMinutes += durMinutes
                 }
             }
 
@@ -216,7 +176,7 @@ struct ShootingSchedulePDFExporter {
                 startNewPage()
             }
 
-            let endTimeStr = formatMinutesToClock(currentTimeMinutes)
+            let endTimeStr = strips.last.flatMap { timeline[$0.id]?.endStr } ?? formatMinutesToClock(dayStartMinutes(for: day))
             drawEndOfDayStrip(
                 canvas: canvas,
                 margin: margin,
@@ -232,6 +192,11 @@ struct ShootingSchedulePDFExporter {
         }
 
         return canvas.finish()
+    }
+
+    private static func isLunchTitle(_ title: String) -> Bool {
+        let lowered = title.lowercased()
+        return lowered.contains("almuerzo") || lowered.contains("lunch")
     }
 
     // MARK: - Top Header (Matching Screenshot Layout)
@@ -329,7 +294,37 @@ struct ShootingSchedulePDFExporter {
         yPosition -= rowH
     }
 
-    // MARK: - Scene Row Strip (Full Width for Scene Title / Description, Script Page & Eighths)
+    // MARK: - Scene Row Strip (Time, Scene Title, Estimate & Eighths; the Cast Underneath)
+
+    private static let bannerRowHeight: CGFloat = 20
+
+    /// What a scene row prints under its title: the cast, the shot count (right-aligned on
+    /// the cast's line) and the description, each only when the scene has one and the
+    /// options ask for it. Each extra line adds 10 pt to the row.
+    private struct SceneRowLines {
+        let cast:        String
+        let shotCount:   String
+        let description: String
+
+        init(scene: Scene, options: ShootingSchedulePDFOptions) {
+            cast = scene.cast
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+                .joined(separator: ", ")
+            shotCount = options.includeShotCount ? StripboardField.shotCount(scene.shots.count) : ""
+            // One line: the summary's line breaks would otherwise run off the row.
+            description = options.includeDescription
+                ? scene.summary.components(separatedBy: .newlines)
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+                    .joined(separator: " ")
+                : ""
+        }
+
+        var hasCastLine: Bool { !cast.isEmpty || !shotCount.isEmpty }
+        var lineCount:   Int  { 1 + (hasCastLine ? 1 : 0) + (description.isEmpty ? 0 : 1) }
+        var height:      CGFloat { 22 + CGFloat(lineCount - 1) * 10 }
+    }
 
     private static func drawSceneRow(
         canvas: PDFCanvas,
@@ -338,11 +333,13 @@ struct ShootingSchedulePDFExporter {
         scene: Scene,
         palette: ScenePalette,
         timeRange: String,
-        scriptPageNumber: Int,
+        estimate: String,
+        options: ShootingSchedulePDFOptions,
         isSpanish: Bool,
         yPosition: inout CGFloat
     ) {
-        let rowH: CGFloat = 22
+        let lines = SceneRowLines(scene: scene, options: options)
+        let rowH = lines.height
         let rowY = yPosition - rowH
         let rect = CGRect(x: margin, y: rowY, width: width, height: rowH)
 
@@ -354,12 +351,12 @@ struct ShootingSchedulePDFExporter {
         let col1W: CGFloat = 112
         let xCol1 = margin + 4
         let xCol2 = xCol1 + col1W + 8
-        let xCol3 = margin + width - 114
-        let xCol4 = margin + width - 6
+        let xEstimate = margin + width - 62   // right edge of the estimate
+        let xCol4 = margin + width - 6        // right edge of the eighths
 
-        // 1. Time Badge
+        // 1. Time Badge (centered on the row, across both lines)
         if !timeRange.isEmpty {
-            let timeRect = CGRect(x: xCol1, y: rowY + 3, width: col1W, height: rowH - 6)
+            let timeRect = CGRect(x: xCol1, y: rowY + (rowH - 16) / 2, width: col1W, height: 16)
             canvas.fill(timeRect, color: CGColor.pdfBlack.withAlpha(0.08))
             drawTextCentered(timeRange, in: timeRect, font: .boldSystem(size: 7.5), color: textColor.withAlpha(0.85), canvas: canvas)
         }
@@ -368,18 +365,37 @@ struct ShootingSchedulePDFExporter {
         let rawNum = scene.sceneNumber.isEmpty ? scene.extractedSceneNumber : scene.sceneNumber
         let cleanTitle = cleanSceneTitle(number: rawNum, rawTitle: scene.title)
         let fullTitle = rawNum.isEmpty ? cleanTitle : "\(rawNum). \(cleanTitle)"
-        let maxTitleW = (xCol3 - 10) - xCol2
+        let maxTitleW = (xEstimate - 58) - xCol2
 
         canvas.draw(fullTitle, at: CGPoint(x: xCol2, y: yPosition - 15), font: .boldSystem(size: 9), color: textColor, maxWidth: maxTitleW)
 
-        // 3. Script Page (Fixed Column)
-        let pageStr = isSpanish ? "Pág. \(scriptPageNumber)" : "Pg. \(scriptPageNumber)"
-        canvas.draw(pageStr, at: CGPoint(x: xCol3, y: yPosition - 15), font: .system(size: 8.5), color: textColor.withAlpha(0.8))
+        // 3. The cascade's duration for the strip
+        if !estimate.isEmpty {
+            canvas.draw("Est: \(estimate)", at: CGPoint(x: xEstimate, y: yPosition - 15), font: .system(size: 8.5), color: textColor.withAlpha(0.8), anchor: .trailing)
+        }
 
         // 4. Page Duration in Eighths (Right Aligned)
         let eighthsUnit = isSpanish ? "pág" : "pgs"
         let eighthsStr = "\(formattedEighths(scene.duration)) \(eighthsUnit)"
         canvas.draw(eighthsStr, at: CGPoint(x: xCol4, y: yPosition - 15), font: .boldSystem(size: 9), color: textColor, anchor: .trailing)
+
+        // 5. The cast under the title, with the shot count at the estimate's edge
+        var lineY = yPosition - 26
+        if lines.hasCastLine {
+            let castMaxW = (lines.shotCount.isEmpty ? xCol4 : xEstimate - 50) - xCol2
+            if !lines.cast.isEmpty {
+                canvas.draw(lines.cast, at: CGPoint(x: xCol2, y: lineY), font: .system(size: 8), color: textColor.withAlpha(0.8), maxWidth: castMaxW)
+            }
+            if !lines.shotCount.isEmpty {
+                canvas.draw(lines.shotCount, at: CGPoint(x: xEstimate, y: lineY), font: .system(size: 8), color: textColor.withAlpha(0.8), anchor: .trailing)
+            }
+            lineY -= 10
+        }
+
+        // 6. The description, one line
+        if !lines.description.isEmpty {
+            canvas.draw(lines.description, at: CGPoint(x: xCol2, y: lineY), font: .italicSystem(size: 8), color: textColor.withAlpha(0.75), maxWidth: xCol4 - xCol2)
+        }
 
         // Bottom border line
         drawRowBorder(canvas: canvas, margin: margin, width: width, y: rowY)
@@ -398,13 +414,17 @@ struct ShootingSchedulePDFExporter {
         isSpanish: Bool,
         yPosition: inout CGFloat
     ) {
-        let rowH: CGFloat = 20
+        let rowH = bannerRowHeight
         let rowY = yPosition - rowH
         let rect = CGRect(x: margin, y: rowY, width: width, height: rowH)
 
-        let isMeal = scene.title.lowercased().contains("almuerzo") || scene.title.lowercased().contains("lunch") || scene.isAutoMeal
-        let isCrewCall = scene.title.lowercased().contains("llegada") || scene.title.lowercased().contains("crew call")
-        let isSetCall = scene.title.lowercased().contains("inicio") || scene.title.lowercased().contains("set call")
+        // An auto-meal is styled by its kind (a General Call strip is not a meal); any other
+        // banner by the words in its title.
+        let lowered = scene.title.lowercased()
+        let kind = scene.isAutoMeal ? scene.mealKind : nil
+        let isMeal = [.lunch, .snack, .dinner].contains(kind) || (kind == nil && isLunchTitle(scene.title))
+        let isCrewCall = kind == .generalCall || (kind == nil && (lowered.contains("llegada") || lowered.contains("crew call")))
+        let isSetCall = kind == .readyToShoot || (kind == nil && (lowered.contains("inicio") || lowered.contains("set call")))
 
         let bannerBgColor: CGColor
         let accentColor: CGColor
@@ -445,7 +465,7 @@ struct ShootingSchedulePDFExporter {
         }
 
         // Cleaned and localized title
-        let cleanedTitle = cleanBannerTitle(scene.title)
+        let cleanedTitle = kind.map(\.defaultTitle) ?? cleanBannerTitle(scene.title)
         let icon = isMeal ? "🍽️ " : (isCrewCall ? "🚌 " : (isSetCall ? "🎬 " : ""))
         let titleText = "\(icon)\(cleanedTitle.uppercased())"
         let maxTitleW = width - (col1W + 90)

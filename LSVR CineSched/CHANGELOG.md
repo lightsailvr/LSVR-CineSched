@@ -3,6 +3,10 @@
 All notable changes to CineSched are documented here.
 
 ## [Unreleased]
+### Added
+- **Shot counts and scene descriptions on the Shooting Schedule, as options.** Exporting the Shooting Schedule (Share ▸ Shooting Schedule…, a Stripboard day header's export button, or the iPhone's Production tab) first asks two things: Include Shot Count adds "4 shots" to the row of every scene with a shot list, and Include Scene Description adds the scene's description, one line under its cast. Both start off and are remembered for the next export, in every project.
+### Fixed
+- **The Shooting Schedule PDF prints the board's times, each scene's cast and its estimate.** Every strip's time range is now the one the Stripboard shows. Before, a strip with no length (the General Call and Ready to Shoot strips a call sheet adds, or a zero-length notice) counted as half an hour, so everything after it, the lunch in the day's header and the wrap printed late. Each scene row adds a second line with its characters' names and shows its estimate ("Est: 0:45") beside the page count. The "Pg." column is gone: it was a running total of eighths, not a page of the script. A single day exported from its Stripboard header keeps its real number ("SHOOT DAY #3", not always "#1"). The rows are exactly the day's strips: the PDF no longer adds Crew Call and Set Call rows of its own, which used to appear even when the board had no such strip (the call sheet's times stay in the day's header bar), and a day's General Call and Ready to Shoot strips print in their own colors instead of styled as meals. The header's lunch is the call sheet's lunch strip when the day has one.
 
 ## [4.8.0] - 2026-09-28
 ### Added

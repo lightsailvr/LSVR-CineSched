@@ -137,14 +137,19 @@ enum PDFExport {
         return PDFExportRequest(kind: .stripSchedule, fileName: "\(projectStem(project.projectTitle))_StripSchedule.pdf", data: data)
     }
 
-    /// The Stripboard's per-day export passes just that day; nil is the whole schedule.
-    /// The stem keeps the title's punctuation, as the Mac's panel always has.
-    static func shootingSchedule(project: ProjectData, days: [ShootDay]? = nil) -> PDFExportRequest {
+    /// The Stripboard's per-day export passes just that day's id; nil is the whole
+    /// schedule. The exporter always gets the whole schedule, so a single day keeps its
+    /// production day number. The stem keeps the title's punctuation, as the Mac's panel
+    /// always has.
+    static func shootingSchedule(project: ProjectData, dayIDs: Set<UUID>? = nil,
+                                 options: ShootingSchedulePDFOptions = .default) -> PDFExportRequest {
         let data = ShootingSchedulePDFExporter.generatePDF(
-            shootDays:      days ?? project.shootDays,
+            shootDays:      project.shootDays,
+            printingDayIDs: dayIDs,
             projectTitle:   project.projectTitle,
             productionInfo: project.productionInfo ?? ProductionInfo(),
-            palette:        project.resolvedPalette
+            palette:        project.resolvedPalette,
+            options:        options
         )
         let title = project.projectTitle.replacingOccurrences(of: " ", with: "_")
         return PDFExportRequest(kind: .shootingSchedule, fileName: title.isEmpty ? "Shooting_Schedule.pdf" : "\(title)_Shooting_Schedule.pdf", data: data)

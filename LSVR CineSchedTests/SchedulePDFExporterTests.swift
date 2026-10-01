@@ -99,10 +99,92 @@ struct SchedulePDFExporterTests {
 
         let text = pdfFullText(doc)
         #expect(text.contains("SHOOT DAY #1"))
-        #expect(text.contains("CREW CALL"))
-        #expect(text.contains("SET CALL"))
+        #expect(text.contains("CREW CALL: 6:30 AM"))   // the header bar's milestone
+        // The fixture's days carry no General Call or Ready to Shoot strips, so no such row prints.
+        #expect(!text.contains("SET CALL"))
+        #expect(!text.contains("GENERAL CALL"))
         #expect(text.contains("LUNCH"))
         #expect(text.contains("END OF DAY #5"))
         #expect(text.contains("PAGE 2"))
+    }
+
+    /// The Stripboard's per-day export: one synced day (its General Call and Ready to
+    /// Shoot strips are zero-length auto-meals) with a zero-length notice of its own. The
+    /// day keeps its production number, every strip prints the board's time
+    /// (`dayTimeline`), every scene its estimate and its cast, and there is no "Pg." column.
+    @Test func shootingScheduleForOneDayPrintsTheBoardsTimesCastAndEstimates() {
+        var days = PDFFixture.days
+        var day = days[3]   // production day 3 (days[0] is the travel day)
+        day.scenes = day.scenesWithSyncedAutoMeals()
+        day.scenes.insert(Scene.createBanner(type: .notice, title: "Safety meeting", estimatedTime: "0:00"), at: 4)
+        days[3] = day
+
+        let doc = pdfDocument(
+            from: ShootingSchedulePDFExporter.generatePDF(
+                shootDays: days,
+                printingDayIDs: [day.id],
+                projectTitle: PDFFixture.title,
+                productionInfo: PDFFixture.productionInfo,
+                palette: .standard
+            ),
+            dumpAs: "ShootingScheduleOneDay.pdf"
+        )
+        let text = pdfFullText(doc)
+
+        #expect(text.contains("SHOOT DAY #3"))
+        #expect(text.contains("END OF DAY #3"))
+        #expect(!text.contains("SHOOT DAY #1"))
+        #expect(!text.contains("SHOOT DAY #2"))
+        #expect(!text.contains("Pg. "))
+
+        let strips   = day.scenes.filter { !$0.isCalendarEvent }
+        let timeline = dayTimeline(for: day, scenes: strips)
+        for strip in strips {
+            let entry = timeline[strip.id]!
+            #expect(text.contains(entry.timeDisplay), "\(strip.title) should print \(entry.timeDisplay)")
+            if !strip.isBanner {
+                #expect(text.contains("\(strip.sceneNumber). "))
+                #expect(text.contains("Est: \(entry.durStr)"))
+            }
+        }
+        #expect(text.contains("Alex Morgan, Sam Rivera, Jordan Lee, Casey Kim, Riley Chen"))
+
+        // The header's lunch is the call sheet's lunch strip, not the day's own Lunch banner.
+        #expect(text.contains("01:00 PM"))
+        #expect(text.contains("GENERAL CALL"))
+        #expect(text.contains("READY TO SHOOT"))
+    }
+
+    /// The two options: off (the default) neither prints; on, a scene with a shot list
+    /// says how many and every scene prints its description, a shotless one no count.
+    @Test func shootingScheduleOptionsAddShotCountAndDescription() {
+        let days = PDFFixture.daysWithShots   // one build: every read makes new ids
+        func text(_ options: ShootingSchedulePDFOptions, dumpAs name: String) -> String {
+            pdfFullText(pdfDocument(
+                from: ShootingSchedulePDFExporter.generatePDF(
+                    shootDays: days,
+                    printingDayIDs: [days[1].id],
+                    projectTitle: PDFFixture.title,
+                    productionInfo: PDFFixture.productionInfo,
+                    palette: .standard,
+                    options: options
+                ),
+                dumpAs: name
+            ))
+        }
+        let summary = "Scene 101: the crew regroups"
+
+        let plain = text(.default, dumpAs: "ShootingScheduleOneDayPlain.pdf")
+        #expect(!plain.contains("4 shots"))
+        #expect(!plain.contains(summary))
+
+        let extras = text(ShootingSchedulePDFOptions(includeShotCount: true, includeDescription: true),
+                          dumpAs: "ShootingScheduleOneDayExtras.pdf")
+        #expect(extras.contains("4 shots"))
+        #expect(extras.contains("2 shots"))
+        #expect(!extras.contains("0 shots"))
+        #expect(extras.contains(summary))
+        #expect(extras.contains("Scene 106:"))
+        #expect(extras.contains("Alex Morgan, Sam Rivera"))
     }
 }

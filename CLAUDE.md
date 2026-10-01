@@ -511,6 +511,18 @@ the build inputs outside it, see Working agreements):
   `pendingShotListExport` and runs the export from the `.sheet`'s `onDismiss`, so the
   preview or the failure alert never presents over a dismissing sheet; both callers use
   the sheet's `init(…pendingExport:dismiss:)` and `runPendingExport(_:_:)` for that.
+- `ShootingSchedulePDFOptions.swift`: `ShootingSchedulePDFOptions` (include the shot
+  count, include the scene description; `default` both off) and
+  `ShootingSchedulePDFOptionSettings` (the two `@AppStorage` keys), pure.
+  `ShootingScheduleOptionsSheet.swift`: the adaptive options form before every Shooting
+  Schedule export (two `FieldToggleRow`s, the one day's label in the subtitle when the
+  Stripboard header asked), with the Shot List's `init(…pendingExport:dismiss:)` and
+  `runPendingExport(_:_:)`; `ContentView.ActiveSheet.shootingScheduleOptions` (the days
+  in `shootingScheduleDayIDs`) and `ProductionTab.ActiveSheet.shootingScheduleOptions`
+  run it from the `.sheet`'s `onDismiss`, `runPendingOptionsExport`, beside the Shot
+  List's. The exporter prints the board's strips only (never a row of its own), every
+  time from `dayTimeline`, and takes the whole `shootDays` with `printingDayIDs`, so a
+  single day keeps its production number.
 - `ProjectLaunchBackground.swift`: the launch screen's backdrop (#12), moved out of the
   deleted `MinimalProjectEditor.swift` (#24).
 - `EditorSelection.swift`: the inspector's selection (#17), pure: `EditorSelection` (`.scene(id:)`
@@ -739,7 +751,7 @@ the build inputs outside it, see Working agreements):
 - `PDFExportRequest.swift`: the export request (#23), pure: `PDFExportRequest` (kind, file name
   with `.pdf`, the exporter's bytes; `Equatable` by those, `Identifiable` per presentation) and
   `PDFExport`, one function per document (`scheduleCalendar`, `monthCalendar`, `stripSchedule`,
-  `shootingSchedule`, `daysOutOfDays`, `breakdowns`, `callSheet`, `shotList`, #40) from the
+  `shootingSchedule` (with its `dayIDs` and options), `daysOutOfDays`, `breakdowns`, `callSheet`, `shotList`, #40) from the
   project and the per-export parameters to a request, or a `PDFExportError` with the alert's message. The one
   place the exporters are called with the project's values, so every platform gets the same
   bytes (`PDFExportRequestTests`).

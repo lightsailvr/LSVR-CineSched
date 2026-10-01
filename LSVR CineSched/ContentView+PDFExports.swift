@@ -99,9 +99,9 @@ extension ContentView {
     }
 
     /// The Stripboard's per-day export passes just that day; the Export menu passes
-    /// nothing and gets the whole schedule.
-    func showShootingSchedulePDFSavePanel(for targetDays: [ShootDay]? = nil) {
-        let request = PDFExport.shootingSchedule(project: document.project, days: targetDays)
+    /// nothing and gets the whole schedule. Both after the options sheet.
+    func exportShootingSchedule(dayIDs: Set<UUID>?, options: ShootingSchedulePDFOptions) {
+        let request = PDFExport.shootingSchedule(project: document.project, dayIDs: dayIDs, options: options)
         deliver(request) { request in
             FilePanels.chooseSaveLocation(
                 title: L("Export Plan de Rodaje (PDF)"),

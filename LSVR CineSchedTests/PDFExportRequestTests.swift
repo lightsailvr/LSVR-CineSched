@@ -101,10 +101,17 @@ struct PDFExportRequestTests {
         expectSameBytes(whole, as: ShootingSchedulePDFExporter.generatePDF(
             shootDays: project.shootDays, projectTitle: project.projectTitle, productionInfo: project.productionInfo!, palette: project.resolvedPalette))
 
-        let oneDay = PDFExport.shootingSchedule(project: project, days: [project.shootDays[2]])
+        let oneDay = PDFExport.shootingSchedule(project: project, dayIDs: [project.shootDays[2].id])
         expectSameBytes(oneDay, as: ShootingSchedulePDFExporter.generatePDF(
-            shootDays: [project.shootDays[2]], projectTitle: project.projectTitle, productionInfo: project.productionInfo!, palette: project.resolvedPalette))
+            shootDays: project.shootDays, printingDayIDs: [project.shootDays[2].id], projectTitle: project.projectTitle, productionInfo: project.productionInfo!, palette: project.resolvedPalette))
         #expect(masked(oneDay.data) != masked(whole.data))
+
+        // The options reach the exporter.
+        let extras = ShootingSchedulePDFOptions(includeShotCount: true, includeDescription: true)
+        let withExtras = PDFExport.shootingSchedule(project: project, options: extras)
+        expectSameBytes(withExtras, as: ShootingSchedulePDFExporter.generatePDF(
+            shootDays: project.shootDays, projectTitle: project.projectTitle, productionInfo: project.productionInfo!, palette: project.resolvedPalette, options: extras))
+        #expect(masked(withExtras.data) != masked(whole.data))
     }
 
     @Test func daysOutOfDaysIsTheDOODExportersOutputWithTheHoldToggle() throws {

@@ -9,6 +9,18 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-09-30 — The Shooting Schedule PDF had its own time cascade, and it disagreed with the board
+
+`ShootingSchedulePDFExporter` (from the fork) computed strip times in its own loop, giving a
+banner with no estimate 30 minutes where `dayTimeline` gives it 0. A synced day's General
+Call and Ready to Shoot auto-meals are zero-length banners, so every slot after them
+printed late. The exporter also numbered days from the array it was handed, so the
+Stripboard's per-day export always said "SHOOT DAY #1". It now uses `dayTimeline` and gets
+the whole schedule plus `printingDayIDs`. Anything that prints or shows strip times calls
+`dayTimeline`, never its own loop. An exporter that prints a subset of days takes the whole
+`shootDays` and a scope, the way `ShotListExporter` does, so production day numbers stay
+right.
+
 ## 2026-09-25 — `release.sh` hung for hours on bash 3.2's `${var//pattern/}` over 47 KB of notes
 
 Cutting 4.7.0, the script sat at 100% CPU before the version bump, with no child process.
