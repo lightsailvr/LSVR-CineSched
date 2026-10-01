@@ -3,6 +3,8 @@
 All notable changes to CineSched are documented here.
 
 ## [Unreleased]
+
+## [4.9.0] - 2026-09-30
 ### Added
 - **Shot counts and scene descriptions on the Shooting Schedule, as options.** Exporting the Shooting Schedule (Share ▸ Shooting Schedule…, a Stripboard day header's export button, or the iPhone's Production tab) first asks two things: Include Shot Count adds "4 shots" to the row of every scene with a shot list, and Include Scene Description adds the scene's description, one line under its cast. Both start off and are remembered for the next export, in every project.
 ### Fixed
