@@ -3,6 +3,8 @@
 All notable changes to CineSched are documented here.
 
 ## [Unreleased]
+
+## [4.10.0] - 2026-10-05
 ### Changed
 - **CineSched is now Mainsheet.** The app's new name, on the Mac (the app is `Mainsheet.app`, and installing it removes the old `LSVR CineSched.app`), iPhone, iPad and Vision Pro alike, in the menu bar, the launch screen, alerts and Finder's "Mainsheet Project" kind for project files. Nothing to migrate: projects keep their `.cinesched` extension and open as before, settings carry over, and the iCloud Drive folder is the same folder with the new name.
 ### Added
