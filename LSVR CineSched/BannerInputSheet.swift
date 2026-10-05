@@ -4,7 +4,9 @@
 // screen) to edit one (`initialBanner`). The fields are a `BannerDraft`; Add Banner hands
 // `draft.makeBanner()` to `onSave` once, Save Changes `draft.applied(to:)`, which keeps
 // the banner's id and its fixed start. Only the size around the form changes per
-// container (`editorContainer`). The Mac's call site adds only.
+// container (`editorContainer`). The Mac's Stripboard adds from a day header and edits
+// from a banner's double-click or its Edit Banner… item (never an auto-meal's: the call
+// sheet owns those, and they offer Set Time only).
 
 import SwiftUI
 

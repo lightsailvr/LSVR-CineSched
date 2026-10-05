@@ -331,8 +331,8 @@ struct BannerDraft: Equatable {
     var note:          String     = ""
     var estimatedTime: String     = "0:30"
     var colorHex:      String     = "8B5CF6"   // violet
-    /// The banner being edited (#26), whose id and fixed start `applied(to:)` keeps;
-    /// nil when adding, the only case the Mac's Stripboard has.
+    /// The banner being edited (#26; the Mac's Stripboard too since 4.10), whose id and
+    /// fixed start `applied(to:)` keeps; nil when adding.
     private(set) var existingID: UUID?
 
     static let defaultColorHex = "8B5CF6"

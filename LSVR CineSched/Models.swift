@@ -89,6 +89,8 @@ enum BannerType: String, CaseIterable, nonisolated Codable {
     case companyMove = "Company Move"
     case mealBreak   = "Meal Break"
     case notice      = "Notice"
+    case castCall    = "Cast Call"
+    case setup       = "Setup"
     case custom      = "Custom Banner"
 
     var localizedName: String {
@@ -96,6 +98,8 @@ enum BannerType: String, CaseIterable, nonisolated Codable {
         case .companyMove: return L("Company Move")
         case .mealBreak:   return L("Meal Break")
         case .notice:      return L("Notice")
+        case .castCall:    return L("Cast Call")
+        case .setup:       return L("Setup")
         case .custom:      return L("Custom Banner")
         }
     }
@@ -105,6 +109,8 @@ enum BannerType: String, CaseIterable, nonisolated Codable {
         case .companyMove: return "truck.box.fill"
         case .mealBreak:   return "fork.knife"
         case .notice:      return "note.text"
+        case .castCall:    return "person.badge.clock.fill"
+        case .setup:       return "wrench.and.screwdriver.fill"
         case .custom:      return "flag.fill"
         }
     }

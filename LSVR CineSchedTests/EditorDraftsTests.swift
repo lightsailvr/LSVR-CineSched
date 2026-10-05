@@ -336,6 +336,22 @@ struct EditorDraftsTests {
         #expect(reread.estimatedTime == "0:45")
     }
 
+    @Test(arguments: [BannerType.castCall, .setup])
+    func bannerDraftRetypesAnExistingBannerToTheBlockingTypes(_ type: BannerType) throws {
+        let banner = Scene.createBanner(type: .notice, title: "Notice")
+        var draft  = BannerDraft(banner: banner)
+        draft.setType(type)
+        let saved = draft.applied(to: banner)
+        #expect(saved.id          == banner.id)
+        #expect(saved.bannerType  == type)
+        #expect(saved.title       == type.localizedName, "a default title follows the type")
+
+        // The type survives the file as its raw value.
+        let json    = try JSONEncoder().encode(type)
+        let decoded = try JSONDecoder().decode(BannerType.self, from: json)
+        #expect(decoded == type)
+    }
+
     @Test func bannerDraftReadsABlankColorAsViolet() {
         var banner = Scene.createBanner(type: .notice, title: "Notice", colorHex: "")
         banner.bannerColorHex = ""

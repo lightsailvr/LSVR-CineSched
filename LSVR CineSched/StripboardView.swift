@@ -79,7 +79,8 @@ struct StripboardView: View {
     @State private var editingRoute:      SceneEditorRoute?
     @State private var showingEditSheet = false
     @State private var callSheetDay: ShootDay? = nil
-    @State private var addingBannerForDayId: UUID? = nil
+    /// The banner input over a day: a new banner, or an existing one being edited.
+    @State private var bannerEditor: BannerEditorRequest? = nil
     @State private var editingEventScene: Scene? = nil
     @State private var editingEventDayId: UUID? = nil
 
@@ -220,24 +221,32 @@ struct StripboardView: View {
                 }
             )
         }
-        .sheet(isPresented: Binding(
-            get: { addingBannerForDayId != nil },
-            set: { if !$0 { addingBannerForDayId = nil } }
-        )) {
-            BannerInputSheet(isPresented: Binding(
-                get: { addingBannerForDayId != nil },
-                set: { if !$0 { addingBannerForDayId = nil } }
-            ), onSave: { newBanner in
-                if let targetId = addingBannerForDayId,
-                   let idx = shootDays.firstIndex(where: { $0.id == targetId }) {
-                    shootDays[idx].scenes.append(newBanner)
-                    onSceneChanged()
-                }
-            })
+        .sheet(item: $bannerEditor) { request in
+            BannerInputSheet(
+                isPresented: Binding(
+                    get: { bannerEditor != nil },
+                    set: { if !$0 { bannerEditor = nil } }
+                ),
+                initialBanner: request.banner,
+                onSave: { saved in saveBanner(saved, dayId: request.dayId) }
+            )
         }
         .onChange(of: showingEditSheet) { isShowing in
             if !isShowing { clearEditingState() }
         }
+    }
+
+    /// The banner input's save: an edited banner replaced in place by id (its position,
+    /// and so its place in the cascade, kept), a new one appended to the day.
+    private func saveBanner(_ banner: Scene, dayId: UUID) {
+        guard let dayIdx = shootDays.firstIndex(where: { $0.id == dayId }) else { return }
+        onBeforeSceneChange()
+        if let sceneIdx = shootDays[dayIdx].scenes.firstIndex(where: { $0.id == banner.id }) {
+            shootDays[dayIdx].scenes[sceneIdx] = banner
+        } else {
+            shootDays[dayIdx].scenes.append(banner)
+        }
+        onSceneChanged()
     }
 
     /// Brings the day's auto-meal strips in line with its call sheet (`AutoMealSync`), one
@@ -342,6 +351,12 @@ struct StripboardView: View {
                                 onQuickTimeEdit: {
                                     quickEditingScene = scene
                                     quickEditingDayId = day.id
+                                },
+                                // An auto-meal is the call sheet's: its time is Set Time, and
+                                // anything else the form wrote would be undone by the next sync.
+                                onEdit: scene.isAutoMeal ? nil : {
+                                    interactingSceneId = nil
+                                    bannerEditor = BannerEditorRequest(dayId: day.id, banner: scene)
                                 },
                                 onRemove: { removeFromDay(scene, dayId: day.id) },
                                 dragPayload: { sceneDragPayload(for: scene) }
@@ -735,7 +750,7 @@ struct StripboardView: View {
                     .help(L("Edit Call Sheet"))
 
                     Button {
-                        addingBannerForDayId = day.id
+                        bannerEditor = BannerEditorRequest(dayId: day.id, banner: nil)
                     } label: {
                         Image(systemName: "plus.rectangle.on.rectangle")
                             .font(.system(size: 13, weight: .semibold))
@@ -1252,12 +1267,24 @@ struct SceneStripRow: View {
 
 // MARK: - BannerStripRow
 
+/// What the Stripboard's banner input is for: the day, and the banner being edited (nil
+/// to add one). The id is the sheet's identity, so editing another banner makes a fresh
+/// form with that banner's fields.
+struct BannerEditorRequest: Identifiable {
+    let id = UUID()
+    let dayId: UUID
+    let banner: Scene?
+}
+
 struct BannerStripRow: View {
     let scene: Scene
     let timeDisplay: String
     @Binding var interactingSceneId: UUID?
     let isSelected: Bool
     let onQuickTimeEdit: () -> Void
+    /// Double-click, or Edit Banner… in the menu: the banner input on this banner. Nil for
+    /// an auto-meal, which offers Set Time only.
+    let onEdit: (() -> Void)?
     let onRemove: () -> Void
     let dragPayload: () -> ScheduleDragPayload
 
@@ -1324,8 +1351,13 @@ struct BannerStripRow: View {
             RoundedRectangle(cornerRadius: 4)
                 .stroke(isSelected ? Color.accentColor : Color.black.opacity(0.2), lineWidth: isSelected ? 2 : 0.5)
         )
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) { onEdit?() }
         .draggable(dragPayload())
         .contextMenu {
+            if let onEdit {
+                Button(L("Edit Banner...")) { interactingSceneId = nil; onEdit() }
+            }
             Button(L("Set Time...")) { interactingSceneId = nil; onQuickTimeEdit() }
             Divider()
             Button(L("Delete Banner"), role: .destructive) {
