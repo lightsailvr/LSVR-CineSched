@@ -1,16 +1,25 @@
 #!/bin/bash
 # Cut a CineSched release in one shot:
 #   scripts/release.sh 4.6.0
+#   scripts/release.sh 4.10.0 --testflight   # and upload every platform to TestFlight
 # Bumps MARKETING_VERSION to the given version and CURRENT_PROJECT_VERSION by one
 # (versions live in build settings — GENERATE_INFOPLIST_FILE=YES, the hand-written
 # Info.plist is unused), rolls the changelog's [Unreleased] into a dated section,
 # builds Release, installs to /Applications, commits, tags vX.Y.Z, pushes, and
-# publishes a GitHub Release with the zipped app and the changelog as notes.
+# publishes a GitHub Release with the zipped app and the changelog as notes. With
+# --testflight it then runs scripts/testflight.sh on the tagged commit (iOS, visionOS and
+# macOS archives uploaded to App Store Connect; see that script for the API key).
 #
 # For an untagged dev refresh of /Applications, use scripts/install.sh instead.
 set -euo pipefail
 
-VERSION="${1:?usage: scripts/release.sh <version, e.g. 4.6.0>}"
+VERSION="${1:?usage: scripts/release.sh <version, e.g. 4.6.0> [--testflight]}"
+TESTFLIGHT=0
+case "${2:-}" in
+    "")           ;;
+    --testflight) TESTFLIGHT=1 ;;
+    *) echo "error: unknown option '$2' (--testflight)" >&2; exit 1 ;;
+esac
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
@@ -22,6 +31,14 @@ export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Develope
 
 [[ -z "$(git status --porcelain)" ]] || { echo "error: working tree not clean — commit or stash first" >&2; exit 1; }
 git rev-parse "v${VERSION}" >/dev/null 2>&1 && { echo "error: tag v${VERSION} already exists" >&2; exit 1; }
+# Fail before anything is bumped or pushed if the upload could not run.
+if [[ $TESTFLIGHT == 1 ]]; then
+    ASC_ENV="${HOME}/.config/cinesched/asc.env"
+    # shellcheck disable=SC1090
+    [[ -f "$ASC_ENV" ]] && source "$ASC_ENV"
+    [[ -n "${ASC_KEY_ID:-}" && -n "${ASC_ISSUER_ID:-}" && -f "${ASC_KEY_PATH:-/nonexistent}" ]] \
+        || { echo "error: --testflight needs ASC_KEY_ID, ASC_ISSUER_ID and ASC_KEY_PATH (see scripts/testflight.sh)" >&2; exit 1; }
+fi
 
 # Release notes = everything under [Unreleased]; refuse to release nothing.
 NOTES="$(awk '/^## \[Unreleased\]/{flag=1; next} /^## \[/{flag=0} flag' "$CHANGELOG")"
@@ -68,3 +85,9 @@ ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
 gh release create "v${VERSION}" "$ZIP" --title "CineSched ${VERSION}" --notes "$NOTES"
 
 echo "Released ${VERSION} (build ${NEW_BUILD}): installed to /Applications, tagged v${VERSION}, GitHub Release published."
+
+if [[ $TESTFLIGHT == 1 ]]; then
+    # The release is already tagged and pushed; a failed upload is retried alone with
+    # scripts/testflight.sh (or a subset: scripts/testflight.sh visionos).
+    "$REPO_ROOT/scripts/testflight.sh" || { echo "error: TestFlight upload failed; ${VERSION} is released — rerun scripts/testflight.sh" >&2; exit 1; }
+fi
