@@ -155,6 +155,33 @@ struct SchedulePDFExporterTests {
         #expect(text.contains("READY TO SHOOT"))
     }
 
+    /// A banner prints what the Stripboard shows: its own title (never folded to the word
+    /// "SET CALL" or "NOTICE" it contains) on its own color, not a tint picked from its title.
+    @Test func shootingScheduleBannersPrintTheBoardsTitleAndColor() {
+        var days = PDFFixture.days
+        var day  = days[3]
+        day.scenes.insert(Scene.createBanner(type: .castCall, title: "Gobber On Set Call", colorHex: "0E7490"), at: 0)
+        day.scenes.insert(Scene.createBanner(type: .notice, title: "Note the rain cover", colorHex: "7C2D12"), at: 1)
+        days[3] = day
+
+        let doc = pdfDocument(
+            from: ShootingSchedulePDFExporter.generatePDF(
+                shootDays: days,
+                printingDayIDs: [day.id],
+                projectTitle: PDFFixture.title,
+                productionInfo: PDFFixture.productionInfo,
+                palette: .standard
+            ),
+            dumpAs: "ShootingScheduleBanners.pdf"
+        )
+        let text = pdfFullText(doc)
+        #expect(text.contains("GOBBER ON SET CALL"))
+        #expect(text.contains("NOTE THE RAIN COVER"))
+        #expect(!text.contains("NOTICE"))
+        #expect(pdfPage(doc, 0, containsColorHex: "0E7490"))
+        #expect(pdfPage(doc, 0, containsColorHex: "7C2D12"))
+    }
+
     /// The two options: off (the default) neither prints; on, a scene with a shot list
     /// says how many and every scene prints its description, a shotless one no count.
     @Test func shootingScheduleOptionsAddShotCountAndDescription() {

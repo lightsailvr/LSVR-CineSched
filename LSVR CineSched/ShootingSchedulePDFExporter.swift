@@ -31,37 +31,6 @@ struct ShootingSchedulePDFExporter {
         return cleaned
     }
 
-    private static func cleanBannerTitle(_ rawTitle: String) -> String {
-        let isSpanish = LocalizationManager.shared.currentLanguage == .spanish
-        // Strip any hardcoded parenthesized times like "(01:30 PM)" or "(07:30 AM)"
-        var clean = rawTitle.replacingOccurrences(of: #"\s*\(\s*\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)?\s*\)"#, with: "", options: .regularExpression)
-        // Strip any existing leading emojis like 🍽️, 🍽, 🍴, 🚌, 🎬
-        clean = clean.replacingOccurrences(of: #"^[🍽🍴🚌🎬\s]+"#, with: "", options: .regularExpression)
-        clean = clean.trimmingCharacters(in: .whitespaces)
-
-        // Translate typical bilingual or default banner titles
-        let lower = clean.lowercased()
-        if lower.contains("almuerzo") || lower.contains("lunch") {
-            return isSpanish ? "ALMUERZO" : "LUNCH"
-        }
-        if lower.contains("llegada") || lower.contains("crew call") {
-            return isSpanish ? "LLEGADA DEL EQUIPO" : "CREW CALL"
-        }
-        if lower.contains("inicio") || lower.contains("set call") {
-            return isSpanish ? "INICIO DE RODAJE" : "SET CALL"
-        }
-        if lower.contains("merienda") || lower.contains("snack") {
-            return isSpanish ? "MERIENDA" : "SNACK"
-        }
-        if lower.contains("cena") || lower.contains("dinner") {
-            return isSpanish ? "CENA" : "DINNER"
-        }
-        if lower.contains("aviso") || lower.contains("notice") || lower.contains("note") {
-            return isSpanish ? "AVISO" : "NOTICE"
-        }
-        return clean
-    }
-
     /// `shootDays` is the whole schedule, so the day numbers are the production's own;
     /// `printingDayIDs` narrows what prints (the Stripboard's per-day export), nil prints
     /// every day. Every strip's time comes from `dayTimeline`, the cascade the Stripboard
@@ -418,41 +387,14 @@ struct ShootingSchedulePDFExporter {
         let rowY = yPosition - rowH
         let rect = CGRect(x: margin, y: rowY, width: width, height: rowH)
 
-        // An auto-meal is styled by its kind (a General Call strip is not a meal); any other
-        // banner by the words in its title.
-        let lowered = scene.title.lowercased()
-        let kind = scene.isAutoMeal ? scene.mealKind : nil
-        let isMeal = [.lunch, .snack, .dinner].contains(kind) || (kind == nil && isLunchTitle(scene.title))
-        let isCrewCall = kind == .generalCall || (kind == nil && (lowered.contains("llegada") || lowered.contains("crew call")))
-        let isSetCall = kind == .readyToShoot || (kind == nil && (lowered.contains("inicio") || lowered.contains("set call")))
-
-        let bannerBgColor: CGColor
-        let accentColor: CGColor
-        let textColor: CGColor
-
-        if isMeal {
-            bannerBgColor = .hex("FEF3C7")
-            accentColor = .hex("D97706")
-            textColor = .hex("B45309")
-        } else if isCrewCall {
-            bannerBgColor = .hex("EFF6FF")
-            accentColor = .hex("3B82F6")
-            textColor = .hex("1D4ED8")
-        } else if isSetCall {
-            bannerBgColor = .hex("ECFDF5")
-            accentColor = .hex("10B981")
-            textColor = .hex("047857")
-        } else {
-            bannerBgColor = .hex("E5E7EB")
-            accentColor = .hex("4B5563")
-            textColor = .hex("374151")
-        }
-
-        // Tinted background
-        canvas.fill(rect, color: bannerBgColor)
-
-        // 4pt left accent bar
-        canvas.fill(CGRect(x: margin, y: rowY, width: 4, height: rowH), color: accentColor)
+        // The strip the Stripboard draws: its fill and its label are `BannerAppearance.swift`'s,
+        // white text on the banner's own color. This row once styled a banner by the words
+        // in its title (a light amber, blue, green or grey of its own) and folded any title
+        // containing "set call", "note", "lunch" or "crew call" to that word alone, so a
+        // "HICCUP SET CALL" banner printed as "SET CALL" in a color the board never showed.
+        let fillColor = CGColor.hex(scene.bannerFillHex)
+        let textColor = CGColor.pdfWhite
+        canvas.fill(rect, color: fillColor)
 
         let col1W: CGFloat = 112
         let xCol1 = margin + 6
@@ -460,14 +402,11 @@ struct ShootingSchedulePDFExporter {
 
         if !timeRange.isEmpty {
             let timeRect = CGRect(x: xCol1, y: rowY + 3, width: col1W, height: rowH - 6)
-            canvas.fill(timeRect, color: accentColor.withAlpha(0.14))
+            canvas.fill(timeRect, color: CGColor.pdfBlack.withAlpha(0.32))
             drawTextCentered(timeRange, in: timeRect, font: .boldSystem(size: 7.5), color: textColor, canvas: canvas)
         }
 
-        // Cleaned and localized title
-        let cleanedTitle = kind.map(\.defaultTitle) ?? cleanBannerTitle(scene.title)
-        let icon = isMeal ? "🍽️ " : (isCrewCall ? "🚌 " : (isSetCall ? "🎬 " : ""))
-        let titleText = "\(icon)\(cleanedTitle.uppercased())"
+        let titleText = scene.bannerDisplayLabel.uppercased()
         let maxTitleW = width - (col1W + 90)
         canvas.draw(titleText, at: CGPoint(x: xCol2, y: yPosition - 14), font: .boldSystem(size: 8.5), color: textColor, maxWidth: maxTitleW)
 

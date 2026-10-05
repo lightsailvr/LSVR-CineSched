@@ -6,6 +6,8 @@ All notable changes to CineSched are documented here.
 ### Added
 - **Edit banner strips on the Mac's Stripboard.** Double-click a banner, or right-click it and choose Edit Banner…, to change its type, title, notes, duration and color in the same form that adds one; the banner keeps its place in the day and any fixed start Set Time gave it, and the change is one undo step. The call sheet's own strips (General Call, Ready to Shoot, the meals, Wrap) still offer Set Time only, since their times come from the call sheet.
 - **Cast Call and Setup banner types**, beside Company Move, Meal Break and Notice, each with its own icon, for blocking out actor calls and setup time on a day. Older builds open a project with them, showing them as Notices.
+### Fixed
+- **Banners on the Shooting Schedule PDF print their own titles and the Stripboard's colors.** A banner whose title contained "set call", "crew call", "note", "lunch" and a few other words printed as that word alone ("Gobber On Set Call" became "SET CALL"), and every banner was tinted light amber, blue, green or grey by those words rather than the color it has on the board. Each banner now prints exactly the label the Stripboard shows, in white on the board's fill (the call sheet's General Call, Ready to Shoot and meal strips included).
 
 ## [4.9.0] - 2026-09-30
 ### Added
