@@ -9,6 +9,30 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-10-05 — First TestFlight upload: an App Manager API key cannot cloud-sign, and visionOS rejects an Icon Composer icon
+
+Uploading 4.10.0 with `scripts/testflight.sh`:
+
+- **The API key needs the Admin role.** With an App Manager key, `xcodebuild -exportArchive`
+  (automatic signing, `-allowProvisioningUpdates`) failed with "Cloud signing permission
+  error: You haven't been given access to cloud-managed distribution certificates" and
+  "No profiles for 'com.lsvr.LSVR-CineSched' were found". A key's role cannot be changed:
+  generate an Admin key, point `~/.config/cinesched/asc.env` at it, revoke the old one. A
+  failed export uploads nothing, so the same build number can be retried.
+- **visionOS needs a layered image stack, not the `.icon`.** The Icon Composer `AppIcon.icon`
+  covers iOS, iPadOS and macOS; App Store Connect rejected the visionOS upload with "Missing
+  Info.plist key … CFBundleIcons.CFBundlePrimaryIcon for the visionOS App Icon". Fixed with
+  `Assets.xcassets/AppIcon-visionOS.solidimagestack` (Back: the icon's gradient fill, opaque;
+  Middle: the clapper body and top; Front: the calendar; 1024 px, idiom `vision`, `2x`) and
+  `ASSETCATALOG_COMPILER_APPICON_NAME[sdk=xros*]` / `[sdk=xrsimulator*]` =
+  `AppIcon-visionOS`. The layers are composited from `AppIcon.icon/Assets` (its `icon.json`
+  lists the groups back to front); redo them if the icon changes. A local archive shows the
+  key: `plutil -p <archive>/Products/Applications/Mainsheet.app/Info.plist | grep -A2 CFBundleIcons`.
+- **Uploads stop at the first failure** (`set -e`), so a later platform is never tried; rerun
+  `scripts/testflight.sh` with just the platforms that did not go up.
+
+---
+
 ## 2026-09-30 — The Shooting Schedule PDF had its own time cascade, and it disagreed with the board
 
 `ShootingSchedulePDFExporter` (from the fork) computed strip times in its own loop, giving a
