@@ -644,7 +644,7 @@ struct ContentView: View {
 
     private func applyAlerts<Content: View>(_ content: Content) -> some View {
         content
-            .alert(showingImportAlert ? L("Import Result") : "CineSched", isPresented: messageAlertPresented) {
+            .alert(showingImportAlert ? L("Import Result") : L("Mainsheet"), isPresented: messageAlertPresented) {
                 Button(L("OK")) {}
             } message: {
                 Text(showingImportAlert ? importMessage : alertMessage)

@@ -1,6 +1,6 @@
 # CineSched — Domain Context
 
-CineSched is a SwiftUI app for scheduling film shoots: import a screenplay, break it into
+CineSched (the code name; the product is **Mainsheet**, ADR 0008) is a SwiftUI app for scheduling film shoots: import a screenplay, break it into
 scenes, plan each scene's shots with their storyboard frames, drag scenes onto shoot days, track
 cast availability, and export industry-standard PDFs (shooting schedule, stripboard, call sheets,
 breakdown sheets, Days Out of Days, the shot list). The Mac app is

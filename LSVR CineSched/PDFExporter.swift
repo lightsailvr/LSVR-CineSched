@@ -339,7 +339,7 @@ class PDFExporter {
         df.dateFormat = "MMMM yyyy"
         let monthTitle = df.string(from: month).uppercased()
 
-        let displayTitle = (projectTitle.isEmpty ? "CineSched" : projectTitle) + " — " + monthTitle
+        let displayTitle = (projectTitle.isEmpty ? "Mainsheet" : projectTitle) + " — " + monthTitle
         canvas.draw(displayTitle, in: CGRect(x: headerRect.minX, y: headerRect.maxY - 20, width: headerRect.width, height: 20),
                     font: .boldSystem(size: 16), color: .pdfBlack)
 
@@ -743,7 +743,7 @@ class PDFExporter {
         isSpanish: Bool,
         isContinuation: Bool
     ) -> CGFloat {
-        var headerTitle = (projectTitle.isEmpty ? "CineSched" : projectTitle) + " — " + monthTitle + (isSpanish ? " — Desglose y Actividades" : " — Schedule & Breakdown")
+        var headerTitle = (projectTitle.isEmpty ? "Mainsheet" : projectTitle) + " — " + monthTitle + (isSpanish ? " — Desglose y Actividades" : " — Schedule & Breakdown")
         if isContinuation { headerTitle += " (cont.)" }
         canvas.draw(headerTitle, lineOrigin: CGPoint(x: contentRect.minX, y: contentRect.maxY - 20),
                     font: .boldSystem(size: 15), color: .pdfBlack)

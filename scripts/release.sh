@@ -1,5 +1,5 @@
 #!/bin/bash
-# Cut a CineSched release in one shot:
+# Cut a Mainsheet release in one shot:
 #   scripts/release.sh 4.6.0
 #   scripts/release.sh 4.10.0 --testflight   # and upload every platform to TestFlight
 # Bumps MARKETING_VERSION to the given version and CURRENT_PROJECT_VERSION by one
@@ -23,9 +23,12 @@ esac
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-APP_NAME="LSVR CineSched"
-PBXPROJ="$APP_NAME.xcodeproj/project.pbxproj"
-CHANGELOG="$APP_NAME/CHANGELOG.md"
+# The Xcode project, scheme and source folder keep the CineSched code name; the product
+# (the .app, the menu bar, the release) is Mainsheet since 4.10 (ADR 0008).
+SCHEME="LSVR CineSched"
+APP_NAME="Mainsheet"
+PBXPROJ="$SCHEME.xcodeproj/project.pbxproj"
+CHANGELOG="$SCHEME/CHANGELOG.md"
 # xcode-select on the dev machine points at the Command Line Tools; never touch it.
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 
@@ -60,13 +63,15 @@ perl -0pi -e "s/## \[Unreleased\]\n/## [Unreleased]\n\n## [${VERSION}] - ${TODAY
 # denials when overwriting previously signed bundles) ---
 DD="$(mktemp -d)"
 trap 'rm -rf "$DD"' EXIT
-xcodebuild -scheme "$APP_NAME" -configuration Release -destination 'platform=macOS' \
+xcodebuild -scheme "$SCHEME" -configuration Release -destination 'platform=macOS' \
     -derivedDataPath "$DD" build | tail -2
 APP="$DD/Build/Products/Release/$APP_NAME.app"
 [[ -d "$APP" ]] || { echo "error: build product not found at $APP" >&2; exit 1; }
 
 # --- Install to /Applications (remove first: ditto merges into existing bundles) ---
 rm -rf "/Applications/$APP_NAME.app"
+# The app was "LSVR CineSched.app" until 4.10; one copy in /Applications, not two.
+rm -rf "/Applications/$SCHEME.app"
 ditto "$APP" "/Applications/$APP_NAME.app"
 
 # --- Commit, tag, push ---
@@ -76,13 +81,13 @@ MSG="Release ${VERSION} (build ${NEW_BUILD})"
 ${RELEASE_COMMIT_TRAILER}"
 git add "$PBXPROJ" "$CHANGELOG"
 git commit -m "$MSG"
-git tag -a "v${VERSION}" -m "CineSched ${VERSION}"
+git tag -a "v${VERSION}" -m "Mainsheet ${VERSION}"
 git push origin HEAD "v${VERSION}"
 
 # --- GitHub Release (zip stays in the temp dir: .app.zip never enters the source tree) ---
-ZIP="$DD/LSVR-CineSched-${VERSION}.zip"
+ZIP="$DD/Mainsheet-${VERSION}.zip"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
-gh release create "v${VERSION}" "$ZIP" --title "CineSched ${VERSION}" --notes "$NOTES"
+gh release create "v${VERSION}" "$ZIP" --title "Mainsheet ${VERSION}" --notes "$NOTES"
 
 echo "Released ${VERSION} (build ${NEW_BUILD}): installed to /Applications, tagged v${VERSION}, GitHub Release published."
 

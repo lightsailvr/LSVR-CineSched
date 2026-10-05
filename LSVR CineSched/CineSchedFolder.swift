@@ -1,6 +1,6 @@
 // CineSchedFolder.swift
 // The CineSched folder: the iCloud Documents container the iOS, iPadOS and visionOS
-// builds own (#12, ADR 0006), which iCloud Drive shows as "CineSched" on every device
+// builds own (#12, ADR 0006), which iCloud Drive shows as "Mainsheet" on every device
 // signed into the account. Those builds reach it through their entitlement (the document
 // browser and the launch screen open there by default). The Mac has no iCloud
 // entitlement, on purpose, so it cannot ask `FileManager` for the container; what it can
@@ -16,7 +16,7 @@ nonisolated enum CineSchedFolder {
     static let containerIdentifier = "iCloud.com.lsvr.LSVR-CineSched"
 
     /// The user-visible folder name (`NSUbiquitousContainerName`).
-    static let displayName = "CineSched"
+    static let displayName = "Mainsheet"
 
     /// Where iCloud Drive materializes the container's Documents folder under `home` on a
     /// Mac: `~/Library/Mobile Documents/<identifier with "~" for ".">/Documents`. Exists

@@ -363,7 +363,7 @@ nonisolated struct ProjectDocumentWriter: DocumentWriter {
         guard !ProjectDocument.isLegacySource(destination) else {
             throw CocoaError(.fileWriteNoPermission, userInfo: [
                 NSURLErrorKey: destination,
-                NSLocalizedDescriptionKey: "CineSched does not write legacy .json project files. Save the project as a .cinesched file instead.",
+                NSLocalizedDescriptionKey: "Mainsheet does not write legacy .json project files. Save the project as a .cinesched file instead.",
             ])
         }
         try ProjectCodec.encode(snapshot).write(to: destination, options: .atomic)

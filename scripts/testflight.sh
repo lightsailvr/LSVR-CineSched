@@ -1,5 +1,5 @@
 #!/bin/bash
-# Archive CineSched and upload it to App Store Connect for TestFlight, one build per
+# Archive Mainsheet and upload it to App Store Connect for TestFlight, one build per
 # platform from the same commit, so every device runs the same version:
 #   scripts/testflight.sh                  # iOS (iPhone and iPad), visionOS and macOS
 #   scripts/testflight.sh ios macos        # a subset
@@ -19,7 +19,8 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-APP_NAME="LSVR CineSched"
+# The scheme keeps the CineSched code name; the product is Mainsheet (ADR 0008).
+SCHEME="LSVR CineSched"
 TEAM_ID="647FZYVR5Q"
 # xcode-select on the dev machine points at the Command Line Tools; never touch it.
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
@@ -61,9 +62,9 @@ cat > "$DD/ExportOptions.plist" <<PLIST
 </plist>
 PLIST
 
-VERSION="$(sed -nE 's/.*MARKETING_VERSION = ([^;]+);.*/\1/p' "$APP_NAME.xcodeproj/project.pbxproj" | head -1)"
-BUILD="$(sed -nE 's/.*CURRENT_PROJECT_VERSION = ([0-9]+);.*/\1/p' "$APP_NAME.xcodeproj/project.pbxproj" | head -1)"
-echo "Uploading CineSched ${VERSION} (build ${BUILD}) for: ${PLATFORMS[*]}"
+VERSION="$(sed -nE 's/.*MARKETING_VERSION = ([^;]+);.*/\1/p' "$SCHEME.xcodeproj/project.pbxproj" | head -1)"
+BUILD="$(sed -nE 's/.*CURRENT_PROJECT_VERSION = ([0-9]+);.*/\1/p' "$SCHEME.xcodeproj/project.pbxproj" | head -1)"
+echo "Uploading Mainsheet ${VERSION} (build ${BUILD}) for: ${PLATFORMS[*]}"
 
 for PLATFORM in "${PLATFORMS[@]}"; do
     case "$PLATFORM" in
@@ -75,7 +76,7 @@ for PLATFORM in "${PLATFORMS[@]}"; do
     ARCHIVE="$DD/$PLATFORM.xcarchive"
 
     echo "== $PLATFORM: archive"
-    xcodebuild archive -scheme "$APP_NAME" -configuration Release -destination "$DESTINATION" \
+    xcodebuild archive -scheme "$SCHEME" -configuration Release -destination "$DESTINATION" \
         -archivePath "$ARCHIVE" -derivedDataPath "$DD/dd-$PLATFORM" "${AUTH[@]}" | tail -2
 
     # ADR 0006: the Mac never carries the iCloud entitlement; the other platforms must.
@@ -92,4 +93,4 @@ for PLATFORM in "${PLATFORMS[@]}"; do
         -exportPath "$DD/export-$PLATFORM" "${AUTH[@]}" | tail -3
 done
 
-echo "Uploaded CineSched ${VERSION} (build ${BUILD}) for ${PLATFORMS[*]}. It reaches TestFlight's internal testers once App Store Connect finishes processing (usually 5–30 minutes)."
+echo "Uploaded Mainsheet ${VERSION} (build ${BUILD}) for ${PLATFORMS[*]}. It reaches TestFlight's internal testers once App Store Connect finishes processing (usually 5–30 minutes)."

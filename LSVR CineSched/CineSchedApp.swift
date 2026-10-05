@@ -147,7 +147,7 @@ struct CineSchedApp: App {
         // rest into a More… menu. Their picker, summary and failure message hang off the
         // New Project button, which stays on screen while `makeDocument` awaits the flow
         // (the modifier needs a view in the launch scene; any of the three would do).
-        DocumentGroupLaunchScene(L("CineSched")) {
+        DocumentGroupLaunchScene(L("Mainsheet")) {
             NewDocumentButton(L("New Project"))
                 .launchImportPresentation(launchImport)
             NewDocumentButton(L("Import Script…"),  source: .importScript)

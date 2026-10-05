@@ -19,7 +19,7 @@ struct CineSchedFolderTests {
     /// change here without a change there would point the Mac at a folder no device makes.
     @Test func containerIdentifierIsTheBundleIdentifierUnderICloud() {
         #expect(CineSchedFolder.containerIdentifier == "iCloud.com.lsvr.LSVR-CineSched")
-        #expect(CineSchedFolder.displayName == "CineSched")
+        #expect(CineSchedFolder.displayName == "Mainsheet")
     }
 
     /// iCloud Drive materializes a container as `~/Library/Mobile Documents/<id with "~"

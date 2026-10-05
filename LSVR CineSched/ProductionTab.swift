@@ -161,7 +161,7 @@ struct ProductionTab: View {
         .onChange(of: titleFocused) { _, focused in
             if !focused { titleGesture = EditGesture() }
         }
-        .alert(L("CineSched"), isPresented: alertPresented) {
+        .alert(L("Mainsheet"), isPresented: alertPresented) {
             Button(L("OK")) { alertMessage = nil }
         } message: {
             if let alertMessage { Text(alertMessage) }

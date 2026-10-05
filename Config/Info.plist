@@ -22,10 +22,11 @@
   deliberately not declared here, so that no platform claims every JSON file.
 
   NSUbiquitousContainers names the iCloud Documents container the iOS, iPadOS and
-  visionOS builds own (ADR 0006): public, so it shows in iCloud Drive as the "CineSched"
-  folder on every device. The Mac's plist carries it too because the file is shared; a
-  plist key grants nothing on its own, and the Mac has no iCloud entitlement, so there it
-  is inert. iCloud reads these keys only when the bundle version changes: bump
+  visionOS builds own (ADR 0006): public, so it shows in iCloud Drive as the "Mainsheet"
+  folder on every device (the app's name since 4.10, ADR 0008; the container keeps its
+  CineSched identifier, so renaming the folder moved no file). The Mac's plist carries it
+  too because the file is shared; a plist key grants nothing on its own, and the Mac has
+  no iCloud entitlement, so there it is inert. iCloud reads these keys only when the bundle version changes: bump
   CURRENT_PROJECT_VERSION with any edit to them.
 -->
 <dict>
@@ -33,7 +34,7 @@
 	<array>
 		<dict>
 			<key>CFBundleTypeName</key>
-			<string>CineSched Project</string>
+			<string>Mainsheet Project</string>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>LSHandlerRank</key>
@@ -53,7 +54,7 @@
 			<key>NSUbiquitousContainerIsDocumentScopePublic</key>
 			<true/>
 			<key>NSUbiquitousContainerName</key>
-			<string>CineSched</string>
+			<string>Mainsheet</string>
 			<key>NSUbiquitousContainerSupportedFolderLevels</key>
 			<string>Any</string>
 		</dict>
@@ -64,7 +65,7 @@
 			<key>UTTypeIdentifier</key>
 			<string>com.lsvr.cinesched.drag-payload</string>
 			<key>UTTypeDescription</key>
-			<string>CineSched Drag Payload</string>
+			<string>Mainsheet Drag Payload</string>
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.data</string>
@@ -74,7 +75,7 @@
 			<key>UTTypeIdentifier</key>
 			<string>com.lsvr.cinesched.shot-drag-payload</string>
 			<key>UTTypeDescription</key>
-			<string>CineSched Shot Drag Payload</string>
+			<string>Mainsheet Shot Drag Payload</string>
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.data</string>
@@ -84,7 +85,7 @@
 			<key>UTTypeIdentifier</key>
 			<string>com.lsvr.cinesched.project</string>
 			<key>UTTypeDescription</key>
-			<string>CineSched Project</string>
+			<string>Mainsheet Project</string>
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.json</string>

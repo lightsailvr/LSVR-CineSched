@@ -166,7 +166,7 @@ final class LaunchImportFlow {
             do {
                 finish(with: try LaunchImport.readLegacyProject(at: url))
             } catch {
-                fail(String(format: L("Couldn't read '%@' as a CineSched project."), url.lastPathComponent))
+                fail(String(format: L("Couldn't read '%@' as a Mainsheet project."), url.lastPathComponent))
             }
         }
     }

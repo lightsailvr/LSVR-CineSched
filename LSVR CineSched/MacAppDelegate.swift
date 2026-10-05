@@ -93,7 +93,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
         guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDirectory), isDirectory.boolValue else { return }
         defaults.set(folder.path, forKey: Self.panelDirectoryKey)
         defaults.set(true, forKey: Self.folderSeededKey)
-        Self.log.notice("Pointed the Open and Save panels at the CineSched folder: \(folder.path, privacy: .public)")
+        Self.log.notice("Pointed the Open and Save panels at the Mainsheet folder: \(folder.path, privacy: .public)")
     }
 
     // MARK: - Recovery

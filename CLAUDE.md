@@ -1,6 +1,8 @@
 # CLAUDE.md
 
-CineSched: a SwiftUI app for film production scheduling. The Mac app is the shipping product;
+CineSched (shipped as **Mainsheet** since 4.10, ADR 0008: every user-facing string says
+Mainsheet; the bundle identifier, iCloud container, `.cinesched` type, preference keys,
+module, scheme and file names keep CineSched): a SwiftUI app for film production scheduling. The Mac app is the shipping product;
 iOS, iPadOS and visionOS build from the same target and today have the system's document
 launch screen (New Project, Import Script…, Import Project…, recents, the document browser),
 open, create and autosave `.cinesched` projects from the CineSched folder in iCloud Drive, and
@@ -57,7 +59,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -scheme "LSV
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -scheme "LSVR CineSched" -destination 'platform=visionOS Simulator,name=Apple Vision Pro' -derivedDataPath "$(mktemp -d)" -only-testing:"LSVR CineSchedTests" CODE_SIGNING_ALLOWED=NO test
 ```
 
-To see it run: `xcrun simctl install <device> <DerivedData>/Build/Products/Debug-iphonesimulator/LSVR\ CineSched.app`,
+To see it run: `xcrun simctl install <device> <DerivedData>/Build/Products/Debug-iphonesimulator/Mainsheet.app`,
 then `xcrun simctl launch <device> com.lsvr.LSVR-CineSched` (`Debug-xrsimulator` for Vision Pro).
 
 **Releases**: `scripts/release.sh <version>` cuts a release — bumps the versions in build
