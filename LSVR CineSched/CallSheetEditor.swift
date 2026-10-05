@@ -145,15 +145,30 @@ struct CallSheetEditor: View {
     private var milestonesSection: some View {
         Section {
             timeField(L("Ready to Shoot (On Set)"), example: "08:00 AM", text: $draft.readyToShootTime)
-            timeField(L("Lunch"),                   example: "01:30 PM", text: $draft.lunchTime)
+            timeField(L("Lunch"),                   example: fromBoard(boardTimesIfBlank.lunch, else: "01:30 PM"), text: $draft.lunchTime)
             timeField(L("Snack"),                   example: "05:00 PM", text: $draft.snackTime)
             timeField(L("Dinner"),                  example: "08:30 PM", text: $draft.dinnerTime)
-            timeField(L("Wrap / Fin de Rodaje"),    example: "09:30 PM", text: $draft.wrapTime)
+            timeField(L("Wrap / Fin de Rodaje"),    example: fromBoard(boardTimesIfBlank.wrap, else: "09:30 PM"), text: $draft.wrapTime)
         } header: {
             Text(L("Milestones & Meal Times"))
         } footer: {
-            Text(L("12-hour times. The Stripboard's call, meal and wrap strips follow these."))
+            Text(L("12-hour times. The Stripboard's call, meal and wrap strips follow these. Leave Lunch or Wrap blank to take it from the Stripboard."))
         }
+    }
+
+    /// What a blank Lunch and Wrap would read from the board (BoardTimes.swift): the day as
+    /// it would be with neither typed, so a typed lunch's own pinned strip, which the save
+    /// would remove, is not what the prompt offers.
+    private var boardTimesIfBlank: (lunch: String?, wrap: String?) {
+        var day = shootDay
+        day.callSheet.lunchTime = ""
+        day.callSheet.wrapTime  = ""
+        day.scenes = day.scenesWithSyncedAutoMeals()
+        return (day.boardLunchTime, day.boardWrapTime)
+    }
+
+    private func fromBoard(_ time: String?, else example: String) -> String {
+        time.map { "\(L("From Stripboard")) · \($0)" } ?? example
     }
 
     private var hospitalSection: some View {

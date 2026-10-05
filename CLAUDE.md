@@ -428,8 +428,18 @@ the build inputs outside it, see Working agreements):
   and next Sundays), `todayTarget(in:now:calendar:)` (today's day, else the next, else the
   last, else nil) and `dayScrollTarget(for:in:expandedDayIDs:calendar:)` (the day id and
   whether it sits in a collapsed gap). Every function takes its calendar.
+- `BoardTimes.swift`: the call sheet's lunch and wrap as the Stripboard has them (4.10,
+  `BoardTimesTests`), pure: `ShootDay.boardLunchStrip` (the auto-meal lunch, else a banner
+  titled lunch, else the first Meal Break banner), `boardLunchTime` (where it starts),
+  `boardWrapTime` (where the last strip ends) and `effectiveLunchTime` /
+  `effectiveWrapTime` (the call sheet's when typed, else the board's): what every reader
+  of a day's lunch or wrap shows (the call sheet PDF and editor prompt, the Shooting
+  Schedule, the Stripboard header and footer, the calendar cell, the month PDF, the
+  inspector, the Day screen). Never read `callSheet.lunchTime` / `wrapTime` for display.
 - `DayTimeline.swift`: the time cascade (#24, `DayTimelineTests`), moved as-is from
-  `StripboardView.computeDayTimeline`: `dayStartMinutes(for:)` (ready-to-shoot, else
+  `StripboardView.computeDayTimeline`; with 4.10 `dayCascade(for:scenes:)`, the same
+  cascade in minutes (`DayCascadeSlot`), which `dayTimeline` formats and `BoardTimes`
+  reads unformatted: `dayStartMinutes(for:)` (ready-to-shoot, else
   general call, else 07:30 AM) and `dayTimeline(for:scenes:)` → `[UUID:
   DayTimelineEntry]` (range, start, end, duration as clock strings). The Stripboard and
   both phone lists call it; calendar events are never passed in.
@@ -1090,6 +1100,9 @@ carried across a resolution) in `ConflictNoticeTests`; the document's unsaved-ed
 coordinated accesses, the metadata query and the path monitor have no unit seam: they need a
 signed-in device (the manual two-device test in issue #15),
 `CineSchedFolder` (`CineSchedFolderTests`),
+`ShootDay.effectiveLunchTime` / `effectiveWrapTime` and the board's lunch strip
+(`BoardTimesTests`: the banner's start, the last strip's end, past midnight, the
+lunch strip's precedence, events excluded, a typed time winning),
 `dayTimeline` and `dayStartMinutes` (`DayTimelineTests`: the default, the precedence, the
 cascade, custom starts, the 15-minute default, banners, a zero-length strip, midnight),
 `DaySummary` (with its `label`), `WeekStrip`, `todayTarget` and `dayScrollTarget`

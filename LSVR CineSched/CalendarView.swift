@@ -299,11 +299,12 @@ struct DayCellView: View {
                 .help(L("Add Calendar Event"))
             }
 
-            if !day.callSheet.lunchTime.isEmpty || !day.callSheet.snackTime.isEmpty || !day.callSheet.dinnerTime.isEmpty {
+            let lunch = day.effectiveLunchTime
+            if !lunch.isEmpty || !day.callSheet.snackTime.isEmpty || !day.callSheet.dinnerTime.isEmpty {
                 HStack(spacing: 4) {
                     Spacer()
-                    if !day.callSheet.lunchTime.isEmpty {
-                        Text("🍽️ \(day.callSheet.lunchTime)")
+                    if !lunch.isEmpty {
+                        Text("🍽️ \(lunch)")
                             .font(.system(size: 8))
                             .foregroundColor(.secondary)
                             .lineLimit(1)

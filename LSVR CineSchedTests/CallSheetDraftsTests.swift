@@ -105,9 +105,13 @@ struct CallSheetDraftsTests {
         #expect(draft.crewCalls.map(\.role)          == ["DP"])
     }
 
-    @Test func callSheetDraftDefaultsLunchFromProductionInfo() {
+    /// A blank lunch stays blank, whatever the production's old default: blank is the
+    /// Stripboard's lunch (BoardTimes.swift), and a filled-in default pinned a second
+    /// LUNCH strip on every day whose call sheet was opened.
+    @Test func callSheetDraftLeavesABlankLunchBlank() {
         let draft = CallSheetDraft(day: Self.day(), productionInfo: Self.productionInfo())
-        #expect(draft.lunchTime == "01:00 PM")
+        #expect(draft.lunchTime == "")
+        #expect(draft.applied(to: Self.day().callSheet).lunchTime == "")
     }
 
     @Test func callSheetDraftAddsTheDaysSceneLocationsOnce() {

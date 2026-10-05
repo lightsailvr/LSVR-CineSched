@@ -257,7 +257,9 @@ enum ScheduleMoves {
             days[dayIndex].scenes.removeAll { returnedIDs.contains($0.id) }
         }
         guard !returned.isEmpty else { return false }
-        boneyard.append(contentsOf: returned)
+        // An auto-meal is the call sheet's (AutoMealSync.swift), never Boneyard material:
+        // it leaves the day and goes nowhere, as a calendar event never moves at all.
+        boneyard.append(contentsOf: returned.filter { !$0.isAutoMeal })
         return true
     }
 

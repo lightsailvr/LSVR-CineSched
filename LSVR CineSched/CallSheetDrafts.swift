@@ -2,8 +2,7 @@
 // The drafts of the two project-level editors (#20): what the call sheet editor holds
 // for one shoot day between opening and Save, and what the production setup holds for
 // the project. Pure and view-free, the same shape as `EditorDrafts.swift` (#19): the
-// reading side carries every pre-fill the old sheets did on appear (the lunch default,
-// the day's scene locations, the cast from the scenes, the crew from the setup, the
+// reading side carries every pre-fill the old sheets did on appear (the day's scene locations, the cast from the scenes, the crew from the setup, the
 // notes from either field), the editing side is a handful of list mutations the rows
 // and the detail pages call, and the writing side is one value back, so a Save is one
 // `perform` and one undo step whatever the container. Every rule is pinned in
@@ -50,7 +49,8 @@ struct CallSheetDraft: Equatable {
     var notes: String
 
     /// The day's call sheet as the editor shows it, with the pre-fills the old sheet
-    /// did on appear: the production's default lunch when the day has none; the day's
+    /// did on appear (not the production's default lunch, which it filled in until 4.10: a
+    /// blank lunch is the Stripboard's, BoardTimes.swift); the day's
     /// scene locations added to the day's list (address from the roster, else the
     /// scene's), and the roster's first location when the list is still empty; the cast
     /// from today's scenes when the sheet has no cast calls, else their scene numbers
@@ -63,7 +63,7 @@ struct CallSheetDraft: Equatable {
         workDaySchedule   = sheet.workDaySchedule
         quoteOfTheDay     = sheet.quoteOfTheDay
         readyToShootTime  = sheet.readyToShootTime
-        lunchTime         = sheet.lunchTime.isEmpty ? productionInfo.defaultLunchTime : sheet.lunchTime
+        lunchTime         = sheet.lunchTime
         snackTime         = sheet.snackTime
         dinnerTime        = sheet.dinnerTime
         wrapTime          = sheet.wrapTime

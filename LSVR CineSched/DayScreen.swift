@@ -239,14 +239,14 @@ struct DayScreen: View {
                             if !sheet.readyToShootTime.isEmpty {
                                 callTime(L("Ready to Shoot"), sheet.readyToShootTime, icon: "film.fill",        color: .green)
                             }
-                            callTime(L("Lunch"),          sheet.lunchTime,        icon: "fork.knife",           color: .orange)
+                            callTime(L("Lunch"),          day.effectiveLunchTime, icon: "fork.knife",           color: .orange)
                             if !sheet.snackTime.isEmpty {
                                 callTime(L("Snack"),      sheet.snackTime,        icon: "cup.and.saucer.fill",  color: .brown)
                             }
                             if !sheet.dinnerTime.isEmpty {
                                 callTime(L("Dinner"),     sheet.dinnerTime,       icon: "fork.knife.circle",    color: .orange)
                             }
-                            callTime(L("Wrap"),           sheet.wrapTime,         icon: "flag.checkered",       color: .red)
+                            callTime(L("Wrap"),           day.effectiveWrapTime,  icon: "flag.checkered",       color: .red)
                             if !sheet.basecampLocation.isEmpty {
                                 HStack(alignment: .top) {
                                     Label {

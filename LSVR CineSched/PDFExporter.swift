@@ -691,11 +691,15 @@ class PDFExporter {
         var fixed: [BreakdownItem] = []
 
         // Call sheet times summary if shoot day
-        if isShoot && (!day.callSheet.generalCallTime.isEmpty || !day.callSheet.lunchTime.isEmpty || !day.callSheet.dinnerTime.isEmpty) {
+        // Lunch and wrap are the call sheet's when typed, else the Stripboard's
+        // (BoardTimes.swift); this line once printed the dinner time as "Wrap".
+        let lunch = day.effectiveLunchTime
+        let wrap  = day.effectiveWrapTime
+        if isShoot && (!day.callSheet.generalCallTime.isEmpty || !lunch.isEmpty || !wrap.isEmpty) {
             var callParts: [String] = []
             if !day.callSheet.generalCallTime.isEmpty { callParts.append("\(isSpanish ? "Llamado" : "Call"): \(day.callSheet.generalCallTime)") }
-            if !day.callSheet.lunchTime.isEmpty { callParts.append("\(isSpanish ? "Almuerzo" : "Lunch"): \(day.callSheet.lunchTime)") }
-            if !day.callSheet.dinnerTime.isEmpty { callParts.append("Wrap: \(day.callSheet.dinnerTime)") }
+            if !lunch.isEmpty { callParts.append("\(isSpanish ? "Almuerzo" : "Lunch"): \(lunch)") }
+            if !wrap.isEmpty { callParts.append("Wrap: \(wrap)") }
             if !day.callSheet.basecampLocation.isEmpty { callParts.append("\(isSpanish ? "Loc" : "Base"): \(day.callSheet.basecampLocation)") }
             fixed.append(makeBreakdownLine(on: canvas, "⏰ " + callParts.joined(separator: "  ·  "),
                                            font: .system(size: 7.8),

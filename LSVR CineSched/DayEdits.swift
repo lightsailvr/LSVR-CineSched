@@ -110,17 +110,18 @@ extension ProjectData {
 
     /// The Stripboard's Set Time: `updated` (the strip with its new fixed start and
     /// estimate, `QuickTimeDraft.applied(to:)`) replaces the strip in place on `dayID`.
-    /// A fixed time on the lunch strip is the call sheet's new lunch (the Mac's rule),
-    /// and the day's auto-meal strips are synced in the same edit so the retitled lunch
-    /// and the call sheet undo as one step. False when the strip is not on that day.
+    /// A fixed time on the call sheet's own lunch strip (the auto-meal) is its new lunch
+    /// (the Mac's rule); a lunch banner of the day's own is the board's, which a blank
+    /// call sheet lunch reads (BoardTimes.swift), and never writes the call sheet. The
+    /// day's auto-meal strips are synced in the same edit, so the retitled lunch and the
+    /// call sheet undo as one step. False when the strip is not on that day.
     @discardableResult
     mutating func applyStripTime(_ updated: Scene, dayID: UUID) -> Bool {
         guard let dayIndex = dayIndex(forDayID: dayID),
               let sceneIndex = shootDays[dayIndex].scenes.firstIndex(where: { $0.id == updated.id })
         else { return false }
         shootDays[dayIndex].scenes[sceneIndex] = updated
-        let lowered = updated.title.lowercased()
-        let isLunch = (updated.isAutoMeal && updated.mealKind == .lunch) || lowered.contains("lunch") || lowered.contains("almuerzo")
+        let isLunch = updated.isAutoMeal && updated.mealKind == .lunch
         if isLunch, !updated.customStartTime.isEmpty {
             shootDays[dayIndex].callSheet.lunchTime = updated.customStartTime
             let synced = shootDays[dayIndex].scenesWithSyncedAutoMeals()

@@ -96,6 +96,22 @@ struct CallSheetPDFExporterTests {
         #expect(!text.contains("\u{2026}"))
     }
 
+    /// A blank lunch and wrap print the Stripboard's (BoardTimes.swift), and the dinner
+    /// prints as DINNER: the box once printed the dinner time under WRAP.
+    @Test func callSheetPrintsTheBoardsLunchAndWrapWhenTheyAreBlank() throws {
+        var day = PDFFixture.callSheetDay
+        day.callSheet.lunchTime = ""
+        day.callSheet.wrapTime  = ""
+        let lunch = try #require(day.boardLunchTime)
+        let wrap  = try #require(day.boardWrapTime)
+
+        let text = pdfFullText(render(day, dayNumber: 3, dumpAs: "CallSheet-BoardTimes.pdf"))
+        #expect(text.contains(lunch))
+        #expect(text.contains(wrap))
+        #expect(text.contains("DINNER"))
+        #expect(text.contains(day.callSheet.dinnerTime))
+    }
+
     @Test func callSheetFallsBackToTheRosterAndDefaultsOnABareDay() {
         var day = PDFFixture.days[1]
         day.callSheet = CallSheetData()

@@ -205,7 +205,10 @@ struct StripboardView: View {
                        let sceneIdx = shootDays[dayIdx].scenes.firstIndex(where: { $0.id == updated.id }) {
                         onBeforeSceneChange()
                         shootDays[dayIdx].scenes[sceneIdx] = updated
-                        if (updated.isAutoMeal && updated.mealKind == .lunch) || updated.title.lowercased().contains("almuerzo") || updated.title.lowercased().contains("lunch") {
+                        // Only the call sheet's own lunch strip writes its lunch: a lunch
+                        // banner is the board's, which a blank call sheet lunch reads
+                        // (BoardTimes.swift), and writing it would pin a second strip.
+                        if updated.isAutoMeal && updated.mealKind == .lunch {
                             if !updated.customStartTime.isEmpty {
                                 shootDays[dayIdx].callSheet.lunchTime = updated.customStartTime
                             }
@@ -701,8 +704,9 @@ struct StripboardView: View {
                         .lineLimit(1).truncationMode(.tail)
                 }
                 HStack(spacing: 6) {
-                    if !day.callSheet.lunchTime.isEmpty {
-                        Text("🍽️ \(day.callSheet.lunchTime)")
+                    let lunch = day.effectiveLunchTime
+                    if !lunch.isEmpty {
+                        Text("🍽️ \(lunch)")
                             .font(.caption).foregroundColor(.secondary)
                     }
                     if !day.callSheet.snackTime.isEmpty {
@@ -713,8 +717,9 @@ struct StripboardView: View {
                         Text("🍕 \(day.callSheet.dinnerTime)")
                             .font(.caption).foregroundColor(.secondary)
                     }
-                    if !day.callSheet.wrapTime.isEmpty {
-                        Text("🎬 \(day.callSheet.wrapTime)")
+                    let wrap = day.effectiveWrapTime
+                    if !wrap.isEmpty {
+                        Text("🎬 \(wrap)")
                             .font(.caption).foregroundColor(.secondary)
                     }
                 }
@@ -969,9 +974,10 @@ struct StripboardView: View {
     private func removeScene(_ scene: Scene, from days: inout [ShootDay], boneyard: inout [Scene], dayId: UUID) {
         if let di = days.firstIndex(where: { $0.id == dayId }) {
             days[di].scenes.removeAll { $0.id == scene.id }
-            // Calendar events are never Boneyard material; a grouped removal that sweeps
-            // one up (multi-select spanning a chip) just deletes it.
-            if !scene.isCalendarEvent { boneyard.append(scene) }
+            // Calendar events and the call sheet's auto-meals are never Boneyard material;
+            // a removal that sweeps one up (multi-select spanning a chip, an auto-meal's
+            // trash button) just deletes it.
+            if !scene.isCalendarEvent && !scene.isAutoMeal { boneyard.append(scene) }
         }
     }
 
@@ -1077,7 +1083,7 @@ struct EndOfDayStrip: View {
     }
 
     private var wrapPart: String {
-        let wrap = day.callSheet.wrapTime.trimmingCharacters(in: .whitespaces)
+        let wrap = day.effectiveWrapTime
         return wrap.isEmpty ? "" : " -- \(L("Wrap:")) \(wrap)"
     }
 

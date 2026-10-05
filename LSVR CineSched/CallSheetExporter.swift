@@ -238,13 +238,20 @@ class CallSheetExporter {
         let readyLabel = lang == .spanish ? "LISTOS" : "READY TO SHOOT"
         let lunchLabel = lang == .spanish ? "ALMUERZO" : "LUNCH"
         let snackLabel = lang == .spanish ? "MERIENDA" : "SNACK"
-        let wrapLabel  = lang == .spanish ? "FIN / CENA" : "WRAP"
+        let dinnerLabel = lang == .spanish ? "CENA" : "DINNER"
+        let wrapLabel  = lang == .spanish ? "FIN" : "WRAP"
 
+        // Lunch and wrap are the call sheet's when typed, else the Stripboard's
+        // (BoardTimes.swift). This box once printed the dinner time under WRAP and never
+        // the wrap itself.
+        let lunch = shootDay.effectiveLunchTime
+        let wrap  = shootDay.effectiveWrapTime
         var milestones: [(String, String)] = []
         if !cs.readyToShootTime.isEmpty { milestones.append((readyLabel, cs.readyToShootTime)) }
-        if !cs.lunchTime.isEmpty        { milestones.append((lunchLabel, cs.lunchTime)) }
+        if !lunch.isEmpty               { milestones.append((lunchLabel, lunch)) }
         if !cs.snackTime.isEmpty        { milestones.append((snackLabel, cs.snackTime)) }
-        if !cs.dinnerTime.isEmpty       { milestones.append((wrapLabel, cs.dinnerTime)) }
+        if !cs.dinnerTime.isEmpty       { milestones.append((dinnerLabel, cs.dinnerTime)) }
+        if !wrap.isEmpty                { milestones.append((wrapLabel, wrap)) }
 
         if milestones.isEmpty {
             milestones = [(readyLabel, ""), (lunchLabel, ""), (snackLabel, ""), (wrapLabel, "")]

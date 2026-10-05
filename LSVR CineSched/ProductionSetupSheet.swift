@@ -1,7 +1,8 @@
 // ProductionSetupSheet.swift
 // The project-wide production setup (#20): one adaptive `Form` for every container, in
-// the #19 chrome. The company, the key contacts and the call sheet's lunch default are
-// rows; the cast, crew and location rosters are lists with a row per member, and each
+// the #19 chrome. The company and the key contacts are rows (the call sheet's lunch
+// default went with 4.10: a blank call sheet lunch is the Stripboard's, BoardTimes.swift);
+// the cast, crew and location rosters are lists with a row per member, and each
 // row opens a detail page pushed inside the editor's own `NavigationStack` (the chrome's
 // header shows Back and the member, the footer Remove and Done): the cast member's names
 // and the date ranges they are unavailable, the crew member's name, role, phone and
@@ -103,7 +104,6 @@ struct ProductionSetupSheet: View {
         Form {
             detailsSection
             contactsSection
-            defaultsSection
             castSection
             crewSection
             locationsSection
@@ -125,19 +125,6 @@ struct ProductionSetupSheet: View {
             phoneField(L("Producer Phone"),   text: $draft.producerPhone)
             contactField(L("1st AD"),         text: $draft.adName)
             phoneField(L("1st AD Phone"),     text: $draft.adPhone)
-        }
-    }
-
-    private var defaultsSection: some View {
-        Section {
-            LabeledContent(L("Default Lunch Time")) {
-                TextField("01:30 PM", text: $draft.defaultLunchTime)
-                    .multilineTextAlignment(.trailing)
-            }
-        } header: {
-            Text(L("Call Sheet Defaults"))
-        } footer: {
-            Text(L("Pre-filled as the lunch time of a call sheet that has none."))
         }
     }
 

@@ -368,6 +368,23 @@ struct DayEditsTests {
         #expect(data.shootDays[0].callSheet.lunchTime == "12:30 PM")
     }
 
+    /// A lunch banner of the day's own is the board's lunch, which a blank call sheet
+    /// lunch reads (BoardTimes.swift): its Set Time never writes the call sheet, which
+    /// would pin a second, auto LUNCH strip beside it.
+    @Test func applyStripTimeOnALunchBannerLeavesTheCallSheetBlank() throws {
+        var data = project()
+        let dayID = data.shootDays[0].id
+        var lunch = Scene.createBanner(type: .mealBreak, title: "Lunch", estimatedTime: "1:00")
+        data.shootDays[0].scenes.insert(lunch, at: 1)
+
+        lunch.customStartTime = "01:30 PM"
+        let ok = data.applyStripTime(lunch, dayID: dayID)
+        #expect(ok)
+        #expect(data.shootDays[0].callSheet.lunchTime.isEmpty)
+        #expect(!data.shootDays[0].scenes.contains { $0.isAutoMeal })
+        #expect(data.shootDays[0].effectiveLunchTime == "01:30 PM")
+    }
+
     @Test func applyStripTimeRefusesAStripNotOnThatDay() {
         let before = project()
         var data   = before

@@ -212,9 +212,9 @@ struct DayDetailSheet: View {
         Section {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), alignment: .leading)], alignment: .leading, spacing: 10) {
                 timeBadge(label: L("General Call"), time: day.callSheet.generalCallTime, icon: "megaphone.fill",      color: .blue)
-                timeBadge(label: L("Lunch"),        time: day.callSheet.lunchTime,       icon: "fork.knife",         color: .orange)
+                timeBadge(label: L("Lunch"),        time: day.effectiveLunchTime,        icon: "fork.knife",         color: .orange)
                 timeBadge(label: L("Snack"),        time: day.callSheet.snackTime,       icon: "cup.and.saucer.fill", color: .brown)
-                timeBadge(label: L("Wrap"),         time: day.callSheet.dinnerTime,      icon: "flag.checkered",     color: .red)
+                timeBadge(label: L("Wrap"),         time: day.effectiveWrapTime,         icon: "flag.checkered",     color: .red)
             }
             .padding(.vertical, 2)
 

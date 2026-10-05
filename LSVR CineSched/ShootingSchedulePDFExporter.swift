@@ -91,11 +91,9 @@ struct ShootingSchedulePDFExporter {
             let strips   = day.scenes.filter { !$0.isCalendarEvent }
             let timeline = dayTimeline(for: day, scenes: strips)
 
-            // The lunch: the call sheet's lunch strip where it starts on the board, else the
-            // first lunch banner of the day's own, else the call sheet's time as typed.
-            let lunchStrip = strips.first { $0.isAutoMeal && $0.mealKind == .lunch }
-                ?? strips.first { !$0.isAutoMeal && isLunchTitle($0.title) }
-            let calculatedLunchTime = lunchStrip.flatMap { timeline[$0.id]?.startStr } ?? day.callSheet.lunchTime
+            // The lunch: the call sheet's when typed, else where the board's lunch starts
+            // (BoardTimes.swift).
+            let calculatedLunchTime = day.effectiveLunchTime
 
             drawDayHeaderBar(
                 canvas: canvas,
@@ -161,11 +159,6 @@ struct ShootingSchedulePDFExporter {
         }
 
         return canvas.finish()
-    }
-
-    private static func isLunchTitle(_ title: String) -> Bool {
-        let lowered = title.lowercased()
-        return lowered.contains("almuerzo") || lowered.contains("lunch")
     }
 
     // MARK: - Top Header (Matching Screenshot Layout)
@@ -450,7 +443,7 @@ struct ShootingSchedulePDFExporter {
         let totalTimeLabel = isSpanish ? "TIEMPO EST.:" : "EST. TIME:"
         let endDayPrefix = isSpanish ? "FIN DEL DÍA" : "END OF DAY"
 
-        let wrapText = day.callSheet.wrapTime.isEmpty ? endTimeStr : day.callSheet.wrapTime
+        let wrapText = day.effectiveWrapTime.isEmpty ? endTimeStr : day.effectiveWrapTime
         let footerText = "-- \(endDayPrefix) #\(dayNumber) \(fullDate) -- \(wrapLabel) \(wrapText) -- \(totalPagesLabel) \(formattedEighths(day.totalDuration)) -- \(totalTimeLabel) \(formattedTimeHM(day.totalEstimatedTime)) --"
         drawTextCentered(footerText, in: rect, font: .boldSystem(size: 8.5), color: .hex("374151"), canvas: canvas)
 

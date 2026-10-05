@@ -39,12 +39,21 @@ func dayStartMinutes(for day: ShootDay) -> Int {
     return parseTimeToMinutes(start) ?? (7 * 60 + 30)
 }
 
-/// The cascade over `scenes` (the day's strips, in order, without its calendar events),
-/// keyed by scene id. A scene that is not in `scenes` has no entry.
-func dayTimeline(for day: ShootDay, scenes: [Scene]) -> [UUID: DayTimelineEntry] {
+/// One strip's place in the cascade, in minutes from the day's midnight (past 1440 for a
+/// strip that runs over it): what `dayTimeline` formats and what `BoardTimes.swift` reads
+/// the lunch and the wrap from without formatting every strip.
+struct DayCascadeSlot: Equatable {
+    let sceneID:  UUID
+    let startMin: Int
+    let endMin:   Int
+}
+
+/// The cascade over `scenes` in minutes, in strip order: the one place its rules live.
+func dayCascade(for day: ShootDay, scenes: [Scene]) -> [DayCascadeSlot] {
     var startMin = dayStartMinutes(for: day)
 
-    var map: [UUID: DayTimelineEntry] = [:]
+    var slots: [DayCascadeSlot] = []
+    slots.reserveCapacity(scenes.count)
     for s in scenes {
         if !s.customStartTime.isEmpty, let customMin = parseTimeToMinutes(s.customStartTime) {
             startMin = customMin
@@ -56,14 +65,24 @@ func dayTimeline(for day: ShootDay, scenes: [Scene]) -> [UUID: DayTimelineEntry]
             dur = s.estimatedTime > 0 ? s.estimatedTime : 15
         }
         let endMin = startMin + dur
+        slots.append(DayCascadeSlot(sceneID: s.id, startMin: startMin, endMin: endMin))
+        startMin = endMin
+    }
+    return slots
+}
 
-        let startClock = formatMinutesToClock(startMin)
-        let endClock   = formatMinutesToClock(endMin)
+/// The cascade over `scenes` (the day's strips, in order, without its calendar events),
+/// keyed by scene id. A scene that is not in `scenes` has no entry.
+func dayTimeline(for day: ShootDay, scenes: [Scene]) -> [UUID: DayTimelineEntry] {
+    var map: [UUID: DayTimelineEntry] = [:]
+    for slot in dayCascade(for: day, scenes: scenes) {
+        let dur        = slot.endMin - slot.startMin
+        let startClock = formatMinutesToClock(slot.startMin)
+        let endClock   = formatMinutesToClock(slot.endMin)
         let durClock   = formattedTimeHM(dur)
         let fullRange  = (dur == 0) ? startClock : "\(startClock) – \(endClock)"
 
-        map[s.id] = DayTimelineEntry(timeDisplay: fullRange, startStr: startClock, endStr: endClock, durStr: durClock)
-        startMin = endMin
+        map[slot.sceneID] = DayTimelineEntry(timeDisplay: fullRange, startStr: startClock, endStr: endClock, durStr: durClock)
     }
     return map
 }

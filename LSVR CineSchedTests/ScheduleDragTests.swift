@@ -320,6 +320,18 @@ struct ScheduleDragTests {
         #expect(boneyard.map(\.id) == [e.id])
     }
 
+    /// An auto-meal is the call sheet's: dragged off the day it goes, but never into the
+    /// Boneyard, where it would sit as a stray LUNCH strip.
+    @Test func anAutoMealLeavesTheDayButNeverEntersTheBoneyard() {
+        var (days, boneyard) = board()
+        let lunch = Scene.createAutoMeal(kind: .lunch, timeString: "01:00 PM")
+        days[0].scenes.append(lunch)
+        let moved = ScheduleMoves.returnToBoneyard([lunch.id, a.id], days: &days, boneyard: &boneyard)
+        #expect(moved)
+        #expect(!days[0].scenes.contains { $0.id == lunch.id })
+        #expect(boneyard.map(\.id) == [e.id, a.id])
+    }
+
     @Test func aBoneyardSceneDroppedOnTheBoneyardChangesNothing() {
         var (days, boneyard) = board()
         let moved = ScheduleMoves.returnToBoneyard([e.id], days: &days, boneyard: &boneyard)
