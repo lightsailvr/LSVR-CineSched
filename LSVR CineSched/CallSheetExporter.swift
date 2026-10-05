@@ -347,6 +347,10 @@ class CallSheetExporter {
         y -= headerH
 
         let dayLocations = shootDay.callSheet.locations
+        // A banner's second line is its time on the board, then its note. Its `summary`
+        // alone was once the banner form's Start Time caption (a default 12:00 PM that
+        // moved nothing), which this table printed under every banner.
+        let timeline = dayTimeline(for: shootDay, scenes: shootDay.scenes.filter { !$0.isCalendarEvent })
 
         // Draw Scenes
         for scene in shootDay.scenes {
@@ -368,7 +372,14 @@ class CallSheetExporter {
             let c2 = CGRect(x: x, y: y - rowH, width: cols[1].width, height: rowH)
             drawCellBorder(on: canvas, c2)
             let decoradoStr = scene.decoradoOnly
-            let synStr = scene.summary.isEmpty ? "" : scene.summary
+            let synStr: String
+            if scene.isBanner && !scene.isCalendarEvent {
+                let legacyCaption = !scene.bannerNote.isEmpty && scene.summary == scene.bannerNote
+                let note = (scene.isAutoMeal || legacyCaption) ? "" : scene.summary
+                synStr = [timeline[scene.id]?.timeDisplay ?? "", note].filter { !$0.isEmpty }.joined(separator: " · ")
+            } else {
+                synStr = scene.summary
+            }
             drawCenteredText(on: canvas, decoradoStr, font: fontBoldBody, in: CGRect(x: c2.minX + 4, y: c2.midY - 2, width: c2.width - 8, height: 12))
             if !synStr.isEmpty {
                 drawCenteredText(on: canvas, synStr, font: fontSmall, in: CGRect(x: c2.minX + 4, y: c2.minY + 3, width: c2.width - 8, height: 10))

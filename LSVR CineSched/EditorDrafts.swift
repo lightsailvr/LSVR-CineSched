@@ -327,27 +327,31 @@ struct ShotDraft: Equatable {
 struct BannerDraft: Equatable {
     var type:          BannerType = .notice
     var title:         String     = BannerDraft.defaultTitle(for: .notice)
-    var startTime:     String     = "12:00 PM"
+    /// The strip's fixed start (its `customStartTime`, what Set Time sets); blank lets
+    /// the strip follow the one before it in the day's cascade.
+    var startTime:     String     = ""
     var note:          String     = ""
     var estimatedTime: String     = "0:30"
     var colorHex:      String     = "8B5CF6"   // violet
-    /// The banner being edited (#26; the Mac's Stripboard too since 4.10), whose id and
-    /// fixed start `applied(to:)` keeps; nil when adding.
+    /// The banner being edited (#26; the Mac's Stripboard too since 4.10), whose id
+    /// `applied(to:)` keeps; nil when adding.
     private(set) var existingID: UUID?
 
     static let defaultColorHex = "8B5CF6"
 
-    /// A new banner: the defaults the old sheet started with.
+    /// A new banner: no fixed start, a half-hour estimate.
     init() {}
 
-    /// An existing banner's fields, read back the way `makeBanner` wrote them: the
-    /// start time from `bannerNote`, the note from `summary` only when there is no
-    /// start time (with one, the old sheet kept no note), the estimate as "h:mm".
+    /// An existing banner's fields. The start is its fixed start (`customStartTime`).
+    /// Until 4.10 the form's Start Time was a caption only: it went into `bannerNote` and,
+    /// when typed, into `summary` in place of the note, defaulted to 12:00 PM, and never
+    /// moved the strip. Such a caption is not read back as a start (that would pin every
+    /// old banner at noon), and a `summary` that is only that caption is no note.
     init(banner: Scene) {
         type          = banner.bannerType ?? .notice
         title         = banner.bannerTitle.isEmpty ? banner.title : banner.bannerTitle
-        startTime     = banner.bannerNote
-        note          = banner.bannerNote.isEmpty ? banner.summary : ""
+        startTime     = banner.customStartTime
+        note          = (!banner.bannerNote.isEmpty && banner.summary == banner.bannerNote) ? "" : banner.summary
         estimatedTime = "\(banner.estimatedTime / 60):" + String(format: "%02d", banner.estimatedTime % 60)
         colorHex      = banner.bannerColorHex.isEmpty ? Self.defaultColorHex : banner.bannerColorHex
         existingID    = banner.id
@@ -366,7 +370,17 @@ struct BannerDraft: Equatable {
 
     static func defaultTitle(for type: BannerType) -> String { type.localizedName }
 
-    var canSave: Bool { !title.trimmingCharacters(in: .whitespaces).isEmpty }
+    /// The typed start as the board writes times ("07:30 PM"), "" when blank, nil when it
+    /// does not parse.
+    var normalizedStartTime: String? {
+        let clean = startTime.trimmingCharacters(in: .whitespaces)
+        if clean.isEmpty { return "" }
+        return parseTimeToMinutes(clean).map(formatMinutesToClock)
+    }
+
+    var isStartTimeValid: Bool { normalizedStartTime != nil }
+
+    var canSave: Bool { !title.trimmingCharacters(in: .whitespaces).isEmpty && isStartTimeValid }
 
     /// Switches the type; a title still at the old type's default (or blank) follows it,
     /// a typed one stays.
@@ -376,30 +390,27 @@ struct BannerDraft: Equatable {
         if wasDefault { title = Self.defaultTitle(for: newType) }
     }
 
-    /// The strip the old sheet built: a blank title falls back to the type's default; the
-    /// trimmed start time rides in `bannerNote` and, when present, in `summary` (the
-    /// strip's second line), with the note as the summary otherwise.
+    /// The strip: a blank title falls back to the type's default; the note is its
+    /// `summary`, and the start its fixed start, so the cascade starts the strip there.
     func makeBanner() -> Scene {
         let cleanTitle = title.trimmingCharacters(in: .whitespaces)
-        let cleanTime  = startTime.trimmingCharacters(in: .whitespaces)
         var banner = Scene.createBanner(
             type:          type,
             title:         cleanTitle.isEmpty ? Self.defaultTitle(for: type) : cleanTitle,
-            note:          note,
+            note:          note.trimmingCharacters(in: .whitespaces),
             estimatedTime: estimatedTime,
             colorHex:      colorHex
         )
-        banner.summary    = cleanTime.isEmpty ? note : cleanTime
-        banner.bannerNote = cleanTime
+        banner.bannerNote      = ""
+        banner.customStartTime = normalizedStartTime ?? ""
         return banner
     }
 
-    /// The edit's write (#26): `makeBanner()` in the place of `banner`, keeping its id and
-    /// the fixed start time Set Time may have given it (the form does not edit that).
+    /// The edit's write (#26): `makeBanner()` in the place of `banner`, keeping its id.
+    /// The start is the form's, which opened on the banner's own (Set Time's included).
     func applied(to banner: Scene) -> Scene {
         var saved = makeBanner()
-        saved.id              = banner.id
-        saved.customStartTime = banner.customStartTime
+        saved.id = banner.id
         return saved
     }
 }

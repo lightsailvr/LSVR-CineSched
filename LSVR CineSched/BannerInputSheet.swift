@@ -3,8 +3,9 @@
 // Move, Meal Break, Notice, Custom Text) for the Stripboard, or (#26, the iPhone's Day
 // screen) to edit one (`initialBanner`). The fields are a `BannerDraft`; Add Banner hands
 // `draft.makeBanner()` to `onSave` once, Save Changes `draft.applied(to:)`, which keeps
-// the banner's id and its fixed start. Only the size around the form changes per
-// container (`editorContainer`). The Mac's Stripboard adds from a day header and edits
+// the banner's id. Start Time is the strip's fixed start (Set Time's), blank to follow
+// the cascade; until 4.10 it was a caption that defaulted to noon and moved nothing.
+// Only the size around the form changes per container (`editorContainer`). The Mac's Stripboard adds from a day header and edits
 // from a banner's double-click or its Edit Banner… item (never an auto-meal's: the call
 // sheet owns those, and they offer Set Time only).
 
@@ -71,13 +72,18 @@ struct BannerInputSheet: View {
 
             Section {
                 LabeledContent(L("Start Time")) {
-                    TextField(L("e.g. 12:00 PM"), text: $draft.startTime)
+                    TextField(L("Follows the strip before"), text: $draft.startTime)
                         .multilineTextAlignment(.trailing)
                 }
                 LabeledContent(L("Duration (h:mm)")) {
                     TextField(L("e.g. 0:30 or 1:00"), text: $draft.estimatedTime)
                         .multilineTextAlignment(.trailing)
                 }
+            } footer: {
+                Text(draft.isStartTimeValid
+                     ? L("A start time pins the strip there, and the strips after it follow; leave it blank to start where the strip before ends.")
+                     : L("Type a time like 7:30 PM, or leave it blank."))
+                    .foregroundStyle(draft.isStartTimeValid ? Color.secondary : Color.red)
             }
 
             Section(L("Additional Notes")) {

@@ -245,7 +245,7 @@ struct EditorDraftsTests {
         let draft = BannerDraft()
         #expect(draft.type          == .notice)
         #expect(draft.title         == "Notice")
-        #expect(draft.startTime     == "12:00 PM")
+        #expect(draft.startTime     == "", "no fixed start: the strip follows the cascade")
         #expect(draft.estimatedTime == "0:30")
         #expect(draft.note          == "")
         #expect(draft.colorHex      == "8B5CF6")
@@ -266,7 +266,7 @@ struct EditorDraftsTests {
         #expect(draft.title == "Custom Banner")
     }
 
-    @Test func bannerDraftMakesTheBannerTheOldSheetMade() {
+    @Test func bannerDraftMakesABannerPinnedAtItsStartTime() {
         var draft = BannerDraft()
         draft.setType(.companyMove)
         draft.title         = "  Move to the pier  "
@@ -283,10 +283,12 @@ struct EditorDraftsTests {
         #expect(banner.estimatedTime   == 75)
         #expect(banner.dayNightType    == .custom)
         #expect(banner.bannerColorHex  == "EF4444")
-        // The old sheet's quirk, kept: the start time rides in `bannerNote` and, when
-        // present, in `summary`, which is what the strip shows.
-        #expect(banner.bannerNote      == "1:30 PM")
-        #expect(banner.summary         == "1:30 PM")
+        // The start is the strip's fixed start, as the board writes times; the note is
+        // the summary. (Until 4.10 the start was only a caption in `bannerNote` and
+        // `summary`, and moved nothing.)
+        #expect(banner.customStartTime == "01:30 PM")
+        #expect(banner.summary         == "Trucks leave at 1")
+        #expect(banner.bannerNote      == "")
     }
 
     @Test func bannerDraftFallsBackToTheDefaultTitleAndTheNote() {
@@ -316,8 +318,8 @@ struct EditorDraftsTests {
         #expect(reread.isEditing)
         #expect(reread.type          == .companyMove)
         #expect(reread.title         == "Move to the pier")
-        #expect(reread.startTime     == "1:30 PM")
-        #expect(reread.note          == "", "with a start time the old sheet kept no note")
+        #expect(reread.startTime     == "01:30 PM")
+        #expect(reread.note          == "")
         #expect(reread.estimatedTime == "1:15")
         #expect(reread.colorHex      == "EF4444")
         #expect(!BannerDraft().isEditing)
@@ -358,23 +360,48 @@ struct EditorDraftsTests {
         #expect(BannerDraft(banner: banner).colorHex == "8B5CF6")
     }
 
-    @Test func bannerDraftAppliedKeepsTheIdAndTheFixedTime() {
+    @Test func bannerDraftReadsSetTimesStartAndWritesTheFormsStart() {
         var banner = Scene.createBanner(type: .notice, title: "Notice")
         banner.customStartTime = "02:00 PM"
         var draft = BannerDraft(banner: banner)
+        #expect(draft.startTime == "02:00 PM", "the form opens on the strip's fixed start")
         draft.setType(.mealBreak)
         draft.title     = "Second meal"
-        draft.startTime = "6:00 PM"
+        draft.startTime = "6:00 pm"
         draft.colorHex  = "D97706"
         let saved = draft.applied(to: banner)
         #expect(saved.id              == banner.id)
-        #expect(saved.customStartTime == "02:00 PM", "Set Time's fixed start survives an edit of the other fields")
+        #expect(saved.customStartTime == "06:00 PM")
         #expect(saved.bannerType      == .mealBreak)
         #expect(saved.title           == "Second meal")
         #expect(saved.bannerTitle     == "Second meal")
-        #expect(saved.bannerNote      == "6:00 PM")
         #expect(saved.bannerColorHex  == "D97706")
         #expect(saved.isBanner && !saved.isCalendarEvent && !saved.isAutoMeal)
+
+        draft.startTime = ""
+        #expect(draft.applied(to: banner).customStartTime == "", "a cleared start unpins the strip")
+    }
+
+    /// A banner saved before 4.10 carries the form's old Start Time caption (often the
+    /// 12:00 PM default) in `bannerNote` and `summary`: it is neither a start nor a note.
+    @Test func bannerDraftIgnoresTheOldStartTimeCaption() {
+        var banner = Scene.createBanner(type: .notice, title: "Gobber On Set Call")
+        banner.bannerNote = "12:00 PM"
+        banner.summary    = "12:00 PM"
+        let draft = BannerDraft(banner: banner)
+        #expect(draft.startTime == "")
+        #expect(draft.note      == "")
+        #expect(draft.applied(to: banner).summary == "")
+    }
+
+    @Test func bannerDraftRefusesAStartTimeThatDoesNotParse() {
+        var draft = BannerDraft()
+        draft.startTime = "after lunch"
+        #expect(!draft.isStartTimeValid)
+        #expect(!draft.canSave)
+        draft.startTime = "19:30"
+        #expect(draft.canSave)
+        #expect(draft.makeBanner().customStartTime == "07:30 PM")
     }
 
     @Test func bannerDraftMakeBannerMintsANewIdForANewBanner() {
