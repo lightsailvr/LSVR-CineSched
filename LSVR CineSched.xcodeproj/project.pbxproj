@@ -28,7 +28,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		610321663048B74700E09EBA /* LSVR CineSched.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "LSVR CineSched.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		610321663048B74700E09EBA /* LSVR CineSched.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = "LSVR CineSched.app"; path = Mainsheet.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		610321733048B74800E09EBA /* LSVR CineSchedTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "LSVR CineSchedTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		6103217D3048B74800E09EBA /* LSVR CineSchedUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "LSVR CineSchedUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		6123F3C2304926ED00623414 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
@@ -426,13 +426,13 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Config/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Mainsheet";
+				INFOPLIST_KEY_CFBundleDisplayName = Mainsheet;
+				"INFOPLIST_KEY_CFBundleDisplayName[sdk=iphoneos*]" = Mainsheet;
+				"INFOPLIST_KEY_CFBundleDisplayName[sdk=iphonesimulator*]" = Mainsheet;
+				"INFOPLIST_KEY_CFBundleDisplayName[sdk=xros*]" = Mainsheet;
+				"INFOPLIST_KEY_CFBundleDisplayName[sdk=xrsimulator*]" = Mainsheet;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
-				"INFOPLIST_KEY_CFBundleDisplayName[sdk=iphoneos*]" = "Mainsheet";
-				"INFOPLIST_KEY_CFBundleDisplayName[sdk=iphonesimulator*]" = "Mainsheet";
-				"INFOPLIST_KEY_CFBundleDisplayName[sdk=xros*]" = "Mainsheet";
-				"INFOPLIST_KEY_CFBundleDisplayName[sdk=xrsimulator*]" = "Mainsheet";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Mainsheet uses the camera to photograph a storyboard frame for a shot.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -443,12 +443,12 @@
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				"INFOPLIST_KEY_UISupportsDocumentBrowser[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UISupportsDocumentBrowser[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UISupportsDocumentBrowser[sdk=xros*]" = YES;
 				"INFOPLIST_KEY_UISupportsDocumentBrowser[sdk=xrsimulator*]" = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
@@ -456,7 +456,7 @@
 				MARKETING_VERSION = 4.10.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.lsvr.LSVR-CineSched";
 				PRODUCT_MODULE_NAME = LSVR_CineSched;
-				PRODUCT_NAME = "Mainsheet";
+				PRODUCT_NAME = Mainsheet;
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -506,13 +506,13 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Config/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Mainsheet";
+				INFOPLIST_KEY_CFBundleDisplayName = Mainsheet;
+				"INFOPLIST_KEY_CFBundleDisplayName[sdk=iphoneos*]" = Mainsheet;
+				"INFOPLIST_KEY_CFBundleDisplayName[sdk=iphonesimulator*]" = Mainsheet;
+				"INFOPLIST_KEY_CFBundleDisplayName[sdk=xros*]" = Mainsheet;
+				"INFOPLIST_KEY_CFBundleDisplayName[sdk=xrsimulator*]" = Mainsheet;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
-				"INFOPLIST_KEY_CFBundleDisplayName[sdk=iphoneos*]" = "Mainsheet";
-				"INFOPLIST_KEY_CFBundleDisplayName[sdk=iphonesimulator*]" = "Mainsheet";
-				"INFOPLIST_KEY_CFBundleDisplayName[sdk=xros*]" = "Mainsheet";
-				"INFOPLIST_KEY_CFBundleDisplayName[sdk=xrsimulator*]" = "Mainsheet";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Mainsheet uses the camera to photograph a storyboard frame for a shot.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -523,12 +523,12 @@
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				"INFOPLIST_KEY_UISupportsDocumentBrowser[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UISupportsDocumentBrowser[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UISupportsDocumentBrowser[sdk=xros*]" = YES;
 				"INFOPLIST_KEY_UISupportsDocumentBrowser[sdk=xrsimulator*]" = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
@@ -536,7 +536,7 @@
 				MARKETING_VERSION = 4.10.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.lsvr.LSVR-CineSched";
 				PRODUCT_MODULE_NAME = LSVR_CineSched;
-				PRODUCT_NAME = "Mainsheet";
+				PRODUCT_NAME = Mainsheet;
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
