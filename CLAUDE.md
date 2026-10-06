@@ -916,6 +916,10 @@ the build inputs outside it, see Working agreements):
   frame, the iPhone's detents, form sizing on iPad and visionOS; and
   `editorNavigationBarHidden()`, which hides the bar of an editor's own navigation stack
   where there is one), `LegacyProjectHandoff`,
+  `PlatformDocumentDuplicate` (`DocumentDuplicateRoute`: the Mac's File ▸ Duplicate,
+  which hangs inside SwiftUI's document on 27.0, rerouted by replacing the shared
+  document controller's `duplicateDocumentWithContentsOfURL:…` with a decode into an
+  untitled document seeded through `MacAppDelegate`; learnings 2026-10-06),
   `MacAppDelegate`, plus the
   editor/launch-scene choice, the tabbing choice, the Dark Mode menu item (the Mac's
   only) and the delegate adaptor in `CineSchedApp`.

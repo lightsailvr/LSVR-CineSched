@@ -9,6 +9,31 @@ If a learning becomes a rule for the whole codebase, promote it into `CLAUDE.md`
 
 ---
 
+## 2026-10-06 — File ▸ Duplicate deadlocked the Mac app inside SwiftUI's document, and only the document controller can be rerouted
+
+Reported as a crash; it was a hang (no `.ips` is ever written for one, and Activity Monitor
+shows the app "not responding"). `sample <pid>` showed the main thread parked in
+`semaphore_wait_trap` under `URLPlatformDocument.read(from:ofType:)` ←
+`-[NSDocument initForURL:withContentsOfURL:ofType:error:]` ←
+`-[NSDocumentController duplicateDocumentWithContentsOfURL:copying:displayName:error:]` ←
+`URLPlatformDocument.duplicate(withDelegate:…)`. AppKit's Duplicate reads the copy
+synchronously; SwiftUI's 27.0 `Document` bridge answers by starting a task and waiting on a
+semaphore, and the task needs the main actor (`makeDocument`, `apply`), so nothing ever
+runs. Making `reader(configuration:)` `nonisolated` changed nothing. What did not work, so
+nobody tries again: a responder inserted after the window (`window.nextResponder`) never
+sees `duplicateDocument:` — the hosting view hands it straight to the document, and
+`NSApp.targetForAction(_:)` returns the SwiftUI document even with the responder in place;
+`setTarget:` on the `SwiftUIMenuItem` does not stick (reads back nil); and
+`NSDocumentController.shared` is SwiftUI's private `PlatformDocumentController`, so an app
+subclass cannot take over. The fix (`PlatformDocumentDuplicate.swift`) replaces that one
+controller method on the shared controller's class: decode the just-saved file through
+`ProjectCodec`, seed `MacAppDelegate`'s untitled project, `openUntitledDocumentAndDisplay`.
+Probe it with the shortcut, not System Events' `click menu item`: in this session the
+accessibility click enabled-checked the item but never fired its action, and synthetic
+keystrokes reaching a focused sidebar field typed into the project title, so probe on a
+copy of a project, never a real one. Recheck after each Xcode update by deleting the
+`install()` call; if ⇧⌘S no longer hangs, the seam can go.
+
 ## 2026-10-05 — First TestFlight upload: an App Manager API key cannot cloud-sign, and visionOS rejects an Icon Composer icon
 
 Uploading 4.10.0 with `scripts/testflight.sh`:

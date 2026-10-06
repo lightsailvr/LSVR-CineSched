@@ -36,20 +36,36 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Untitled document seed
 
     /// The project the next untitled document should hold instead of File ▸ New's blank
-    /// month. `makeDocument` in CineSchedApp takes it. Set only by the recovery, right
-    /// before it asks the document controller for an untitled document; the
-    /// infrastructure builds the SwiftUI document after that call returns, not inside it,
-    /// so the seed stays set until `makeDocument` runs.
+    /// month. `makeDocument` in CineSchedApp takes it. Set by the recovery and by File ▸
+    /// Duplicate (`DocumentDuplicateRoute`), right before each asks the document
+    /// controller for an untitled document; the infrastructure builds the SwiftUI document
+    /// after that call returns, not inside it, so the seed stays set until `makeDocument`
+    /// runs.
     private static var pendingUntitledProject: ProjectData?
+    /// Whether the seed is the recovered working copy, whose taking removes the legacy keys.
+    private static var pendingSeedIsRecovery = false
 
-    /// Taking the seed is the moment the working copy exists in a document, so it is also
-    /// the moment the legacy keys go: a failure anywhere before it leaves them for the
-    /// next launch to retry.
+    /// Taking the recovery's seed is the moment the working copy exists in a document, so
+    /// it is also the moment the legacy keys go: a failure anywhere before it leaves them
+    /// for the next launch to retry. A duplicate's seed leaves them alone.
     static func takePendingUntitledProject() -> ProjectData? {
         guard let project = pendingUntitledProject else { return nil }
         pendingUntitledProject = nil
-        removeLegacyKeys()
+        if pendingSeedIsRecovery { removeLegacyKeys() }
+        pendingSeedIsRecovery = false
         return project
+    }
+
+    /// The next untitled document holds `project` (File ▸ Duplicate's copy).
+    static func seedUntitledProject(_ project: ProjectData) {
+        pendingUntitledProject = project
+        pendingSeedIsRecovery  = false
+    }
+
+    /// Drops a seed whose untitled document never opened.
+    static func clearUntitledProjectSeed() {
+        pendingUntitledProject = nil
+        pendingSeedIsRecovery  = false
     }
 
     // MARK: - Launch
@@ -61,6 +77,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         seedPanelsWithCineSchedFolder()
+        DocumentDuplicateRoute.install()
         recoverLegacyWorkingCopy()
     }
 
@@ -144,12 +161,13 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
             // keys go when `makeDocument` takes the seed, not here.
             releaseBookmarkedFile()
             Self.pendingUntitledProject = project
+            Self.pendingSeedIsRecovery  = true
             do {
                 let document = try NSDocumentController.shared.openUntitledDocumentAndDisplay(true)
                 document.updateChangeCount(.changeDone)
                 Self.log.notice("Recovered the working copy into an untitled document")
             } catch {
-                Self.pendingUntitledProject = nil
+                Self.clearUntitledProjectSeed()
                 Self.log.error("Opening the working copy untitled failed: \(error.localizedDescription, privacy: .public)")
                 NSDocumentController.shared.presentError(error)
             }
