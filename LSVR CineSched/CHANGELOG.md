@@ -3,6 +3,8 @@
 All notable changes to CineSched are documented here.
 
 ## [Unreleased]
+
+## [4.10.1] - 2026-10-06
 ### Fixed
 - **File ▸ Duplicate no longer freezes the Mac app.** Duplicating a project (⇧⌘S) hung Mainsheet for good, with every window unresponsive until it was force-quit. It now opens an untitled copy of the project as it stands, unsaved edits included, in a new window; its first Save asks where to put it and what to call it, and the original is left as it was. Use it to try out alternative schedules side by side.
 
